@@ -1,0 +1,37 @@
+{
+  "summary": "Latency-sensitive first-finish test of PitStock garage inventory app. All backend endpoints and all requested frontend flows work end-to-end.",
+  "tested_scope": ["backend", "frontend", "auth", "integration"],
+  "passed": [
+    "POST /api/auth/login returns JWT token (field name 'token') and user object for admin@garage.com/admin123",
+    "POST /api/auth/login with wrong password returns 401",
+    "GET /api/auth/me with Bearer token returns admin user (id/email/name/role)",
+    "Suppliers CRUD: POST/GET/DELETE /api/suppliers all 200",
+    "Customers CRUD: POST/GET/DELETE /api/customers all 200",
+    "POST /api/inventory auto-generates sku (SKU-XXXXXXXX) and 12-digit barcode",
+    "GET /api/inventory/lookup?code=<sku> and ?code=<barcode> both resolve to same item",
+    "PUT /api/inventory/{id} updates fields (reorder_point) with 200",
+    "DELETE /api/inventory/{id} returns 200",
+    "Duplicate SKU on POST /api/inventory returns 400",
+    "POST /api/transactions type=IN increments qty and updates cost_price",
+    "POST /api/transactions type=OUT decrements qty",
+    "OUT with quantity > stock returns 400 with 'Not enough stock' detail",
+    "GET /api/dashboard/summary returns all required fields (total_stock_value, total_retail_value, total_items, total_units, low_stock_count, out_of_stock_count, low_stock_items, in_today, out_today, todays_txn_count, top_movers)",
+    "GET /api/reports/movement?days=14 returns 14 daily buckets with date/in/out",
+    "Frontend login flow: /login -> fill admin creds -> redirects to / -> shows 'Workshop dashboard' with KPI tiles",
+    "Frontend Inventory: New part dialog creates a new row, search filter works, printer icon opens barcode label dialog with SVG barcode",
+    "Frontend Stock IN via /movement + 'Or pick from list' dropdown: submit succeeds, toast shown, quantity increases",
+    "Frontend Stock OUT: submit succeeds, toast shown, quantity decreases",
+    "Frontend Stock OUT with huge quantity shows 'Not enough stock' error toast",
+    "Frontend Suppliers create via add-suppliers-button + suppliers-name + suppliers-save",
+    "Frontend Customers create via add-customers-button + customers-name + customers-save",
+    "Frontend Transactions page shows IN and OUT rows with EUR (€) totals",
+    "Frontend Reports page renders KPI cards, 30-day movement chart, and Value-by-category donut (12 SVGs) without errors"
+  ],
+  "failed": [],
+  "action_items": [
+    "Note (informational, not a bug): The stock-movement route path is /movement (not /stock). Login response returns 'token' (not 'access_token'). These are current-behaviour observations — no fix required unless the docs/spec demand otherwise."
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true
+}

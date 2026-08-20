@@ -1,0 +1,95 @@
+{
+  "theme": "dark",
+  "typography": {
+    "headings": "Chivo",
+    "body": "IBM Plex Sans",
+    "instructions": "Use 'Chivo' for all headings (H1-H4) to give a strong, mechanical, and robust feel suitable for a garage environment. Use 'IBM Plex Sans' for body text, numbers, data tables, and input fields for maximum technical clarity. Avoid generic fonts like Inter."
+  },
+  "colors": {
+    "archetype": "The Performance Pro",
+    "description": "High-contrast, industrial, and clean. Deep obsidian base paired with electric blue actions and high-visibility alert colors (orange/red) for low stock warnings.",
+    "light": {
+      "background": "#F8FAFC",
+      "foreground": "#0F172A",
+      "card": "#FFFFFF",
+      "border": "#E2E8F0",
+      "primary": "#1D4ED8",
+      "alert": "#DC2626",
+      "warning": "#D97706"
+    },
+    "dark": {
+      "background": "#020617",
+      "foreground": "#F8FAFC",
+      "card": "#0F172A",
+      "border": "#1E293B",
+      "primary": "#3B82F6",
+      "alert": "#EF4444",
+      "warning": "#F59E0B"
+    }
+  },
+  "grids_and_layouts": {
+    "dashboard_pattern": "F-Pattern / Bento Grid High Density",
+    "sidebar": "Collapsible left-sidebar for navigation (Dashboard, Inventory, Stock In/Out, Suppliers, Customers, Reports).",
+    "kpi_row": "Top row should be a 'North Star' row with 3-4 KPI tiles (Total Value, Low Stock Count, Today's Transactions). Use col-span-1 for summaries.",
+    "exception_table": "Anchor the bottom of the dashboard with an actionable exception table (e.g., items below reorder point).",
+    "spacing": "Use dense spacing for tables (p-2 to p-4) to fit more data, but generous spacing (p-6 to p-8) between major sections."
+  },
+  "components": {
+    "tables": "Use Shadcn Table. Must be highly readable with clear borders. Left-align most columns, right-align numbers (EUR, Quantities).",
+    "buttons": "Pill-shaped or slightly rounded (radius-md). Strong contrast for primary actions (Stock IN/OUT).",
+    "forms": "Use Shadcn Forms with clear validation. Input types must be correct (number for quantities and prices).",
+    "modals": "Use Shadcn Dialog for Add/Edit item and Barcode Scanning flows to keep the user in the context.",
+    "charts": "Use Shadcn Charts (Recharts) for Stock Valuation and Movement. Keep charts simple (Bar or Line)."
+  },
+  "visual_enhancers": {
+    "borders": "Use 'Grid Borders' style for dashboards (visible grid skeleton, 1px subtle borders).",
+    "shadows": "Minimal shadows. Rely on 1px borders to separate cards.",
+    "empty_states": "Use empty state illustrations with a clear CTA (e.g., 'Add your first inventory item')."
+  },
+  "motion": {
+    "hover_states": "Slight lift (-translate-y-[1px]) and border color change for interactive cards.",
+    "transitions": "Use specific transitions: `transition-colors duration-200`, `transition-transform duration-200`. Do NOT use `transition-all`.",
+    "lists": "Staggered entrance animations for inventory list items."
+  },
+  "accessibility": {
+    "contrast": "Ensure text contrast against backgrounds, especially for gray text in dark mode.",
+    "testing": "All interactive elements MUST include `data-testid` attribute (e.g., `data-testid=\"stock-in-submit\"`).",
+    "focus": "Clear focus rings on inputs (`focus:ring-2 focus:ring-primary`)."
+  },
+  "media_and_assets": {
+    "icons": "Use `lucide-react` (default) for a crisp, functional look.",
+    "images": {
+      "login_background": {
+        "url": "https://images.unsplash.com/photo-1486006920555-c77dcf18193c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHw0fHxjYXIlMjBnYXJhZ2UlMjB3b3Jrc2hvcCUyMGludGVyaW9yfGVufDB8fHx8MTc4NzIxNTA2N3ww&ixlib=rb-4.1.0&q=85",
+        "description": "Dark, sleek car in a garage workshop. Use as a split-screen background for the Login/Register page."
+      },
+      "empty_inventory": {
+        "url": "https://images.unsplash.com/photo-1639107992653-ab60d34c25fb?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzB8MHwxfHNlYXJjaHwzfHxtZWNoYW5pYyUyMHRvb2xzJTIwZmxhdGxheXxlbnwwfHx8fDE3ODcyMTUwNjZ8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Mechanic tools flatlay. Use for empty state when no inventory exists."
+      }
+    }
+  },
+  "specific_functionalities": {
+    "barcode_generation": "Use a library like `react-barcode` to generate Code128 barcodes.",
+    "barcode_scanning": "Integrate a webcam scanner using a library like `react-qr-reader` or `html5-qrcode` or `react-webcam-barcode-scanner`. Provide a manual entry fallback.",
+    "currency": "Format all monetary values as EUR (€).",
+    "jwt_auth": "Store JWT securely and handle session expiry gracefully."
+  },
+  "instructions_to_main_agent": [
+    "Install Google Fonts 'Chivo' and 'IBM Plex Sans' in index.html.",
+    "Remove default boilerplate CSS in App.css and index.css.",
+    "Use standard Shadcn components for complex interactions.",
+    "Ensure the dashboard is operational/action-first (e.g., one-click 'Restock' from low stock alerts).",
+    "Do NOT use HTML `<select>` or `<input type='date'>`, use Shadcn Select and Calendar.",
+    "Apply `data-testid` to all buttons, inputs, and major links."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Do not apply `transition: all`.",
+    "Do not center align the App container.",
+    "Use modern button styles.",
+    "Never use AI emoji characters.",
+    "Use 2-3x more spacing than feels comfortable.",
+    "Ensure robust toast notifications using Sonner.",
+    "Prioritize pre-existing components from src/components/ui."
+  ]
+}
