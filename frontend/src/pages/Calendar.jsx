@@ -50,6 +50,10 @@ export default function CalendarPage() {
   const [cursor, setCursor] = useState(() => { const d = new Date(); d.setDate(1); return d; });
   const [selectedDay, setSelectedDay] = useState(new Date());
   const [showNew, setShowNew] = useState(false);
+  const [showNewCustomer, setShowNewCustomer] = useState(false);
+  const [showNewVehicle, setShowNewVehicle] = useState(false);
+  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", email: "" });
+  const [newVehicle, setNewVehicle] = useState({ make: "", model: "", year: "", plate: "", color: "", km: "" });
   const [form, setForm] = useState({
     customer_id: "", vehicle_id: "", mechanic_id: "",
     scheduled_at: isoLocal(new Date(Date.now() + 60 * 60 * 1000)),
@@ -133,6 +137,33 @@ export default function CalendarPage() {
     dt.setHours(9, 0, 0, 0);
     setForm(f => ({ ...f, scheduled_at: isoLocal(dt) }));
     setShowNew(true);
+  };
+
+  const createCustomer = async (e) => {
+    e.preventDefault();
+    if (!newCustomer.name.trim()) return toast.error(t("nameRequired"));
+    try {
+      const { data } = await api.post("/customers", newCustomer);
+      toast.success(t("customerAdded"));
+      await qc.invalidateQueries({ queryKey: ["cus"] });
+      setForm(f => ({ ...f, customer_id: data.id, vehicle_id: "" }));
+      setNewCustomer({ name: "", phone: "", email: "" });
+      setShowNewCustomer(false);
+    } catch (err) { toast.error(formatApiError(err)); }
+  };
+
+  const createVehicle = async (e) => {
+    e.preventDefault();
+    if (!form.customer_id) return toast.error(t("pickCustomerFirst"));
+    if (!newVehicle.make && !newVehicle.plate) return toast.error(t("nameRequired"));
+    try {
+      const { data } = await api.post(`/customers/${form.customer_id}/vehicles`, newVehicle);
+      toast.success(t("vehicleAdded"));
+      await qc.invalidateQueries({ queryKey: ["cust-vehicles", form.customer_id] });
+      setForm(f => ({ ...f, vehicle_id: data.id }));
+      setNewVehicle({ make: "", model: "", year: "", plate: "", color: "", km: "" });
+      setShowNewVehicle(false);
+    } catch (err) { toast.error(formatApiError(err)); }
   };
 
   const monthLabel = cursor.toLocaleDateString(meta.locale, { month: "long", year: "numeric" });
@@ -254,7 +285,12 @@ export default function CalendarPage() {
           <form onSubmit={save} className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>{t("customer")}</Label>
+                <div className="flex items-center justify-between">
+                  <Label>{t("customer")}</Label>
+                  <button type="button" onClick={() => setShowNewCustomer(true)} className="text-[11px] text-primary hover:underline flex items-center gap-1" data-testid="appt-new-customer-btn">
+                    <Plus className="h-3 w-3" /> {t("newCustomer")}
+                  </button>
+                </div>
                 <Select value={form.customer_id || "none"} onValueChange={(v) => setForm({ ...form, customer_id: v === "none" ? "" : v, vehicle_id: "" })}>
                   <SelectTrigger data-testid="appt-customer-select"><SelectValue placeholder={t("walkIn")} /></SelectTrigger>
                   <SelectContent>
@@ -264,7 +300,12 @@ export default function CalendarPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>{t("vehicle")}</Label>
+                <div className="flex items-center justify-between">
+                  <Label>{t("vehicle")}</Label>
+                  <button type="button" onClick={() => setShowNewVehicle(true)} disabled={!form.customer_id} className="text-[11px] text-primary hover:underline flex items-center gap-1 disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed" data-testid="appt-new-vehicle-btn">
+                    <Plus className="h-3 w-3" /> {t("newVehicle")}
+                  </button>
+                </div>
                 <Select value={form.vehicle_id || "none"} onValueChange={(v) => setForm({ ...form, vehicle_id: v === "none" ? "" : v })} disabled={!form.customer_id}>
                   <SelectTrigger data-testid="appt-vehicle-select"><SelectValue placeholder={form.customer_id ? t("pickVehicle") : t("pickCustomerFirst")} /></SelectTrigger>
                   <SelectContent>
@@ -307,6 +348,54 @@ export default function CalendarPage() {
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={() => setShowNew(false)}>{t("cancel")}</Button>
               <Button type="submit" className="rounded-full" data-testid="appt-save">{t("save")}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick add customer dialog */}
+      <Dialog open={showNewCustomer} onOpenChange={setShowNewCustomer}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle className="font-display">{t("newCustomer")}</DialogTitle></DialogHeader>
+          <form onSubmit={createCustomer} className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>{t("name")}</Label>
+              <Input value={newCustomer.name} onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })} required data-testid="quick-customer-name" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5">
+                <Label>{t("phone")}</Label>
+                <Input value={newCustomer.phone} onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })} data-testid="quick-customer-phone" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t("email")}</Label>
+                <Input type="email" value={newCustomer.email} onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setShowNewCustomer(false)}>{t("cancel")}</Button>
+              <Button type="submit" className="rounded-full" data-testid="quick-customer-save">{t("save")}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick add vehicle dialog */}
+      <Dialog open={showNewVehicle} onOpenChange={setShowNewVehicle}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle className="font-display">{t("newVehicle")}</DialogTitle></DialogHeader>
+          <form onSubmit={createVehicle} className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5"><Label>{t("make")}</Label><Input value={newVehicle.make} onChange={(e) => setNewVehicle({ ...newVehicle, make: e.target.value })} data-testid="quick-veh-make" /></div>
+              <div className="space-y-1.5"><Label>{t("model")}</Label><Input value={newVehicle.model} onChange={(e) => setNewVehicle({ ...newVehicle, model: e.target.value })} data-testid="quick-veh-model" /></div>
+              <div className="space-y-1.5"><Label>{t("year")}</Label><Input value={newVehicle.year} onChange={(e) => setNewVehicle({ ...newVehicle, year: e.target.value })} /></div>
+              <div className="space-y-1.5"><Label>{t("plateNumber")}</Label><Input value={newVehicle.plate} onChange={(e) => setNewVehicle({ ...newVehicle, plate: e.target.value })} data-testid="quick-veh-plate" /></div>
+              <div className="space-y-1.5"><Label>{t("color")}</Label><Input value={newVehicle.color} onChange={(e) => setNewVehicle({ ...newVehicle, color: e.target.value })} /></div>
+              <div className="space-y-1.5"><Label>{t("odometer")}</Label><Input value={newVehicle.km} onChange={(e) => setNewVehicle({ ...newVehicle, km: e.target.value })} /></div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setShowNewVehicle(false)}>{t("cancel")}</Button>
+              <Button type="submit" className="rounded-full" data-testid="quick-veh-save">{t("save")}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
