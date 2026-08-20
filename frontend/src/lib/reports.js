@@ -88,11 +88,18 @@ export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels =
     `<tr><td>${p.name}<div style="font-size:10px;color:#888;direction:ltr">${p.sku}</div></td><td class="right">${p.quantity}</td><td class="right">${formatEUR(p.unit_price)}</td><td class="right">${formatEUR(p.total)}</td></tr>`).join("");
   const bodyFont = dir === "rtl" ? "'Cairo','Amiri',system-ui,sans-serif" : "-apple-system,Helvetica,Arial,sans-serif";
   const alignEnd = dir === "rtl" ? "left" : "right";
+  const logo = settings.logo_url || "/logo-shawish.png";
+  const logoAbs = logo.startsWith("http") ? logo : (window.location.origin + logo);
   return `<div style="font-family:${bodyFont};color:#111;background:#fff;padding:8px;direction:${dir}">
     <style>
       .jc { max-width: 720px; }
       .jc h1 { font-size: 22px; margin: 0; }
       .jc .muted { color: #666; font-size: 12px; }
+      .jc .logo-band { background:#0a0a0a; border-radius:10px; padding:14px 18px; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+      .jc .logo-band img { max-height: 64px; width: auto; object-fit: contain; }
+      .jc .logo-band .badge { background:#d4af37; color:#0a0a0a; padding:3px 12px; border-radius:999px; font-size:10px; letter-spacing:.15em; font-weight:700; }
+      .jc .logo-band .num { color:#d4af37; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size:12px; margin-top:4px; direction:ltr; }
+      .jc .logo-band .date { color:#999; font-size:11px; }
       .jc .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
       .jc .box { border: 1px solid #eee; border-radius: 8px; padding: 12px; background: #fafafa; }
       .jc .lbl { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: #666; }
@@ -101,12 +108,18 @@ export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels =
       .jc th, .jc td { padding: 8px; border-bottom: 1px solid #eee; font-size: 13px; text-align:${dir === 'rtl' ? 'right' : 'left'}; }
       .jc th { background: #f5f5f5; }
       .jc .right { text-align: ${alignEnd}; }
-      .jc .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; background: #0ea5e9; color: #fff; font-size: 10px; letter-spacing: .1em; }
     </style>
     <div class="jc">
-      <div style="display:flex;justify-content:space-between;align-items:start">
-        <div><h1>${settings.name || "Garage"}</h1><div class="muted">${settings.address || ""}</div><div class="muted">${settings.phone || ""}</div></div>
-        <div style="text-align:${alignEnd}"><span class="badge">${l.jobCard}</span><div style="font-size:14px;margin-top:6px;font-weight:700;direction:ltr">${card.card_number}</div><div class="muted">${new Date(card.created_at).toLocaleDateString(dir === 'rtl' ? 'ar-EG' : 'en-GB')}</div></div>
+      <div class="logo-band">
+        <img src="${logoAbs}" alt="logo" crossorigin="anonymous" />
+        <div style="text-align:${alignEnd}">
+          <span class="badge">${l.jobCard}</span>
+          <div class="num">${card.card_number}</div>
+          <div class="date">${new Date(card.created_at).toLocaleDateString(dir === 'rtl' ? 'ar-EG' : 'en-GB')}</div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px">
+        <div><h1>${settings.name || "Garage"}</h1><div class="muted">${settings.address || ""}</div><div class="muted">${settings.phone || ""}${settings.email ? " · " + settings.email : ""}</div></div>
       </div>
       <div class="grid">
         <div class="box"><div class="lbl">${l.customer}</div><div class="val">${card.customer_name || "—"}</div><div class="muted" style="direction:ltr">${card.customer_phone || ""}</div></div>

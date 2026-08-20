@@ -19,6 +19,7 @@ import Invoices from "@/pages/Invoices";
 import Repairs from "@/pages/Repairs";
 import CashRegister from "@/pages/CashRegister";
 import Reminders from "@/pages/Reminders";
+import ScanPickup from "@/pages/ScanPickup";
 import "@/App.css";
 
 function ProtectedShell() {
@@ -56,6 +57,7 @@ function App() {
               <Route path="/customers" element={<Customers />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/repairs" element={<Repairs />} />
+              <Route path="/scan" element={<ScanPickup />} />
               <Route path="/reminders" element={<Reminders />} />
               <Route path="/cash-register" element={<CashRegister />} />
               <Route path="/invoices" element={<Invoices />} />

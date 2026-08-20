@@ -458,6 +458,7 @@ class GarageSettings(BaseModel):
     email: str = ""
     tax_id: str = ""
     footer_note: str = "Thank you for choosing us!"
+    logo_url: str = "/logo-shawish.png"
 
 @api_router.get("/settings")
 async def get_settings(user: dict = Depends(get_current_user)):

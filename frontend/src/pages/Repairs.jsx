@@ -124,6 +124,14 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
+        <div className="rounded-lg bg-black/95 border border-primary/20 p-4 flex items-center justify-between gap-4 mb-4">
+          <img src={settings?.logo_url || "/logo-shawish.png"} alt="logo" className="h-14 w-auto object-contain" data-testid="repair-editor-logo" />
+          <div className="text-right">
+            <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-primary">Job card</div>
+            <div className="font-mono text-primary text-sm">{data.card_number}</div>
+            <div className="text-[10px] font-mono text-muted-foreground">{new Date(data.created_at).toLocaleDateString(meta.dir === 'rtl' ? 'ar-EG' : 'en-GB')}</div>
+          </div>
+        </div>
         <DialogHeader>
           <DialogTitle className="font-display flex items-center gap-3">
             <span>Job card {data.card_number}</span>
@@ -384,10 +392,12 @@ export default function Repairs() {
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filtered.map(c => (
           <Card key={c.id} className="group p-5 border-border card-hover cursor-pointer relative overflow-hidden" onClick={() => setOpenCardId(c.id)} data-testid={`repair-card-${c.card_number}`}>
-            <div className="absolute top-0 right-0 h-1 w-full bg-gradient-to-r from-transparent to-primary/40" />
-            <div className="flex items-start justify-between mb-4">
+            <div className="absolute top-0 left-0 right-0 h-10 bg-black/95 flex items-center justify-between px-4 border-b border-primary/20">
+              <img src={settings?.logo_url || "/logo-shawish.png"} alt="" className="h-6 w-auto object-contain opacity-90" />
+              <span className="text-[9px] font-mono uppercase tracking-[0.2em] text-primary">{c.card_number}</span>
+            </div>
+            <div className="mt-8 flex items-start justify-between mb-4">
               <div>
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{c.card_number}</div>
                 <div className="font-display text-xl font-bold mt-1">{[c.car_make, c.car_model].filter(Boolean).join(" ") || "Vehicle TBD"}</div>
                 <div className="text-xs font-mono text-muted-foreground mt-0.5">{c.car_year} · {c.car_plate || "—"}</div>
               </div>

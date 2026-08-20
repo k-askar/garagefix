@@ -36,8 +36,17 @@ export default function Settings() {
       <Card className="p-8 border-border">
         <form onSubmit={submit} className="space-y-5">
           <div className="space-y-1.5">
-            <Label>Garage name</Label>
+            <Label>{t("garageName")}</Label>
             <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="settings-name" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Logo URL</Label>
+            <Input value={form.logo_url || ""} onChange={(e) => setForm({ ...form, logo_url: e.target.value })} placeholder="/logo-shawish.png or https://..." data-testid="settings-logo-url" />
+            {form.logo_url && (
+              <div className="mt-2 p-3 rounded-md bg-black/90 border border-border inline-block">
+                <img src={form.logo_url} alt="logo preview" className="h-12 w-auto object-contain" />
+              </div>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label>Address</Label>
