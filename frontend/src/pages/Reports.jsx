@@ -131,10 +131,10 @@ export default function Reports() {
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {[
-              { label: "Revenue", value: formatEUR(profit?.total_revenue || 0), accent: "text-emerald-400" },
-              { label: "Cost of goods", value: formatEUR(profit?.total_cost || 0), accent: "text-rose-400" },
+              { label: "Revenue", value: formatEUR(profit?.total_revenue || 0), accent: "text-emerald-700 dark:text-emerald-400" },
+              { label: "Cost of goods", value: formatEUR(profit?.total_cost || 0), accent: "text-rose-600 dark:text-rose-400" },
               { label: "Gross profit", value: formatEUR(profit?.total_profit || 0), accent: "text-primary" },
-              { label: "Margin", value: `${(profit?.margin || 0).toFixed(1)}%`, accent: "text-fuchsia-400" },
+              { label: "Margin", value: `${(profit?.margin || 0).toFixed(1)}%`, accent: "text-fuchsia-700 dark:text-fuchsia-400" },
             ].map((k) => (
               <Card key={k.label} className="p-6 border-border">
                 <div className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">{k.label}</div>
@@ -177,7 +177,7 @@ export default function Reports() {
                       <TableCell className="font-medium">{c.category}</TableCell>
                       <TableCell className="text-right tabular-nums text-muted-foreground">{c.qty_sold}</TableCell>
                       <TableCell className="text-right tabular-nums">{formatEUR(c.revenue)}</TableCell>
-                      <TableCell className={`text-right tabular-nums font-mono ${c.profit >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{formatEUR(c.profit)}</TableCell>
+                      <TableCell className={`text-right tabular-nums font-mono ${c.profit >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{formatEUR(c.profit)}</TableCell>
                       <TableCell className="text-right tabular-nums text-muted-foreground">{c.margin.toFixed(1)}%</TableCell>
                     </TableRow>
                   ))}
@@ -212,7 +212,7 @@ export default function Reports() {
                     <TableCell className="text-right tabular-nums text-muted-foreground">{p.qty_sold}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatEUR(p.revenue)}</TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">{formatEUR(p.cost)}</TableCell>
-                    <TableCell className={`text-right tabular-nums font-mono ${p.profit >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{formatEUR(p.profit)}</TableCell>
+                    <TableCell className={`text-right tabular-nums font-mono ${p.profit >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{formatEUR(p.profit)}</TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">{p.margin.toFixed(1)}%</TableCell>
                   </TableRow>
                 ))}

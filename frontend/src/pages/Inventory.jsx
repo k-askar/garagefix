@@ -327,15 +327,15 @@ export default function Inventory() {
                     <TableCell className="text-right tabular-nums text-muted-foreground">{formatEUR(i.cost_price)}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatEUR(i.selling_price)}</TableCell>
                     <TableCell className="text-right">
-                      <span className={`tabular-nums ${low ? "text-amber-400 font-semibold" : ""}`}>{i.quantity}</span>
-                      {low && <div className="text-[10px] text-amber-400 font-mono">below {i.reorder_point}</div>}
+                      <span className={`tabular-nums ${low ? "text-amber-700 dark:text-amber-400 font-semibold" : ""}`}>{i.quantity}</span>
+                      {low && <div className="text-[10px] text-amber-700 dark:text-amber-400 font-mono">below {i.reorder_point}</div>}
                     </TableCell>
                     <TableCell className="text-right tabular-nums font-mono">{formatEUR(i.cost_price * i.quantity)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         <Button size="icon" variant="ghost" onClick={() => setLabelItem(i)} data-testid={`print-${i.sku}`}><Printer className="h-4 w-4" /></Button>
                         {isOwner && <Button size="icon" variant="ghost" onClick={() => { setEditing(i); setOpen(true); }} data-testid={`edit-${i.sku}`}><Pencil className="h-4 w-4" /></Button>}
-                        {isOwner && <Button size="icon" variant="ghost" onClick={() => del(i.id)} data-testid={`delete-${i.sku}`}><Trash2 className="h-4 w-4 text-rose-400" /></Button>}
+                        {isOwner && <Button size="icon" variant="ghost" onClick={() => del(i.id)} data-testid={`delete-${i.sku}`}><Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" /></Button>}
                       </div>
                     </TableCell>
                   </TableRow>

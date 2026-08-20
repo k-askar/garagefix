@@ -48,7 +48,7 @@ function ScannerModal({ open, onClose, onDetected }) {
         <div className="rounded-md overflow-hidden border border-border">
           <div id="qr-reader-box" ref={ref} style={{ width: "100%" }} />
         </div>
-        {err && <div className="text-xs text-rose-400 flex items-center gap-2"><CameraOff className="h-4 w-4" /> {err}</div>}
+        {err && <div className="text-xs text-rose-600 dark:text-rose-400 flex items-center gap-2"><CameraOff className="h-4 w-4" /> {err}</div>}
         <p className="text-xs text-muted-foreground">Point the camera at the item's barcode or QR.</p>
         <DialogFooter><Button variant="ghost" onClick={() => { stop(); onClose(); }}>Cancel</Button></DialogFooter>
       </DialogContent>
@@ -217,8 +217,8 @@ export default function StockMovement() {
       </div>
       <Tabs defaultValue="IN" className="space-y-6">
         <TabsList className="grid grid-cols-2 w-full max-w-md">
-          <TabsTrigger value="IN" data-testid="tab-in"><ArrowDownRight className="h-4 w-4 mr-2 text-emerald-400" /> Stock IN</TabsTrigger>
-          <TabsTrigger value="OUT" data-testid="tab-out"><ArrowUpRight className="h-4 w-4 mr-2 text-rose-400" /> Stock OUT</TabsTrigger>
+          <TabsTrigger value="IN" data-testid="tab-in"><ArrowDownRight className="h-4 w-4 mr-2 text-emerald-700 dark:text-emerald-400" /> Stock IN</TabsTrigger>
+          <TabsTrigger value="OUT" data-testid="tab-out"><ArrowUpRight className="h-4 w-4 mr-2 text-rose-600 dark:text-rose-400" /> Stock OUT</TabsTrigger>
         </TabsList>
         <TabsContent value="IN"><MovementForm type="IN" /></TabsContent>
         <TabsContent value="OUT"><MovementForm type="OUT" /></TabsContent>

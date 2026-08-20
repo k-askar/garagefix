@@ -15,9 +15,9 @@ import { toast } from "sonner";
 
 const STATUS_STYLE = {
   draft: "bg-muted text-muted-foreground border-border",
-  sent: "bg-blue-500/15 text-blue-400 border-blue-500/30",
-  received: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-  cancelled: "bg-rose-500/15 text-rose-400 border-rose-500/30",
+  sent: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30",
+  received: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30",
+  cancelled: "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30",
 };
 
 function printPO(po, settings) {
@@ -152,7 +152,7 @@ export default function PurchaseOrders() {
                     <Button size="sm" variant="ghost" onClick={() => printPO(p, settings)} data-testid={`po-print-${p.po_number}`}><Printer className="h-4 w-4" /></Button>
                     {p.status === "draft" && <Button size="sm" variant="outline" className="rounded-full" onClick={() => action(p.id, "send")} data-testid={`po-send-${p.po_number}`}><Send className="h-3 w-3 mr-1" />Send</Button>}
                     {p.status !== "received" && <Button size="sm" className="rounded-full bg-emerald-500 hover:bg-emerald-500/90 text-white" onClick={() => { setPayTarget(p); setPayMethodId(""); }} data-testid={`po-receive-${p.po_number}`}><PackageCheck className="h-3 w-3 mr-1" />Receive</Button>}
-                    <Button size="icon" variant="ghost" onClick={() => del(p.id)}><Trash2 className="h-4 w-4 text-rose-400" /></Button>
+                    <Button size="icon" variant="ghost" onClick={() => del(p.id)}><Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" /></Button>
                   </div>
                 </TableCell>
               </TableRow>

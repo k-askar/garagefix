@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useLang } from "@/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import ThemeToggle from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { LayoutDashboard, Package, ArrowLeftRight, ScrollText, Truck, Users, BarChart3, LogOut, Wrench, Menu, X, UserCog, Settings as SettingsIcon, ClipboardList, Receipt, ShoppingCart, Bell, Wallet, ScanLine, Banknote, Calendar } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -127,6 +128,7 @@ export default function DashboardLayout({ children }) {
             <div className="text-xs font-mono text-muted-foreground hidden sm:block">
               {new Date().toLocaleDateString(meta.locale, { day: "2-digit", month: "short", year: "numeric" })}
             </div>
+            <ThemeToggle />
             <LanguageSwitcher />
           </div>
         </header>

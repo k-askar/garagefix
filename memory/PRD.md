@@ -77,6 +77,14 @@
 - **Owner**: admin@garage.com / admin123
 - **Staff**: mike@garage.com / mike1234
 
+### Iteration 9 — System Dark/Light Theme (Feb 2026)
+- **ThemeProvider + ThemeToggle**: cycle `system → light → dark → system`, persisted in `localStorage['garage_theme']`; live-reacts to `prefers-color-scheme` change when set to `system`; initial `resolved` derived from storage (no first-paint flash).
+- **index.css** rewritten: `:root` = LIGHT tokens (paper background, ink foreground), `.dark` = DARK tokens (industrial workshop). All shadcn tokens (background/foreground/card/border/muted/primary/accent/destructive/ring) covered.
+- **Full contrast sweep**: replaced every dark-mode-only literal (text-amber-400 / emerald-400 / rose-400 / blue-400 / fuchsia-400 / sky-400) across Dashboard, Repairs, Calendar, Invoices, Reminders, PartyPage, CashRegister, ScanPickup, Reports, Accounts, StockMovement, Staff, Inventory, PurchaseOrders, Transactions with `text-{color}-700 dark:text-{color}-400` pairs.
+- **Dashboard recharts** switched to CSS variables (`hsl(var(--border))`, `hsl(var(--muted-foreground))`, `hsl(var(--card))`) so grid + axis + tooltip adapt to both themes.
+- **Repairs job-card header band** switched from stark `bg-black/95` to `bg-secondary` (theme-aware) in both list card and dialog editor.
+- Verified by testing_agent iteration_7 (toggle mechanism) + iteration_8 (WCAG contrast sweep in both modes).
+
 ## Roadmap / Backlog
 - Time tracking for labor (mechanics clock in/out on repair cards) — P1
 - SMS fallback via Twilio when a customer has no email — P2

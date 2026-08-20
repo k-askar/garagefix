@@ -133,8 +133,8 @@ export default function Invoices() {
                   <div className="text-xs font-mono text-muted-foreground">{c.count} invoices</div>
                 </div>
                 {c.unpaid > 0
-                  ? <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/15">Owes {formatEUR(c.unpaid)}</Badge>
-                  : <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">Settled</Badge>}
+                  ? <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/15">Owes {formatEUR(c.unpaid)}</Badge>
+                  : <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">Settled</Badge>}
               </div>
               <div className="mt-2 flex justify-between text-xs text-muted-foreground">
                 <span>Paid lifetime</span>
@@ -167,14 +167,14 @@ export default function Invoices() {
                 <TableCell className="text-right tabular-nums font-mono">{formatEUR(inv.total)}</TableCell>
                 <TableCell>
                   {inv.status === "paid"
-                    ? <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">Paid</Badge>
-                    : <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/15">Due</Badge>}
+                    ? <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">Paid</Badge>
+                    : <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/15">Due</Badge>}
                 </TableCell>
                 <TableCell className="text-muted-foreground text-xs font-mono">{new Date(inv.created_at).toLocaleDateString("en-GB")}</TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
                     <Button size="icon" variant="ghost" onClick={() => printInvoice(inv, settings)} data-testid={`invoice-print-${inv.invoice_number}`}><Printer className="h-4 w-4" /></Button>
-                    <Button size="icon" variant="ghost" className="text-emerald-400 hover:text-emerald-400" onClick={() => {
+                    <Button size="icon" variant="ghost" className="text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300" onClick={() => {
                       const cust = customers.find(c => c.id === inv.customer_id);
                       whatsappShare({
                         phone: cust?.phone, garageName: settings?.name,
@@ -184,7 +184,7 @@ export default function Invoices() {
                       });
                     }} data-testid={`invoice-wa-${inv.invoice_number}`}><MessageCircle className="h-4 w-4" /></Button>
                     {inv.status !== "paid" && <Button size="sm" variant="outline" className="rounded-full" onClick={() => { setPayTarget(inv); setPayMethodId(methods[0]?.id || ""); }} data-testid={`invoice-paid-${inv.invoice_number}`}><CheckCircle2 className="h-3 w-3 mr-1" />Paid</Button>}
-                    <Button size="icon" variant="ghost" onClick={() => del(inv.id)}><Trash2 className="h-4 w-4 text-rose-400" /></Button>
+                    <Button size="icon" variant="ghost" onClick={() => del(inv.id)}><Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" /></Button>
                   </div>
                 </TableCell>
               </TableRow>

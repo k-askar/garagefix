@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { LanguageProvider } from "@/i18n";
+import { ThemeProvider } from "@/context/ThemeContext";
 import Login from "@/pages/Login";
 import DashboardLayout from "@/layouts/DashboardLayout";
 import Dashboard from "@/pages/Dashboard";
@@ -45,6 +46,7 @@ function OwnerRoute({ children }) {
 
 function App() {
   return (
+    <ThemeProvider>
     <LanguageProvider>
       <AuthProvider>
         <BrowserRouter>
@@ -75,6 +77,7 @@ function App() {
         <Toaster position="top-right" richColors />
       </AuthProvider>
     </LanguageProvider>
+    </ThemeProvider>
   );
 }
 

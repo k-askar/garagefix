@@ -207,7 +207,7 @@ export default function PartyPage({ kind }) {
                         <Button size="icon" variant="ghost" disabled={downloadingHistoryId === r.id} onClick={() => downloadCustomerPdf(r.id)} data-testid={`pdf-customer-${r.id}`} title={t("customerReport")}><FileText className="h-4 w-4 text-primary" /></Button>
                       </>
                     )}
-                    <Button size="icon" variant="ghost" onClick={() => del(r.id)} data-testid={`del-${kind}-${r.id}`}><Trash2 className="h-4 w-4 text-rose-400" /></Button>
+                    <Button size="icon" variant="ghost" onClick={() => del(r.id)} data-testid={`del-${kind}-${r.id}`}><Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" /></Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -256,8 +256,8 @@ export default function PartyPage({ kind }) {
                   {[
                     { l: t("jobCards"), v: history.repair_count, mono: true },
                     { l: t("invoices"), v: history.invoice_count, mono: true },
-                    { l: t("paid"), v: formatEUR(history.paid), accent: "text-emerald-400" },
-                    { l: t("due"), v: formatEUR(history.unpaid), accent: history.unpaid > 0 ? "text-amber-400" : "text-emerald-400" },
+                    { l: t("paid"), v: formatEUR(history.paid), accent: "text-emerald-700 dark:text-emerald-400" },
+                    { l: t("due"), v: formatEUR(history.unpaid), accent: history.unpaid > 0 ? "text-amber-700 dark:text-amber-400" : "text-emerald-700 dark:text-emerald-400" },
                     { l: t("parts"), v: formatEUR(history.total_parts) },
                     { l: t("labor"), v: formatEUR(history.total_labor) },
                     { l: t("lifetimeSpend"), v: formatEUR(history.total_spent), accent: "text-primary", wide: true },
@@ -314,7 +314,7 @@ export default function PartyPage({ kind }) {
                               <div className="flex items-center gap-2 flex-wrap">
                                 <div className="font-display text-base font-bold">{[v.make, v.model, v.year].filter(Boolean).join(" ") || "—"}</div>
                                 {v.plate && <Badge variant="outline" className="font-mono text-[10px]">{v.plate}</Badge>}
-                                {!registered && <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px]">{t("walkInVehicle")}</Badge>}
+                                {!registered && <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[10px]">{t("walkInVehicle")}</Badge>}
                               </div>
                               <div className="text-[11px] text-muted-foreground font-mono mt-1 flex gap-3 flex-wrap">
                                 {v.color && <span>{v.color}</span>}
@@ -332,7 +332,7 @@ export default function PartyPage({ kind }) {
                               </div>
                               {registered && (
                                 <Button size="icon" variant="ghost" onClick={() => deleteVehicle(v.id)} data-testid={`del-vehicle-${v.id}`}>
-                                  <Trash2 className="h-4 w-4 text-rose-400" />
+                                  <Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" />
                                 </Button>
                               )}
                             </div>
@@ -363,7 +363,7 @@ export default function PartyPage({ kind }) {
                                       <TableCell className="text-xs max-w-[220px] truncate" title={r.work_done || ""}>{r.work_done || "—"}</TableCell>
                                       <TableCell className="text-xs">{r.mechanic_name || "—"}</TableCell>
                                       <TableCell>
-                                        <Badge className={`text-[10px] ${r.status === "completed" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : r.status === "in_progress" ? "bg-amber-500/15 text-amber-400 border-amber-500/30" : "bg-blue-500/15 text-blue-400 border-blue-500/30"}`}>{r.status}</Badge>
+                                        <Badge className={`text-[10px] ${r.status === "completed" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30" : r.status === "in_progress" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30" : "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30"}`}>{r.status}</Badge>
                                       </TableCell>
                                       <TableCell className="text-right tabular-nums font-mono font-bold text-xs">{formatEUR(r.grand_total)}</TableCell>
                                     </TableRow>
@@ -401,7 +401,7 @@ export default function PartyPage({ kind }) {
                             <TableCell className="text-xs">{inv.paid_at ? new Date(inv.paid_at).toLocaleString(meta.locale, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</TableCell>
                             <TableCell className="text-xs text-muted-foreground">{inv.payment_method_name || "—"}</TableCell>
                             <TableCell>
-                              <Badge className={`text-[10px] ${inv.status === "paid" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-amber-500/15 text-amber-400 border-amber-500/30"}`}>{inv.status}</Badge>
+                              <Badge className={`text-[10px] ${inv.status === "paid" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30" : "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"}`}>{inv.status}</Badge>
                             </TableCell>
                             <TableCell className="text-right tabular-nums font-mono font-bold">{formatEUR(inv.total)}</TableCell>
                           </TableRow>

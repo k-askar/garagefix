@@ -16,11 +16,11 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 
 const STATUS_STYLE = {
-  scheduled: "bg-blue-500/15 text-blue-400 border-blue-500/30",
-  confirmed: "bg-fuchsia-500/15 text-fuchsia-400 border-fuchsia-500/30",
-  in_service: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  completed: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-  cancelled: "bg-rose-500/15 text-rose-400 border-rose-500/30",
+  scheduled: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30",
+  confirmed: "bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-400 border-fuchsia-500/30",
+  in_service: "bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/40",
+  completed: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30",
+  cancelled: "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30",
 };
 
 function monthDays(year, month) {
@@ -284,7 +284,7 @@ export default function CalendarPage() {
                     </Button>
                   )}
                   <Button size="icon" variant="ghost" onClick={() => del(a.id)} data-testid={`appt-del-${a.id}`}>
-                    <Trash2 className="h-4 w-4 text-rose-400" />
+                    <Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" />
                   </Button>
                 </div>
               </div>

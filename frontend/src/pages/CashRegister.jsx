@@ -62,9 +62,9 @@ export default function CashRegister() {
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {[
-          { label: "Revenue", value: formatEUR(data?.revenue || 0), icon: Wallet, accent: "text-emerald-400" },
-          { label: "Tax", value: formatEUR(data?.tax || 0), icon: TrendingUp, accent: "text-fuchsia-400" },
-          { label: "Stock IN", value: formatEUR(data?.in_total || 0), icon: TrendingDown, accent: "text-rose-400" },
+          { label: "Revenue", value: formatEUR(data?.revenue || 0), icon: Wallet, accent: "text-emerald-700 dark:text-emerald-400" },
+          { label: "Tax", value: formatEUR(data?.tax || 0), icon: TrendingUp, accent: "text-fuchsia-700 dark:text-fuchsia-400" },
+          { label: "Stock IN", value: formatEUR(data?.in_total || 0), icon: TrendingDown, accent: "text-rose-600 dark:text-rose-400" },
           { label: "Net flow", value: formatEUR(data?.net_flow || 0), icon: UsersIcon, accent: "text-primary" },
         ].map((k) => (
           <Card key={k.label} className="p-6 border-border">

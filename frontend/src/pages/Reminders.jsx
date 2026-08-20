@@ -105,14 +105,14 @@ export default function Reminders() {
                 <TableCell className="text-muted-foreground text-sm">{[r.car_make, r.car_model].filter(Boolean).join(" ")} {r.car_plate}</TableCell>
                 <TableCell>{r.reason}</TableCell>
                 <TableCell>
-                  {r.status === "sent" ? <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">Sent</Badge>
+                  {r.status === "sent" ? <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">Sent</Badge>
                    : r.status === "cancelled" ? <Badge variant="outline">Cancelled</Badge>
-                   : <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/15">Pending</Badge>}
+                   : <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/15">Pending</Badge>}
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
                     {r.status === "pending" && <Button size="sm" variant="outline" className="rounded-full" onClick={() => sendNow(r.id)} data-testid={`reminder-send-${r.id}`}><Send className="h-3 w-3 mr-1" />Send now</Button>}
-                    <Button size="icon" variant="ghost" onClick={() => del(r.id)}><Trash2 className="h-4 w-4 text-rose-400" /></Button>
+                    <Button size="icon" variant="ghost" onClick={() => del(r.id)}><Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" /></Button>
                   </div>
                 </TableCell>
               </TableRow>

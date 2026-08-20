@@ -1,0 +1,36 @@
+{
+  "summary": "Frontend-only verification of the theme toggle fix (day/night). Logged in as admin@garage.com, verified data-testid='theme-toggle' in dashboard header cycles system -> light -> dark -> system, that html class AND computed background actually change (light bg rgb(248,250,252) / dark bg rgb(5,8,15)), and that the choice persists across reload via localStorage 'garage_theme'. Also swept Dashboard, Inventory, Job cards (/repairs), Calendar, Invoices in both light and dark modes for regressions. Theme bug is FIXED. Found several light-mode contrast regressions caused by hardcoded dark-mode-only colors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Repairs.jsx (Job cards)", "issue": "Card header band uses hardcoded bg-black/95 (lines 276 and 549). In LIGHT mode the black band with dark gold logo/job-number text is nearly illegible and clashes with the light page.", "selector": ".rounded-lg.bg-black\\/95", "priority": "MEDIUM"},
+      {"component": "Dashboard.jsx chart", "issue": "Recharts CartesianGrid stroke hardcoded to hsl(217 33% 15%) and axis stroke hsl(215 20% 65%) (lines 82-84). In LIGHT mode grid lines render almost black/heavy instead of subtle. Should use hsl(var(--border)) / hsl(var(--muted-foreground)).", "selector": ".recharts-cartesian-grid line", "priority": "MEDIUM"},
+      {"component": "Inventory.jsx low-stock cell", "issue": "text-amber-400 on white card for qty + 'below 5' (lines 330-331) — ~1.9:1 contrast in LIGHT mode. Use text-amber-600 dark:text-amber-400.", "selector": ".text-amber-400", "priority": "MEDIUM"},
+      {"component": "Calendar.jsx appointment chip", "issue": "Status chip 'bg-amber-500/15 text-amber-400' (line 21) is unreadable in LIGHT mode (amber text on pale amber fill) — appointment '10:00 Ahmed Al-Farsi' effectively invisible.", "selector": ".bg-amber-500\\/15", "priority": "HIGH"},
+      {"component": "Global badges (Repairs.jsx:22, Invoices.jsx:136/171, Reminders.jsx:110, PartyPage.jsx:260+, ScanPickup.jsx:184, Dashboard.jsx:61/126/129/140)", "issue": "Hardcoded *-400 (amber/emerald/blue) text colors tuned for dark mode; all have weak contrast on light backgrounds. Needs light/dark variants.", "selector": "[class*='text-amber-400'], [class*='text-emerald-400']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Light mode (all pages)", "issues": ["Accent/status colors (amber-400, emerald-400) are dark-mode-only and lose contrast", "Job card header black band looks out of place in light theme", "Dashboard chart grid too dark in light theme"]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Replace hardcoded amber-400/emerald-400 text colors with light/dark pairs (e.g. text-amber-600 dark:text-amber-400) across Calendar, Inventory, Dashboard, Repairs, Invoices, Reminders, PartyPage, ScanPickup",
+    "Replace bg-black/95 job-card header band in Repairs.jsx with theme token (e.g. bg-foreground/95 text-background or bg-card dark border) so it adapts to light mode",
+    "Use CSS variables for recharts strokes in Dashboard.jsx (hsl(var(--border)), hsl(var(--muted-foreground)))",
+    "Optional: ThemeContext initial `resolved` state is hardcoded 'dark' before the effect runs; initialize from applyResolved(theme) to avoid a stale value"
+  ],
+  "critical_code_review_comments": [
+    "index.css now correctly defines :root light + .dark overrides and tailwind darkMode is ['class'] — theme switching mechanism is sound.",
+    "Page components still contain dark-mode-only literal Tailwind color values, which is the remaining source of light-mode contrast defects."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested", "frontend": "100% for theme toggle/persistence; light-mode contrast regressions found on 4 screens"},
+  "seed_data_creation": "none",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@garage.com / admin123",
+  "context_for_next_testing_agent": "Theme toggle verified working: cycle system->light->dark->system, html class + data-theme + body bg all change, persists in localStorage 'garage_theme' after reload. Headless Chromium resolves 'system' to LIGHT. Job cards route is /repairs (not /job-cards). Language switcher testid is 'lang-switcher' (not 'language-switcher'). Remaining work is light-mode color contrast only.",
+  "rca_of_the_issue": "Original bug (duplicate dark :root blocks, no .dark/.light overrides) is fixed in /app/frontend/src/index.css; toggling now changes CSS variables and visually repaints. Residual light-mode issues come from hardcoded Tailwind palette values in page components that bypass the theme tokens."
+}

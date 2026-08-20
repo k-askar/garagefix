@@ -64,9 +64,9 @@ export default function Transactions() {
                   <TableCell className="font-mono text-xs">{new Date(t.created_at).toLocaleString("en-GB")}</TableCell>
                   <TableCell>
                     {t.type === "IN" ? (
-                      <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15"><ArrowDownRight className="h-3 w-3 mr-1" />IN</Badge>
+                      <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15"><ArrowDownRight className="h-3 w-3 mr-1" />IN</Badge>
                     ) : (
-                      <Badge className="bg-rose-500/15 text-rose-400 border-rose-500/30 hover:bg-rose-500/15"><ArrowUpRight className="h-3 w-3 mr-1" />OUT</Badge>
+                      <Badge className="bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/15"><ArrowUpRight className="h-3 w-3 mr-1" />OUT</Badge>
                     )}
                   </TableCell>
                   <TableCell>

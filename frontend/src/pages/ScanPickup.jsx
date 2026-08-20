@@ -162,7 +162,7 @@ export default function ScanPickup() {
             </div>
           )}
 
-          {scanError && <div className="text-xs text-rose-400 flex items-center gap-2"><CameraOff className="h-4 w-4" /> {scanError}</div>}
+          {scanError && <div className="text-xs text-rose-600 dark:text-rose-400 flex items-center gap-2"><CameraOff className="h-4 w-4" /> {scanError}</div>}
 
           <div className="flex gap-2">
             <div className="relative flex-1">
@@ -181,7 +181,7 @@ export default function ScanPickup() {
                   <div className="font-semibold">{item.name}</div>
                   <div className="text-[11px] font-mono text-muted-foreground">{item.sku} · {item.barcode}</div>
                 </div>
-                <Badge className={lowStock ? "bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/15" : "bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15"}>
+                <Badge className={lowStock ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/15" : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15"}>
                   {item.quantity} in stock
                 </Badge>
               </div>
@@ -277,7 +277,7 @@ export default function ScanPickup() {
             {history.map((h, i) => (
               <div key={i} className="flex items-center justify-between p-3 rounded-md bg-muted/40 border border-border">
                 <div className="flex items-center gap-3 min-w-0">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                  <CheckCircle2 className="h-4 w-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
                   <div className="min-w-0">
                     <div className="text-sm truncate">
                       <span className="font-medium">{h.item}</span>

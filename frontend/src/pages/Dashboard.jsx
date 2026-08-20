@@ -55,13 +55,13 @@ export default function Dashboard() {
           accent="bg-primary/15 border-primary/30 text-primary" />
         <KpiCard testId="kpi-total-units" label="Units on floor" value={(s.total_units ?? 0).toLocaleString()}
           hint={`${s.total_items ?? 0} unique SKUs`} icon={Boxes}
-          accent="bg-emerald-500/15 border-emerald-500/30 text-emerald-400" />
+          accent="bg-emerald-500/15 border-emerald-500/30 text-emerald-700 dark:text-emerald-400" />
         <KpiCard testId="kpi-low-stock" label="Low stock" value={s.low_stock_count ?? 0}
           hint={`${s.out_of_stock_count ?? 0} out of stock`} icon={AlertTriangle}
-          accent="bg-amber-500/15 border-amber-500/30 text-amber-400" />
+          accent="bg-amber-500/20 border-amber-500/40 text-amber-700 dark:text-amber-400" />
         <KpiCard testId="kpi-today" label="Today's flow" value={`${s.todays_txn_count ?? 0}`}
           hint={`IN ${formatEUR(s.in_today)} · OUT ${formatEUR(s.out_today)}`} icon={TrendingUp}
-          accent="bg-fuchsia-500/15 border-fuchsia-500/30 text-fuchsia-400" />
+          accent="bg-fuchsia-500/15 border-fuchsia-500/30 text-fuchsia-700 dark:text-fuchsia-400" />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
@@ -79,10 +79,10 @@ export default function Dashboard() {
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={movement}>
-                <CartesianGrid stroke="hsl(217 33% 15%)" vertical={false} />
-                <XAxis dataKey="date" tickFormatter={(d) => d.slice(5)} stroke="hsl(215 20% 65%)" fontSize={11} />
-                <YAxis stroke="hsl(215 20% 65%)" fontSize={11} />
-                <Tooltip contentStyle={{ background: "hsl(222 47% 7%)", border: "1px solid hsl(217 33% 15%)", borderRadius: 8 }} />
+                <CartesianGrid stroke="hsl(var(--border))" vertical={false} />
+                <XAxis dataKey="date" tickFormatter={(d) => d.slice(5)} stroke="hsl(var(--muted-foreground))" fontSize={11} />
+                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} />
+                <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, color: "hsl(var(--foreground))" }} />
                 <Line type="monotone" dataKey="in" stroke="#34d399" strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="out" stroke="#fb7185" strokeWidth={2} dot={false} />
               </LineChart>
@@ -112,7 +112,7 @@ export default function Dashboard() {
                 </div>
                 <div className="text-right">
                   <div className="text-sm font-mono">{m.qty} units</div>
-                  <div className="text-[11px] font-mono text-emerald-400">{formatEUR(m.revenue)}</div>
+                  <div className="text-[11px] font-mono text-emerald-700 dark:text-emerald-400">{formatEUR(m.revenue)}</div>
                 </div>
               </div>
             ))}
@@ -123,10 +123,10 @@ export default function Dashboard() {
       <Card className="p-6 border-border" data-testid="low-stock-panel">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <div className="text-[11px] font-mono uppercase tracking-widest text-amber-400">Action required</div>
+            <div className="text-[11px] font-mono uppercase tracking-widest text-amber-700 dark:text-amber-400">Action required</div>
             <h3 className="font-display text-xl font-bold">Below reorder point</h3>
           </div>
-          <Badge variant="outline" className="border-amber-500/30 text-amber-400 bg-amber-500/10">
+          <Badge variant="outline" className="border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/15">
             {s.low_stock_count ?? 0} items
           </Badge>
         </div>
@@ -137,7 +137,7 @@ export default function Dashboard() {
                 <div className="text-sm font-medium truncate">{i.name}</div>
                 <div className="text-[11px] font-mono text-muted-foreground">{i.sku}</div>
                 <div className="mt-2 text-xs">
-                  <span className="text-amber-400 font-mono">{i.quantity}</span>
+                  <span className="text-amber-700 dark:text-amber-400 font-mono">{i.quantity}</span>
                   <span className="text-muted-foreground"> / {i.reorder_point} reorder</span>
                 </div>
               </div>

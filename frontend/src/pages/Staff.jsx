@@ -116,7 +116,7 @@ export default function Staff() {
                 <TableCell className="text-right">
                   {u.id !== me?.id && (
                     <Button size="icon" variant="ghost" onClick={() => del(u.id)} data-testid={`del-user-${u.id}`}>
-                      <Trash2 className="h-4 w-4 text-rose-400" />
+                      <Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" />
                     </Button>
                   )}
                 </TableCell>

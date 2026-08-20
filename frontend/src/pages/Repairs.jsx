@@ -18,9 +18,9 @@ import { downloadRepairCardPdf, printRepairCard, downloadListReportPdf, printLis
 import { whatsappShare } from "@/lib/whatsapp";
 
 const STATUS_STYLE = {
-  open: "bg-blue-500/15 text-blue-400 border-blue-500/30",
-  in_progress: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  completed: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  open: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30",
+  in_progress: "bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/40",
+  completed: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30",
 };
 const STATUS_LABEL = { open: "Open", in_progress: "In progress", completed: "Completed" };
 
@@ -152,7 +152,7 @@ function TimeClockPanel({ card, setData, settings, refetch }) {
           <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
             {running ? `${t("running")} · ${running.mechanic_name || t("mechanic")}` : t("stopped")}
           </div>
-          <div className={`font-display text-3xl font-black tabular-nums mt-1 ${running ? "text-emerald-400" : "text-muted-foreground"}`} data-testid="time-clock-live">
+          <div className={`font-display text-3xl font-black tabular-nums mt-1 ${running ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`} data-testid="time-clock-live">
             {running ? fmtLive(liveSeconds) : "00:00:00"}
           </div>
           {running && <div className="text-[11px] font-mono text-muted-foreground mt-1">{t("startedAt")}: {new Date(running.started_at).toLocaleTimeString(localeStr, { hour: "2-digit", minute: "2-digit" })}</div>}
@@ -197,7 +197,7 @@ function TimeClockPanel({ card, setData, settings, refetch }) {
               <div className="text-[11px] font-mono text-muted-foreground">
                 {new Date(l.started_at).toLocaleString(localeStr, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
                 {" → "}
-                {l.stopped_at ? new Date(l.stopped_at).toLocaleString(localeStr, { hour: "2-digit", minute: "2-digit" }) : <span className="text-emerald-400">{t("liveTimer")}</span>}
+                {l.stopped_at ? new Date(l.stopped_at).toLocaleString(localeStr, { hour: "2-digit", minute: "2-digit" }) : <span className="text-emerald-700 dark:text-emerald-400">{t("liveTimer")}</span>}
               </div>
               {l.note && <div className="text-[11px] text-muted-foreground mt-0.5">{l.note}</div>}
             </div>
@@ -207,7 +207,7 @@ function TimeClockPanel({ card, setData, settings, refetch }) {
                 {l.stopped_at && <div className="text-[10px] font-mono text-muted-foreground">{formatEUR((Number(l.minutes) / 60) * rate)}</div>}
               </div>
               <Button size="icon" variant="ghost" onClick={() => removeLog(l.id)} data-testid={`time-log-remove-${l.id}`}>
-                <X className="h-4 w-4 text-rose-400" />
+                <X className="h-4 w-4 text-rose-600 dark:text-rose-400" />
               </Button>
             </div>
           </div>
@@ -273,7 +273,7 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
-        <div className="rounded-lg bg-black/95 border border-primary/20 p-4 flex items-center justify-between gap-4 mb-4">
+        <div className="rounded-lg bg-secondary border border-primary/20 p-4 flex items-center justify-between gap-4 mb-4">
           <img src={settings?.logo_url || "/logo-shawish.png"} alt="logo" className="h-14 w-auto object-contain" data-testid="repair-editor-logo" />
           <div className="text-right">
             <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-primary">Job card</div>
@@ -397,7 +397,7 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
                       <div className="text-xs font-mono font-bold">{formatEUR(p.total)}</div>
                     </div>
                     <Button size="icon" variant="ghost" onClick={() => removePart(p.txn_id)} data-testid={`repair-part-remove-${p.txn_id}`}>
-                      <X className="h-4 w-4 text-rose-400" />
+                      <X className="h-4 w-4 text-rose-600 dark:text-rose-400" />
                     </Button>
                   </div>
                 </div>
@@ -423,7 +423,7 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
           <Button variant="outline" className="rounded-full" onClick={() => downloadRepairCardPdf(data, settings, meta.dir, repairLabels(t))} data-testid="repair-pdf-button">
             <FileDown className="h-4 w-4 mr-2" /> {t("pdf")}
           </Button>
-          <Button variant="outline" className="rounded-full text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10" onClick={() => whatsappShare({
+          <Button variant="outline" className="rounded-full text-emerald-700 dark:text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10" onClick={() => whatsappShare({
               phone: data.customer_phone, garageName: settings?.name,
               header: `Job card ${data.card_number}`,
               lines: [`${[data.car_make, data.car_model, data.car_year].filter(Boolean).join(" ")} · ${data.car_plate || ""}`,
@@ -546,7 +546,7 @@ export default function Repairs() {
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filtered.map(c => (
           <Card key={c.id} className="group p-5 border-border card-hover cursor-pointer relative overflow-hidden" onClick={() => setOpenCardId(c.id)} data-testid={`repair-card-${c.card_number}`}>
-            <div className="absolute top-0 left-0 right-0 h-10 bg-black/95 flex items-center justify-between px-4 border-b border-primary/20">
+            <div className="absolute top-0 left-0 right-0 h-10 bg-secondary flex items-center justify-between px-4 border-b border-primary/20">
               <img src={settings?.logo_url || "/logo-shawish.png"} alt="" className="h-6 w-auto object-contain opacity-90" />
               <span className="text-[9px] font-mono uppercase tracking-[0.2em] text-primary">{c.card_number}</span>
             </div>
@@ -589,7 +589,7 @@ export default function Repairs() {
             </div>
 
             <Button size="icon" variant="ghost" className="absolute bottom-3 right-3 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity duration-200" onClick={(e) => { e.stopPropagation(); del(c.id); }} data-testid={`repair-delete-${c.card_number}`}>
-              <Trash2 className="h-3.5 w-3.5 text-rose-400" />
+              <Trash2 className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
             </Button>
           </Card>
         ))}

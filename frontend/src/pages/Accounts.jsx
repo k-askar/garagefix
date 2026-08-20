@@ -17,9 +17,9 @@ import { toast } from "sonner";
 import { downloadListReportPdf, printListReport } from "@/lib/reports";
 
 const TYPE_META = {
-  cash: { icon: Coins, accent: "text-emerald-400", ring: "border-emerald-500/40 bg-emerald-500/10" },
-  bank: { icon: Banknote, accent: "text-sky-400", ring: "border-sky-500/40 bg-sky-500/10" },
-  card: { icon: CreditCard, accent: "text-fuchsia-400", ring: "border-fuchsia-500/40 bg-fuchsia-500/10" },
+  cash: { icon: Coins, accent: "text-emerald-700 dark:text-emerald-400", ring: "border-emerald-500/40 bg-emerald-500/10" },
+  bank: { icon: Banknote, accent: "text-sky-700 dark:text-sky-400", ring: "border-sky-500/40 bg-sky-500/10" },
+  card: { icon: CreditCard, accent: "text-fuchsia-700 dark:text-fuchsia-400", ring: "border-fuchsia-500/40 bg-fuchsia-500/10" },
   other: { icon: Wallet, accent: "text-primary", ring: "border-primary/40 bg-primary/10" },
 };
 
@@ -208,10 +208,10 @@ export default function Accounts() {
                         <Pencil className="h-4 w-4" />
                       </Button>
                       <Button size="icon" variant="ghost" onClick={(e) => { e.stopPropagation(); toggleActive(m); }} data-testid={`method-toggle-${m.id}`}>
-                        <Power className={`h-4 w-4 ${m.active ? "text-emerald-400" : "text-muted-foreground"}`} />
+                        <Power className={`h-4 w-4 ${m.active ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`} />
                       </Button>
                       <Button size="icon" variant="ghost" onClick={(e) => { e.stopPropagation(); deleteMethod(m); }} data-testid={`method-delete-${m.id}`}>
-                        <Trash2 className="h-4 w-4 text-rose-400" />
+                        <Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" />
                       </Button>
                     </>
                   )}
@@ -255,8 +255,8 @@ export default function Accounts() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
               { l: t("periodOpening"), v: formatEUR(statement.period_opening), a: "text-muted-foreground" },
-              { l: t("totalIn"), v: formatEUR(statement.total_in), a: "text-emerald-400" },
-              { l: t("totalOut"), v: formatEUR(statement.total_out), a: "text-rose-400" },
+              { l: t("totalIn"), v: formatEUR(statement.total_in), a: "text-emerald-700 dark:text-emerald-400" },
+              { l: t("totalOut"), v: formatEUR(statement.total_out), a: "text-rose-600 dark:text-rose-400" },
               { l: t("closingBalance"), v: formatEUR(statement.closing_balance), a: "text-primary" },
             ].map((k, i) => (
               <div key={i} className="p-3 rounded-md border border-border">
@@ -289,17 +289,17 @@ export default function Accounts() {
                   </TableCell>
                   <TableCell>{e.counterpart || "—"}</TableCell>
                   <TableCell className="text-muted-foreground text-xs max-w-[200px] truncate">{e.note || ""}</TableCell>
-                  <TableCell className="text-right tabular-nums font-mono text-emerald-400">
+                  <TableCell className="text-right tabular-nums font-mono text-emerald-700 dark:text-emerald-400">
                     {e.direction === "in" ? formatEUR(e.amount) : ""}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums font-mono text-rose-400">
+                  <TableCell className="text-right tabular-nums font-mono text-rose-600 dark:text-rose-400">
                     {e.direction === "out" ? formatEUR(e.amount) : ""}
                   </TableCell>
                   <TableCell className="text-right tabular-nums font-mono font-bold">{formatEUR(e.balance_after)}</TableCell>
                   <TableCell className="text-right">
                     {isOwner && (e.reference_type === "manual" || e.reference_type === "opening") && (
                       <Button size="icon" variant="ghost" onClick={() => deleteEntry(e.id)}>
-                        <Trash2 className="h-4 w-4 text-rose-400" />
+                        <Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" />
                       </Button>
                     )}
                   </TableCell>
