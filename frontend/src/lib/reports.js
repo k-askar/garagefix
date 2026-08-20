@@ -186,23 +186,45 @@ export function buildCustomerHistoryHtml({ history, settings = {}, dir = "ltr", 
   const logo = settings.logo_url || "/logo-shawish.png";
   const logoAbs = logo.startsWith("http") ? logo : (window.location.origin + logo);
 
-  const repairRows = (history.repairs || []).map(r => `
-    <tr>
-      <td><div class="mono">${r.card_number || ""}</div></td>
-      <td>${fmtDate(r.created_at)}</td>
-      <td>${[r.car_make, r.car_model, r.car_year].filter(Boolean).join(" ")}<div class="muted">${r.car_plate || ""}${r.car_km ? " · " + r.car_km + " km" : ""}</div></td>
-      <td>${r.mechanic_name || "—"}</td>
-      <td><span class="badge status-${r.status}">${r.status || ""}</span></td>
-      <td class="right">${formatEUR(r.parts_total)}</td>
-      <td class="right">${formatEUR(r.labor_charge)}${r.labor_minutes ? `<div class="muted">${Math.round(r.labor_minutes)} ${l.minutes}</div>` : ""}</td>
-      <td class="right totcell">${formatEUR(r.grand_total)}</td>
-    </tr>
-    ${(r.complaint || r.work_done || (r.parts_used || []).length) ? `<tr class="detailrow"><td colspan="8">
-      ${r.complaint ? `<div class="detail"><span class="lbl">${l.complaint}:</span> ${r.complaint}</div>` : ""}
-      ${r.work_done ? `<div class="detail"><span class="lbl">${l.workDone}:</span> ${r.work_done}</div>` : ""}
-      ${(r.parts_used || []).length ? `<div class="detail"><span class="lbl">${l.partsUsed}:</span> ${(r.parts_used || []).map(p => `${p.name} × ${p.quantity} (${formatEUR(p.total)})`).join(" · ")}</div>` : ""}
-    </td></tr>` : ""}
-  `).join("");
+  const repairRows = (history.repairs || []).map(r => "");
+  const vehicleBlocks = (history.by_vehicle || []).map(g => {
+    const v = g.vehicle || {};
+    const title = [v.make, v.model, v.year].filter(Boolean).join(" ") || "—";
+    const plate = v.plate ? ` · <span class="mono">${v.plate}</span>` : "";
+    const meta = [v.color, v.vin ? "VIN " + v.vin : "", v.km ? v.km + " km" : ""].filter(Boolean).join(" · ");
+    const rrows = (g.repairs || []).map(r => `
+      <tr>
+        <td class="mono">${r.card_number || ""}</td>
+        <td>${fmtDate(r.created_at)}</td>
+        <td>${(r.complaint || "").replace(/</g, "&lt;")}</td>
+        <td>${(r.work_done || "").replace(/</g, "&lt;")}</td>
+        <td>${r.mechanic_name || "—"}</td>
+        <td><span class="badge status-${r.status}">${r.status || ""}</span></td>
+        <td class="right">${formatEUR(r.parts_total)}</td>
+        <td class="right">${formatEUR(r.labor_charge)}${r.labor_minutes ? `<div class="muted">${Math.round(r.labor_minutes)} ${l.minutes}</div>` : ""}</td>
+        <td class="right totcell">${formatEUR(r.grand_total)}</td>
+      </tr>
+      ${(r.parts_used || []).length ? `<tr class="detailrow"><td colspan="9"><div class="detail"><span class="lbl">${l.partsUsed}:</span> ${(r.parts_used || []).map(p => `${p.name} × ${p.quantity} (${formatEUR(p.total)})`).join(" · ")}</div></td></tr>` : ""}
+    `).join("");
+    return `<div class="veh">
+      <div class="veh-head">
+        <div>
+          <div class="veh-title">${title}${plate}</div>
+          <div class="muted">${meta || ""}</div>
+          <div class="muted">${l.visits}: ${g.repair_count} · ${l.firstVisit}: ${fmtDate(g.first_visit)} · ${l.lastServiced}: ${fmtDate(g.last_visit)}</div>
+        </div>
+        <div class="veh-total"><span class="lbl">${l.lifetimeSpend}</span><div class="n">${formatEUR(g.total_spent)}</div></div>
+      </div>
+      ${g.repairs && g.repairs.length ? `<table>
+        <thead><tr>
+          <th>#</th><th>${l.date}</th><th>${l.complaint}</th><th>${l.workDone}</th>
+          <th>${l.mechanic}</th><th>${l.status}</th>
+          <th class="right">${l.partsCol}</th><th class="right">${l.laborCol}</th><th class="right">${l.totalCol}</th>
+        </tr></thead>
+        <tbody>${rrows}</tbody>
+      </table>` : `<div class="empty">${l.noRepairs}</div>`}
+    </div>`;
+  }).join("");
 
   const invoiceRows = (history.invoices || []).map(i => `
     <tr>
@@ -251,6 +273,11 @@ export function buildCustomerHistoryHtml({ history, settings = {}, dir = "ltr", 
       .cr .detail .lbl { font-weight: 700; color: #444; margin-inline-end: 4px; }
       .cr .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #eee; text-align: center; color: #888; font-size: 11px; }
       .cr .empty { text-align: center; color: #999; padding: 16px; font-size: 12px; }
+      .cr .veh { border: 1px solid #eee; border-radius: 8px; padding: 12px; margin-bottom: 12px; background: #fefefe; }
+      .cr .veh-head { display:flex; justify-content:space-between; align-items:start; gap:12px; margin-bottom:8px; padding-bottom:8px; border-bottom:1px dashed #eee; }
+      .cr .veh-title { font-size: 15px; font-weight: 800; color:#111; }
+      .cr .veh-total { text-align:${dir === 'rtl' ? 'left' : 'right'}; }
+      .cr .veh-total .n { font-family:'IBM Plex Mono', ui-monospace, monospace; font-weight:800; color:#d4af37; font-size:16px; }
     </style>
     <div class="cr">
       <div class="logo-band">
@@ -281,14 +308,8 @@ export function buildCustomerHistoryHtml({ history, settings = {}, dir = "ltr", 
         <div class="stat" style="grid-column: span 2; background:#fff8e1; border-color:#f5d571"><div class="lbl p">${l.lifetimeSpend}</div><div class="n p">${formatEUR(history.total_spent || 0)}</div></div>
       </div>
 
-      <h3>${l.repairs}</h3>
-      ${(history.repairs || []).length ? `<table>
-        <thead><tr>
-          <th>${l.jobCard}</th><th>${l.date}</th><th>${l.vehicleCol}</th><th>${l.mechanic}</th><th>${l.status}</th>
-          <th class="right">${l.partsCol}</th><th class="right">${l.laborCol}</th><th class="right">${l.totalCol}</th>
-        </tr></thead>
-        <tbody>${repairRows}</tbody>
-      </table>` : `<div class="empty">${l.noRepairs}</div>`}
+      <h3>${l.repairs} — ${l.perVehicleTimeline || "By vehicle"}</h3>
+      ${vehicleBlocks || `<div class="empty">${l.noRepairs}</div>`}
 
       <h3>${l.invoices}</h3>
       ${(history.invoices || []).length ? `<table>

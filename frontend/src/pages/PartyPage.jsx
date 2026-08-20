@@ -23,14 +23,37 @@ export default function PartyPage({ kind }) {
   const [exporting, setExporting] = useState(false);
   const [historyId, setHistoryId] = useState(null);
   const [downloadingHistoryId, setDownloadingHistoryId] = useState(null);
+  const [vehForm, setVehForm] = useState({ make: "", model: "", year: "", plate: "", color: "", km: "", vin: "", notes: "" });
+  const [showAddVeh, setShowAddVeh] = useState(false);
 
   const { data: rows = [] } = useQuery({ queryKey: [kind], queryFn: () => api.get(`/${kind}`).then((r) => r.data) });
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: () => api.get("/settings").then(r => r.data) });
-  const { data: history } = useQuery({
+  const { data: history, refetch: refetchHistory } = useQuery({
     queryKey: ["customer-history", historyId],
     queryFn: () => api.get(`/customers/${historyId}/history`).then(r => r.data),
     enabled: !!historyId && !isSup,
   });
+
+  const addVehicle = async (e) => {
+    e.preventDefault();
+    if (!vehForm.make && !vehForm.plate) return toast.error(t("nameRequired"));
+    try {
+      await api.post(`/customers/${historyId}/vehicles`, vehForm);
+      toast.success(t("vehicleAdded"));
+      setVehForm({ make: "", model: "", year: "", plate: "", color: "", km: "", vin: "", notes: "" });
+      setShowAddVeh(false);
+      refetchHistory();
+    } catch (err) { toast.error(formatApiError(err)); }
+  };
+
+  const deleteVehicle = async (vid) => {
+    if (!window.confirm(t("deleteVehicleConfirm"))) return;
+    try {
+      await api.delete(`/vehicles/${vid}`);
+      toast.success(t("vehicleDeleted"));
+      refetchHistory();
+    } catch (err) { toast.error(formatApiError(err)); }
+  };
 
   const save = async (e) => {
     e.preventDefault();
@@ -62,6 +85,7 @@ export default function PartyPage({ kind }) {
     invoiceNumber: t("invoiceNumber"), invoiceStatus: t("status"), invoiceTotal: t("total"),
     invoiceDate: t("createdAt"), paidAt: t("paidAt"), method: t("paymentMethod"),
     footerNote: t("customerHistoryFooter"),
+    visits: t("visits"), lastServiced: t("lastServiced"), perVehicleTimeline: t("perVehicleTimeline"),
   });
 
   const downloadCustomerPdf = async (cid) => {
@@ -223,46 +247,113 @@ export default function PartyPage({ kind }) {
                   ))}
                 </div>
 
-                {/* Repairs */}
-                <Card className="border-border overflow-x-auto">
-                  <div className="p-4 border-b border-border font-display text-lg font-bold">{t("jobCards")}</div>
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="hover:bg-transparent">
-                        <TableHead>{t("poNumber") || "#"}</TableHead>
-                        <TableHead>{t("date")}</TableHead>
-                        <TableHead>{t("vehicle")}</TableHead>
-                        <TableHead>{t("mechanic")}</TableHead>
-                        <TableHead>{t("status")}</TableHead>
-                        <TableHead className="text-right">{t("parts")}</TableHead>
-                        <TableHead className="text-right">{t("labor")}</TableHead>
-                        <TableHead className="text-right">{t("total")}</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(history.repairs || []).map(r => (
-                        <TableRow key={r.id} data-testid={`history-repair-${r.card_number}`}>
-                          <TableCell className="font-mono text-xs">{r.card_number}</TableCell>
-                          <TableCell className="text-xs">{new Date(r.created_at).toLocaleDateString(meta.locale, { day: "2-digit", month: "short", year: "numeric" })}</TableCell>
-                          <TableCell>
-                            <div className="text-sm">{[r.car_make, r.car_model, r.car_year].filter(Boolean).join(" ") || "—"}</div>
-                            <div className="text-[11px] font-mono text-muted-foreground">{r.car_plate || ""}{r.car_km ? ` · ${r.car_km} km` : ""}</div>
-                          </TableCell>
-                          <TableCell className="text-sm">{r.mechanic_name || "—"}</TableCell>
-                          <TableCell>
-                            <Badge className={`text-[10px] ${r.status === "completed" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : r.status === "in_progress" ? "bg-amber-500/15 text-amber-400 border-amber-500/30" : "bg-blue-500/15 text-blue-400 border-blue-500/30"}`}>{r.status}</Badge>
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums font-mono text-xs">{formatEUR(r.parts_total)}</TableCell>
-                          <TableCell className="text-right tabular-nums font-mono text-xs">
-                            {formatEUR(r.labor_charge)}
-                            {r.labor_minutes ? <div className="text-[10px] text-muted-foreground">{Math.round(r.labor_minutes)} min</div> : null}
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums font-mono font-bold">{formatEUR(r.grand_total)}</TableCell>
-                        </TableRow>
-                      ))}
-                      {!(history.repairs || []).length && <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground text-sm">{t("noRepairsOnFile")}</TableCell></TableRow>}
-                    </TableBody>
-                  </Table>
+                {/* Vehicles + per-vehicle timeline */}
+                <Card className="border-border overflow-hidden">
+                  <div className="p-4 border-b border-border flex items-center justify-between">
+                    <div>
+                      <div className="font-display text-lg font-bold">{t("vehicles")} · {history.vehicles?.length || 0}</div>
+                      <div className="text-xs text-muted-foreground">{t("perVehicleTimeline")}</div>
+                    </div>
+                    <Button size="sm" variant="outline" className="rounded-full" onClick={() => setShowAddVeh(true)} data-testid="add-vehicle-btn">
+                      <Plus className="h-3.5 w-3.5 mr-1" /> {t("addVehicle")}
+                    </Button>
+                  </div>
+
+                  {showAddVeh && (
+                    <form onSubmit={addVehicle} className="p-4 border-b border-border bg-muted/20 space-y-3" data-testid="add-vehicle-form">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        <Input value={vehForm.make} onChange={(e) => setVehForm({ ...vehForm, make: e.target.value })} placeholder={t("make")} data-testid="veh-make" />
+                        <Input value={vehForm.model} onChange={(e) => setVehForm({ ...vehForm, model: e.target.value })} placeholder={t("model")} data-testid="veh-model" />
+                        <Input value={vehForm.year} onChange={(e) => setVehForm({ ...vehForm, year: e.target.value })} placeholder={t("year")} />
+                        <Input value={vehForm.plate} onChange={(e) => setVehForm({ ...vehForm, plate: e.target.value })} placeholder={t("plateNumber")} data-testid="veh-plate" />
+                        <Input value={vehForm.color} onChange={(e) => setVehForm({ ...vehForm, color: e.target.value })} placeholder={t("color")} />
+                        <Input value={vehForm.km} onChange={(e) => setVehForm({ ...vehForm, km: e.target.value })} placeholder={t("odometer")} />
+                        <Input value={vehForm.vin} onChange={(e) => setVehForm({ ...vehForm, vin: e.target.value })} placeholder={t("vin")} />
+                        <Input value={vehForm.notes} onChange={(e) => setVehForm({ ...vehForm, notes: e.target.value })} placeholder={t("note")} />
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <Button type="button" variant="ghost" size="sm" onClick={() => setShowAddVeh(false)}>{t("cancel")}</Button>
+                        <Button type="submit" size="sm" className="rounded-full" data-testid="veh-save">{t("save")}</Button>
+                      </div>
+                    </form>
+                  )}
+
+                  <div className="divide-y divide-border">
+                    {!(history.by_vehicle || []).length && (
+                      <div className="p-8 text-center text-sm text-muted-foreground">{t("noVehicles")}</div>
+                    )}
+                    {(history.by_vehicle || []).map((g, i) => {
+                      const v = g.vehicle || {};
+                      const registered = !!v.id;
+                      return (
+                        <div key={v.id || `orphan-${i}`} className="p-4 space-y-3" data-testid={`vehicle-group-${v.plate || i}`}>
+                          <div className="flex items-start justify-between gap-4 flex-wrap">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <div className="font-display text-base font-bold">{[v.make, v.model, v.year].filter(Boolean).join(" ") || "—"}</div>
+                                {v.plate && <Badge variant="outline" className="font-mono text-[10px]">{v.plate}</Badge>}
+                                {!registered && <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px]">{t("walkInVehicle")}</Badge>}
+                              </div>
+                              <div className="text-[11px] text-muted-foreground font-mono mt-1 flex gap-3 flex-wrap">
+                                {v.color && <span>{v.color}</span>}
+                                {v.vin && <span>VIN: {v.vin}</span>}
+                                {v.km && <span>{v.km} km</span>}
+                                <span>{t("visits")}: {g.repair_count}</span>
+                                {g.first_visit && <span>{t("firstVisit")}: {new Date(g.first_visit).toLocaleDateString(meta.locale)}</span>}
+                                {g.last_visit && <span>{t("lastServiced")}: {new Date(g.last_visit).toLocaleDateString(meta.locale)}</span>}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="text-right">
+                                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("total")}</div>
+                                <div className="font-mono font-bold text-lg tabular-nums text-primary">{formatEUR(g.total_spent)}</div>
+                              </div>
+                              {registered && (
+                                <Button size="icon" variant="ghost" onClick={() => deleteVehicle(v.id)} data-testid={`del-vehicle-${v.id}`}>
+                                  <Trash2 className="h-4 w-4 text-rose-400" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+
+                          {g.repairs.length === 0 ? (
+                            <div className="p-3 text-xs text-muted-foreground text-center border border-dashed border-border rounded-md">{t("noRepairsForVehicle")}</div>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow className="hover:bg-transparent">
+                                    <TableHead className="text-[10px]">#</TableHead>
+                                    <TableHead className="text-[10px]">{t("date")}</TableHead>
+                                    <TableHead className="text-[10px]">{t("customerComplaint")}</TableHead>
+                                    <TableHead className="text-[10px]">{t("workPerformed")}</TableHead>
+                                    <TableHead className="text-[10px]">{t("mechanic")}</TableHead>
+                                    <TableHead className="text-[10px]">{t("status")}</TableHead>
+                                    <TableHead className="text-[10px] text-right">{t("total")}</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {g.repairs.map(r => (
+                                    <TableRow key={r.id} data-testid={`veh-repair-${r.card_number}`}>
+                                      <TableCell className="font-mono text-[11px]">{r.card_number}</TableCell>
+                                      <TableCell className="text-xs whitespace-nowrap">{new Date(r.created_at).toLocaleDateString(meta.locale, { day: "2-digit", month: "short", year: "numeric" })}</TableCell>
+                                      <TableCell className="text-xs max-w-[180px] truncate" title={r.complaint || ""}>{r.complaint || "—"}</TableCell>
+                                      <TableCell className="text-xs max-w-[220px] truncate" title={r.work_done || ""}>{r.work_done || "—"}</TableCell>
+                                      <TableCell className="text-xs">{r.mechanic_name || "—"}</TableCell>
+                                      <TableCell>
+                                        <Badge className={`text-[10px] ${r.status === "completed" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : r.status === "in_progress" ? "bg-amber-500/15 text-amber-400 border-amber-500/30" : "bg-blue-500/15 text-blue-400 border-blue-500/30"}`}>{r.status}</Badge>
+                                      </TableCell>
+                                      <TableCell className="text-right tabular-nums font-mono font-bold text-xs">{formatEUR(r.grand_total)}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </Card>
 
                 {/* Invoices */}

@@ -116,6 +116,39 @@ class CustomerCreate(BaseModel):
     vehicle: Optional[str] = ""
     address: Optional[str] = ""
 
+class Vehicle(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    customer_id: str
+    make: str = ""
+    model: str = ""
+    year: str = ""
+    plate: str = ""
+    color: str = ""
+    vin: str = ""
+    km: str = ""
+    notes: Optional[str] = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+class VehicleCreate(BaseModel):
+    make: str = ""
+    model: str = ""
+    year: str = ""
+    plate: str = ""
+    color: str = ""
+    vin: str = ""
+    km: str = ""
+    notes: Optional[str] = ""
+
+class VehicleUpdate(BaseModel):
+    make: Optional[str] = None
+    model: Optional[str] = None
+    year: Optional[str] = None
+    plate: Optional[str] = None
+    color: Optional[str] = None
+    vin: Optional[str] = None
+    km: Optional[str] = None
+    notes: Optional[str] = None
+
 class InventoryItem(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     sku: str
@@ -257,6 +290,36 @@ async def create_customer(payload: CustomerCreate, user: dict = Depends(get_curr
 @api_router.delete("/customers/{customer_id}")
 async def delete_customer(customer_id: str, user: dict = Depends(get_current_user)):
     await db.customers.delete_one({"id": customer_id})
+    await db.vehicles.delete_many({"customer_id": customer_id})
+    return {"ok": True}
+
+# --- Vehicles (linked to customers) ---
+@api_router.get("/customers/{cid}/vehicles", response_model=List[Vehicle])
+async def list_customer_vehicles(cid: str, user: dict = Depends(get_current_user)):
+    return await db.vehicles.find({"customer_id": cid}, {"_id": 0}).sort("created_at", -1).to_list(200)
+
+@api_router.post("/customers/{cid}/vehicles", response_model=Vehicle)
+async def add_customer_vehicle(cid: str, payload: VehicleCreate, user: dict = Depends(get_current_user)):
+    c = await db.customers.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    obj = Vehicle(customer_id=cid, **payload.model_dump())
+    await db.vehicles.insert_one(obj.model_dump())
+    return obj
+
+@api_router.put("/vehicles/{vid}", response_model=Vehicle)
+async def update_vehicle(vid: str, payload: VehicleUpdate, user: dict = Depends(get_current_user)):
+    existing = await db.vehicles.find_one({"id": vid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if updates:
+        await db.vehicles.update_one({"id": vid}, {"$set": updates})
+    return await db.vehicles.find_one({"id": vid}, {"_id": 0})
+
+@api_router.delete("/vehicles/{vid}")
+async def delete_vehicle(vid: str, user: dict = Depends(get_current_user)):
+    await db.vehicles.delete_one({"id": vid})
     return {"ok": True}
 
 # --- Inventory ---
@@ -778,9 +841,11 @@ async def customer_history(cid: str, user: dict = Depends(get_current_user)):
     customer = await db.customers.find_one({"id": cid}, {"_id": 0})
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
+    vehicles = await db.vehicles.find({"customer_id": cid}, {"_id": 0}).sort("created_at", -1).to_list(500)
     repairs = await db.repairs.find({"customer_id": cid}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     invoices = await db.invoices.find({"customer_id": cid}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     txns = await db.transactions.find({"customer_id": cid, "type": "OUT"}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+
     total_parts = round(sum((r.get("parts_total") or 0) for r in repairs), 2)
     total_labor = round(sum((r.get("labor_charge") or 0) for r in repairs), 2)
     total_spent = round(sum((r.get("grand_total") or 0) for r in repairs), 2)
@@ -788,8 +853,72 @@ async def customer_history(cid: str, user: dict = Depends(get_current_user)):
     paid = round(sum(i["total"] for i in invoices if i["status"] == "paid"), 2)
     first_visit = repairs[-1]["created_at"] if repairs else None
     last_visit = repairs[0]["created_at"] if repairs else None
+
+    # --- Group repairs by vehicle ---
+    # Build a lookup by normalized plate (case-insensitive, whitespace-trimmed)
+    def _plate_key(s: str) -> str:
+        return (s or "").strip().upper()
+
+    vehicle_map = {}
+    for v in vehicles:
+        key = _plate_key(v.get("plate"))
+        vehicle_map[v["id"]] = {"vehicle": v, "plate_key": key, "repairs": []}
+    plate_index = {v["plate_key"]: v["vehicle"]["id"] for v in vehicle_map.values() if v["plate_key"]}
+
+    orphan_groups = {}  # keyed by plate string when no explicit vehicle record
+    for r in repairs:
+        vid = r.get("vehicle_id")
+        matched = None
+        if vid and vid in vehicle_map:
+            matched = vid
+        else:
+            pk = _plate_key(r.get("car_plate"))
+            if pk and pk in plate_index:
+                matched = plate_index[pk]
+        if matched:
+            vehicle_map[matched]["repairs"].append(r)
+        else:
+            key = _plate_key(r.get("car_plate")) or f"__no_plate_{r.get('car_make','')}_{r.get('car_model','')}"
+            if key not in orphan_groups:
+                orphan_groups[key] = {
+                    "vehicle": {
+                        "id": None,
+                        "customer_id": cid,
+                        "make": r.get("car_make", ""),
+                        "model": r.get("car_model", ""),
+                        "year": r.get("car_year", ""),
+                        "plate": r.get("car_plate", ""),
+                        "color": r.get("car_color", ""),
+                        "km": r.get("car_km", ""),
+                        "notes": "",
+                        "created_at": r.get("created_at", ""),
+                    },
+                    "repairs": [],
+                }
+            orphan_groups[key]["repairs"].append(r)
+
+    def _vehicle_stats(group):
+        rs = group["repairs"]
+        return {
+            "vehicle": group["vehicle"],
+            "repair_count": len(rs),
+            "total_spent": round(sum((x.get("grand_total") or 0) for x in rs), 2),
+            "total_parts": round(sum((x.get("parts_total") or 0) for x in rs), 2),
+            "total_labor": round(sum((x.get("labor_charge") or 0) for x in rs), 2),
+            "total_minutes": round(sum((x.get("labor_minutes") or 0) for x in rs), 2),
+            "first_visit": rs[-1]["created_at"] if rs else None,
+            "last_visit": rs[0]["created_at"] if rs else None,
+            "repairs": rs,
+        }
+
+    by_vehicle = [_vehicle_stats(g) for g in list(vehicle_map.values()) + list(orphan_groups.values())]
+    # Sort: registered vehicles first, then by last_visit desc
+    by_vehicle.sort(key=lambda g: (g["vehicle"].get("id") is None, -(len(g["repairs"])), g["last_visit"] or ""), reverse=False)
+    by_vehicle.sort(key=lambda g: g["last_visit"] or "", reverse=True)
+
     return {
         "customer": customer,
+        "vehicles": vehicles,
         "repair_count": len(repairs),
         "invoice_count": len(invoices),
         "total_parts": total_parts,
@@ -802,6 +931,7 @@ async def customer_history(cid: str, user: dict = Depends(get_current_user)):
         "repairs": repairs,
         "invoices": invoices,
         "transactions": txns,
+        "by_vehicle": by_vehicle,
     }
 
 # =========================
@@ -851,6 +981,7 @@ class RepairCard(BaseModel):
     car_plate: str = ""
     car_color: str = ""
     car_km: str = ""
+    vehicle_id: Optional[str] = None
     mechanic_id: Optional[str] = None
     mechanic_name: str = ""
     complaint: str = ""
@@ -880,6 +1011,7 @@ class RepairCreate(BaseModel):
     car_plate: str = ""
     car_color: str = ""
     car_km: str = ""
+    vehicle_id: Optional[str] = None
     mechanic_id: Optional[str] = None
     complaint: str = ""
     notes: str = ""
@@ -937,6 +1069,18 @@ async def create_repair(payload: RepairCreate, user: dict = Depends(get_current_
         if c:
             customer_name = c.get("name") or customer_name
             customer_phone = c.get("phone") or customer_phone
+    # Auto-fill vehicle fields if a vehicle_id is provided
+    veh_data = {
+        "car_make": payload.car_make, "car_model": payload.car_model, "car_year": payload.car_year,
+        "car_plate": payload.car_plate, "car_color": payload.car_color, "car_km": payload.car_km,
+    }
+    if payload.vehicle_id:
+        v = await db.vehicles.find_one({"id": payload.vehicle_id}, {"_id": 0})
+        if v:
+            for src, dst in [("make", "car_make"), ("model", "car_model"), ("year", "car_year"),
+                             ("plate", "car_plate"), ("color", "car_color"), ("km", "car_km")]:
+                if not veh_data[dst]:
+                    veh_data[dst] = v.get(src, "") or ""
     mechanic_name = ""
     if payload.mechanic_id:
         m = await db.users.find_one({"id": payload.mechanic_id}, {"_id": 0})
@@ -946,8 +1090,9 @@ async def create_repair(payload: RepairCreate, user: dict = Depends(get_current_
         customer_id=payload.customer_id,
         customer_name=customer_name,
         customer_phone=customer_phone,
-        car_make=payload.car_make, car_model=payload.car_model, car_year=payload.car_year,
-        car_plate=payload.car_plate, car_color=payload.car_color, car_km=payload.car_km,
+        car_make=veh_data["car_make"], car_model=veh_data["car_model"], car_year=veh_data["car_year"],
+        car_plate=veh_data["car_plate"], car_color=veh_data["car_color"], car_km=veh_data["car_km"],
+        vehicle_id=payload.vehicle_id,
         mechanic_id=payload.mechanic_id, mechanic_name=mechanic_name,
         complaint=payload.complaint, notes=payload.notes,
         created_by=user.get("email", ""),
