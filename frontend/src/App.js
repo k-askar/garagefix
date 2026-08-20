@@ -29,6 +29,12 @@ function ProtectedShell() {
   return <DashboardLayout><Outlet /></DashboardLayout>;
 }
 
+function OwnerRoute({ children }) {
+  const { user } = useAuth();
+  if (user && user.role !== "owner") return <Navigate to="/" replace />;
+  return children;
+}
+
 function App() {
   return (
     <LanguageProvider>
@@ -44,8 +50,8 @@ function App() {
               <Route path="/suppliers" element={<Suppliers />} />
               <Route path="/customers" element={<Customers />} />
               <Route path="/reports" element={<Reports />} />
-              <Route path="/staff" element={<Staff />} />
-              <Route path="/settings" element={<Settings />} />
+              <Route path="/staff" element={<OwnerRoute><Staff /></OwnerRoute>} />
+              <Route path="/settings" element={<OwnerRoute><Settings /></OwnerRoute>} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

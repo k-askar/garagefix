@@ -1,0 +1,55 @@
+{
+  "summary": "Tested PitStock iteration 2 (CSV import, receipt printing, vehicle filter, staff roles). Backend: 26/26 pytest tests pass (owner-only guards on PUT/DELETE /api/inventory, /api/users, PUT /api/settings, /api/inventory/import; staff allowed on GET inventory/settings, POST inventory/transactions; settings GET/PUT persistence; user create/login/delete + self-delete 400 + 422 short password; CSV import created/updated/errors incl. non-CSV 400 and bad-numeric row; vehicle filter case-insensitive substring). Frontend: all requested owner/staff UI checks pass (Owner nav section, Import CSV/Template buttons, vehicle filter narrowing 6->2 rows, Settings load+save toast+persistence, Staff 'You' label + invite creates row, receipt popup opens with garage name, staff hides nav-staff/nav-settings/import/template/edit/delete). One real gap: React routes /settings and /staff are NOT role-guarded - a staff user reaching them by direct URL sees the owner pages (settings values + editable form, invite dialog); backend correctly returns 403 and UI shows 'Owner access required' toast, so no data is written, but /staff silently renders 'No teammates yet.' instead of an access-denied state.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/login", "issue": "No brute-force lockout/rate limiting (playbook item): unlimited wrong-password attempts return 401 with no throttle."},
+      {"endpoint": "startup seed_admin", "issue": "Seed only inserts admin when absent; it never updates name/role/password of an existing admin, so changing ADMIN_PASSWORD in .env has no effect."},
+      {"endpoint": "POST /api/inventory/import", "issue": "Rows are imported one-by-one with per-row awaits and no upsert on barcode; a CSV row whose barcode collides with a different existing SKU raises a duplicate-key error captured only as a generic 'Row N: ...' message. Also no file-size/row-count limit."},
+      {"endpoint": "CORS", "issue": "allow_credentials=True combined with default allow_origins='*' (when CORS_ORIGINS unset) is an invalid/ignored combination in browsers; keep explicit origins."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "App routes (/settings, /staff)", "issue": "Owner-only pages are reachable by a staff user via direct URL - no route-level role guard/redirect. Settings form renders current garage data and is editable (save is rejected by backend with 403 toast).", "selector": "[data-testid=\"settings-page\"], [data-testid=\"staff-page\"]", "priority": "MEDIUM"},
+      {"component": "Staff.jsx", "issue": "useQuery('/users') 403 for staff is swallowed - table shows 'No teammates yet.' with no error/empty-state distinction; no isError handling on the query.", "selector": "[data-testid=\"staff-page\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Inventory vehicle filter", "issue": "Filter is applied purely client-side on the already-fetched list; the backend 'vehicle' query param implemented in GET /api/inventory is never used by the UI. Works for current small datasets but will miss items once the 2000-row fetch cap is hit.", "affected_selectors": ["[data-testid=\"inventory-vehicle-filter\"]"]}
+    ],
+    "design_issues": [
+      {"screen": "Inventory / Staff / Settings (owner)", "issues": ["No visual issues found - spacing, contrast and dark-theme colours read well at 1920x1080; toasts legible."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/seed_ui_data.py",
+    "/app/backend/tests/cleanup_ui_data.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Add role-based route guards in App.js so /settings and /staff redirect non-owner users (e.g., an OwnerRoute wrapper) instead of rendering owner pages.",
+    "Handle 403/isError in Staff.jsx (and Settings.jsx) queries with an explicit 'Owner access required' empty state rather than 'No teammates yet.'",
+    "Optional: use the backend ?vehicle= param for the inventory vehicle filter so filtering is server-side and scale-safe.",
+    "Optional hardening: login attempt lockout and seed_admin password sync."
+  ],
+  "critical_code_review_comments": [
+    "Frontend authorization is currently presentation-only (isOwner hides buttons); backend guards are correct, but missing route guards let staff view owner screens - fix on the client router.",
+    "CSV import loop performs sequential DB roundtrips per row; consider bulk_write for larger files and validate barcode uniqueness explicitly to return a clear error message.",
+    "server.py is ~545 lines with models, routes and startup in one file plus mid-file imports (csv/io/UploadFile at line 467); split into routers/models modules before it grows further."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/seed_ui_data.py",
+    "/app/backend/tests/cleanup_ui_data.py"
+  ],
+  "success_rate": {"backend": "100% (26/26)", "frontend": "95% (all feature checks pass; 1 missing route guard)"},
+  "seed_data_creation": "Verified staff user mike@garage.com / mike1234 exists (owner-created). Temporary QA data (qa_invitee@garage.com user, TEST_* inventory items, TEST-CSV-* SKUs) created and deleted via cleanup_ui_data.py. NOTE: garage settings 'name' restored to 'Ahmed Auto Garage' but the 'phone' field was overwritten during the save test and reset to empty - owner should re-enter the phone number.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "Owner admin@garage.com/admin123; Staff mike@garage.com/mike1234 (also legacy staff@garage.com exists). /app/memory/test_credentials.md only lists the owner - recommend adding the staff account.",
+  "context_for_next_testing_agent": "Backend regression suite: /app/backend/tests/backend_test.py (run: cd /app/backend && python -m pytest tests/ -v). conftest.py auto-creates mike@garage.com if missing. Class-scoped cleanup must only delete its own SKUs - deleting by TEST_ name prefix causes cross-worker races with pytest-xdist (-n 2 loadscope). Frontend: sonner toasts are read via [data-sonner-toast]; receipt popup is capturable with page.context.expect_page(). Remaining known issue: unguarded /settings and /staff routes for staff role.",
+  "rca_of_the_issue": "Role gating is implemented only in DashboardLayout nav (user.role === 'owner') and inside Inventory.jsx via isOwner; the router in App.js registers /staff and /settings for every authenticated user, so direct navigation renders owner screens. Data safety is preserved by require_owner on the backend (PUT /api/settings, GET/POST /api/users return 403, surfaced as an 'Owner access required' toast), confirmed by test: staff edit of garage name was not persisted."
+}
