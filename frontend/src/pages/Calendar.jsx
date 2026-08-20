@@ -52,7 +52,7 @@ export default function CalendarPage() {
   const [showNew, setShowNew] = useState(false);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [showNewVehicle, setShowNewVehicle] = useState(false);
-  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", email: "" });
+  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", email: "", address: "", make: "", model: "", year: "", plate: "", color: "", km: "" });
   const [newVehicle, setNewVehicle] = useState({ make: "", model: "", year: "", plate: "", color: "", km: "" });
   const [form, setForm] = useState({
     customer_id: "", vehicle_id: "", mechanic_id: "",
@@ -143,11 +143,26 @@ export default function CalendarPage() {
     e.preventDefault();
     if (!newCustomer.name.trim()) return toast.error(t("nameRequired"));
     try {
-      const { data } = await api.post("/customers", newCustomer);
+      const summaryVehicle = [newCustomer.make, newCustomer.model, newCustomer.year, newCustomer.plate].filter(Boolean).join(" ");
+      const { data } = await api.post("/customers", {
+        name: newCustomer.name, phone: newCustomer.phone, email: newCustomer.email,
+        address: newCustomer.address, vehicle: summaryVehicle,
+      });
+      let newVehId = "";
+      if (newCustomer.make || newCustomer.plate) {
+        try {
+          const { data: veh } = await api.post(`/customers/${data.id}/vehicles`, {
+            make: newCustomer.make, model: newCustomer.model, year: newCustomer.year,
+            plate: newCustomer.plate, color: newCustomer.color, km: newCustomer.km,
+          });
+          newVehId = veh.id;
+        } catch (err) { /* silent */ }
+      }
       toast.success(t("customerAdded"));
       await qc.invalidateQueries({ queryKey: ["cus"] });
-      setForm(f => ({ ...f, customer_id: data.id, vehicle_id: "" }));
-      setNewCustomer({ name: "", phone: "", email: "" });
+      if (newVehId) await qc.invalidateQueries({ queryKey: ["cust-vehicles", data.id] });
+      setForm(f => ({ ...f, customer_id: data.id, vehicle_id: newVehId }));
+      setNewCustomer({ name: "", phone: "", email: "", address: "", make: "", model: "", year: "", plate: "", color: "", km: "" });
       setShowNewCustomer(false);
     } catch (err) { toast.error(formatApiError(err)); }
   };
@@ -353,25 +368,32 @@ export default function CalendarPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Quick add customer dialog */}
+      {/* Quick add customer dialog — same layout as the Customers page */}
       <Dialog open={showNewCustomer} onOpenChange={setShowNewCustomer}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-lg max-h-[92vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="font-display">{t("newCustomer")}</DialogTitle></DialogHeader>
-          <form onSubmit={createCustomer} className="space-y-3">
+          <form onSubmit={createCustomer} className="space-y-4">
             <div className="space-y-1.5">
               <Label>{t("name")}</Label>
               <Input value={newCustomer.name} onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })} required data-testid="quick-customer-name" />
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1.5">
-                <Label>{t("phone")}</Label>
-                <Input value={newCustomer.phone} onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })} data-testid="quick-customer-phone" />
+            <div className="space-y-2 p-3 rounded-md border border-border bg-muted/20">
+              <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("vehicle")} · {t("optional")}</div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5"><Label className="text-xs">{t("make")}</Label><Input value={newCustomer.make} onChange={(e) => setNewCustomer({ ...newCustomer, make: e.target.value })} placeholder="e.g. VW, BMW, Toyota" data-testid="quick-cust-make" /></div>
+                <div className="space-y-1.5"><Label className="text-xs">{t("model")}</Label><Input value={newCustomer.model} onChange={(e) => setNewCustomer({ ...newCustomer, model: e.target.value })} placeholder="e.g. Golf, 320i" data-testid="quick-cust-model" /></div>
+                <div className="space-y-1.5"><Label className="text-xs">{t("year")}</Label><Input value={newCustomer.year} onChange={(e) => setNewCustomer({ ...newCustomer, year: e.target.value })} placeholder="2020" /></div>
+                <div className="space-y-1.5"><Label className="text-xs">{t("plateNumber")}</Label><Input value={newCustomer.plate} onChange={(e) => setNewCustomer({ ...newCustomer, plate: e.target.value })} placeholder="NL-XX-00" data-testid="quick-cust-plate" /></div>
+                <div className="space-y-1.5"><Label className="text-xs">{t("color")}</Label><Input value={newCustomer.color} onChange={(e) => setNewCustomer({ ...newCustomer, color: e.target.value })} /></div>
+                <div className="space-y-1.5"><Label className="text-xs">{t("odometer")}</Label><Input value={newCustomer.km} onChange={(e) => setNewCustomer({ ...newCustomer, km: e.target.value })} placeholder="km" /></div>
               </div>
-              <div className="space-y-1.5">
-                <Label>{t("email")}</Label>
-                <Input type="email" value={newCustomer.email} onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })} />
-              </div>
+              <p className="text-[10px] text-muted-foreground">{t("addMoreVehiclesHint")}</p>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5"><Label>{t("email")}</Label><Input type="email" value={newCustomer.email} onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })} /></div>
+              <div className="space-y-1.5"><Label>{t("phone")}</Label><Input value={newCustomer.phone} onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })} data-testid="quick-customer-phone" /></div>
+            </div>
+            <div className="space-y-1.5"><Label>{t("address")}</Label><Input value={newCustomer.address} onChange={(e) => setNewCustomer({ ...newCustomer, address: e.target.value })} /></div>
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={() => setShowNewCustomer(false)}>{t("cancel")}</Button>
               <Button type="submit" className="rounded-full" data-testid="quick-customer-save">{t("save")}</Button>
