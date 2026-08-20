@@ -19,14 +19,21 @@
 - **Staff** — logs stock movements, looks up parts via scanner
 
 ## Implemented (2026-02)
-- JWT auth with seeded admin (admin@garage.com / admin123)
+- JWT auth with seeded admin (admin@garage.com / admin123) + owner-only role guards
 - Inventory CRUD with auto-SKU + auto-barcode + printable Code128 labels
+- **Auto-open barcode label dialog after creating a new part**
+- **Multilingual UI: English, Nederlands (Dutch), العربية (Arabic RTL) with persistent selection**
+- **CSV Import + Template download for bulk inventory ingestion (owner only)**
+- **Vehicle Search** filter on Inventory (matches compatible_vehicles)
+- **Receipt printing** on Stock OUT (via sonner action) + printer icon on OUT rows in Transactions ledger
+- **Staff Accounts** page — owner invites/removes users; staff role prevented from editing/deleting inventory or accessing settings/users
+- **Garage Settings** page (name, address, phone, tax_id, footer note) used on printed receipts
+- **CSV Export** of inventory + transactions from Reports page
 - Stock IN / OUT with supplier/customer selection, quantity validation, cost auto-update on IN
-- Webcam barcode scanner + manual lookup by SKU/barcode
-- Suppliers & Customers directories
-- Transactions ledger with filters
-- Dashboard: stock value, units, low-stock, today's flow, 14d movement line chart, top movers, action panel for low-stock parts
-- Reports: 30d movement bar chart + value-by-category donut
+- Webcam barcode scanner + manual lookup
+- Suppliers & Customers directories, Transactions ledger with filters
+- Dashboard: KPIs + 14d movement + top movers + low-stock action panel
+- Reports: 30d movement bar + value-by-category donut
 
 ## Backlog (P1)
 - Multi-user staff invites + role-based UI gates

@@ -9,9 +9,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ArrowDownRight, ArrowUpRight, ScanLine, CameraOff, Search } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ScanLine, CameraOff, Search, Receipt } from "lucide-react";
 import { toast } from "sonner";
 import { Html5Qrcode } from "html5-qrcode";
+import { printReceipt } from "@/lib/receipt";
 
 function ScannerModal({ open, onClose, onDetected }) {
   const ref = useRef(null);
@@ -68,6 +69,7 @@ function MovementForm({ type }) {
   const { data: suppliers = [] } = useQuery({ queryKey: ["sup"], queryFn: () => api.get("/suppliers").then((r) => r.data) });
   const { data: customers = [] } = useQuery({ queryKey: ["cus"], queryFn: () => api.get("/customers").then((r) => r.data) });
   const { data: items = [] } = useQuery({ queryKey: ["inv"], queryFn: () => api.get("/inventory").then((r) => r.data) });
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: () => api.get("/settings").then((r) => r.data) });
 
   const lookup = async (c) => {
     const val = (c || code).trim();
@@ -87,7 +89,7 @@ function MovementForm({ type }) {
     e.preventDefault();
     if (!item) return toast.error("Pick an item first");
     try {
-      await api.post("/transactions", {
+      const { data: txn } = await api.post("/transactions", {
         type,
         item_id: item.id,
         quantity: Number(qty),
@@ -96,7 +98,17 @@ function MovementForm({ type }) {
         customer_id: type === "OUT" ? partyId || null : null,
         note,
       });
-      toast.success(`Stock ${type} recorded`);
+      if (type === "OUT") {
+        toast.success("Stock OUT recorded", {
+          action: {
+            label: "Print receipt",
+            onClick: () => printReceipt({ txn, item, settings: settings || {} }),
+          },
+          duration: 8000,
+        });
+      } else {
+        toast.success("Stock IN recorded");
+      }
       setItem(null); setQty(1); setPrice(0); setPartyId(""); setNote(""); setCode("");
       qc.invalidateQueries();
     } catch (e) { toast.error(formatApiError(e)); }

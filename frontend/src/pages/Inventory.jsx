@@ -10,9 +10,10 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, Pencil, Trash2, Printer } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Printer, Upload, Car, Download } from "lucide-react";
 import { toast } from "sonner";
 import Barcode from "react-barcode";
+import { useAuth } from "@/context/AuthContext";
 
 const CATEGORIES = ["Engine", "Brakes", "Filters", "Lubricants", "Electrical", "Body", "Tyres", "Suspension", "Transmission", "General"];
 
@@ -113,11 +114,15 @@ function printBarcode(item) {
 
 export default function Inventory() {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const isOwner = user?.role === "owner";
   const [q, setQ] = useState("");
+  const [vehicle, setVehicle] = useState("");
   const [cat, setCat] = useState("all");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [labelItem, setLabelItem] = useState(null);
+  const [importing, setImporting] = useState(false);
 
   const { data: items = [] } = useQuery({ queryKey: ["inv"], queryFn: () => api.get("/inventory").then((r) => r.data) });
   const { data: suppliers = [] } = useQuery({ queryKey: ["sup"], queryFn: () => api.get("/suppliers").then((r) => r.data) });
@@ -126,7 +131,8 @@ export default function Inventory() {
     const s = q.toLowerCase();
     const match = !s || i.name.toLowerCase().includes(s) || i.sku.toLowerCase().includes(s) || (i.barcode || "").includes(s);
     const c = cat === "all" || i.category === cat;
-    return match && c;
+    const v = !vehicle || (i.compatible_vehicles || "").toLowerCase().includes(vehicle.toLowerCase());
+    return match && c && v;
   });
 
   const invalidate = () => qc.invalidateQueries();
@@ -136,11 +142,14 @@ export default function Inventory() {
       if (editing) {
         await api.put(`/inventory/${editing.id}`, data);
         toast.success("Part updated");
+        setOpen(false); setEditing(null); invalidate();
       } else {
-        await api.post("/inventory", data);
-        toast.success("Part added");
+        const { data: created } = await api.post("/inventory", data);
+        toast.success("Part added — printing barcode label");
+        setOpen(false); setEditing(null); invalidate();
+        // Auto-open barcode dialog so owner can print label immediately
+        setLabelItem(created);
       }
-      setOpen(false); setEditing(null); invalidate();
     } catch (e) { toast.error(formatApiError(e)); }
   };
 
@@ -148,6 +157,31 @@ export default function Inventory() {
     if (!window.confirm("Delete this part?")) return;
     try { await api.delete(`/inventory/${id}`); toast.success("Deleted"); invalidate(); }
     catch (e) { toast.error(formatApiError(e)); }
+  };
+
+  const importCsv = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setImporting(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const { data } = await api.post("/inventory/import", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      toast.success(`Imported: ${data.created} new, ${data.updated} updated${data.errors?.length ? ` · ${data.errors.length} errors` : ""}`);
+      if (data.errors?.length) console.warn("CSV errors:", data.errors);
+      invalidate();
+    } catch (err) { toast.error(formatApiError(err)); }
+    finally { setImporting(false); }
+  };
+
+  const downloadTemplate = () => {
+    const csv = "name,sku,barcode,category,description,cost_price,selling_price,quantity,reorder_point,unit,location,compatible_vehicles\nOil Filter Bosch,,,Filters,Standard oil filter,5.50,12.00,40,10,pcs,Rack A-2,VW Golf 2015+; Audi A3\n";
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "inventory-template.csv"; a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -159,11 +193,26 @@ export default function Inventory() {
           <p className="text-muted-foreground mt-2">{items.length} unique parts on the shelves</p>
         </div>
         <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) setEditing(null); }}>
-          <DialogTrigger asChild>
-            <Button className="rounded-full bg-primary hover:bg-primary/90" data-testid="add-item-button">
-              <Plus className="h-4 w-4 mr-2" /> New part
-            </Button>
-          </DialogTrigger>
+          <div className="flex gap-2">
+            {isOwner && (
+              <>
+                <Button variant="outline" className="rounded-full" onClick={downloadTemplate} data-testid="template-button">
+                  <Download className="h-4 w-4 mr-2" /> Template
+                </Button>
+                <label>
+                  <input type="file" accept=".csv" className="hidden" onChange={importCsv} data-testid="import-csv-input" />
+                  <Button asChild variant="outline" className="rounded-full" disabled={importing} data-testid="import-csv-button">
+                    <span className="cursor-pointer"><Upload className="h-4 w-4 mr-2" /> {importing ? "Importing..." : "Import CSV"}</span>
+                  </Button>
+                </label>
+              </>
+            )}
+            <DialogTrigger asChild>
+              <Button className="rounded-full bg-primary hover:bg-primary/90" data-testid="add-item-button">
+                <Plus className="h-4 w-4 mr-2" /> New part
+              </Button>
+            </DialogTrigger>
+          </div>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader><DialogTitle className="font-display">{editing ? "Edit part" : "New part"}</DialogTitle></DialogHeader>
             <ItemForm initial={editing} suppliers={suppliers} onSubmit={save} onCancel={() => { setOpen(false); setEditing(null); }} />
@@ -176,6 +225,10 @@ export default function Inventory() {
           <div className="relative flex-1 min-w-[240px]">
             <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, SKU, barcode..." className="pl-9" data-testid="inventory-search" />
+          </div>
+          <div className="relative w-64">
+            <Car className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input value={vehicle} onChange={(e) => setVehicle(e.target.value)} placeholder='Vehicle e.g. "VW Golf 2018"' className="pl-9" data-testid="inventory-vehicle-filter" />
           </div>
           <Select value={cat} onValueChange={setCat}>
             <SelectTrigger className="w-48" data-testid="inventory-filter-category"><SelectValue /></SelectTrigger>
@@ -220,8 +273,8 @@ export default function Inventory() {
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         <Button size="icon" variant="ghost" onClick={() => setLabelItem(i)} data-testid={`print-${i.sku}`}><Printer className="h-4 w-4" /></Button>
-                        <Button size="icon" variant="ghost" onClick={() => { setEditing(i); setOpen(true); }} data-testid={`edit-${i.sku}`}><Pencil className="h-4 w-4" /></Button>
-                        <Button size="icon" variant="ghost" onClick={() => del(i.id)} data-testid={`delete-${i.sku}`}><Trash2 className="h-4 w-4 text-rose-400" /></Button>
+                        {isOwner && <Button size="icon" variant="ghost" onClick={() => { setEditing(i); setOpen(true); }} data-testid={`edit-${i.sku}`}><Pencil className="h-4 w-4" /></Button>}
+                        {isOwner && <Button size="icon" variant="ghost" onClick={() => del(i.id)} data-testid={`delete-${i.sku}`}><Trash2 className="h-4 w-4 text-rose-400" /></Button>}
                       </div>
                     </TableCell>
                   </TableRow>

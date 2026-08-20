@@ -1,30 +1,40 @@
 import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { useLang } from "@/i18n";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Package, ArrowLeftRight, ScrollText, Truck, Users, BarChart3, LogOut, Wrench, Menu, X } from "lucide-react";
+import { LayoutDashboard, Package, ArrowLeftRight, ScrollText, Truck, Users, BarChart3, LogOut, Wrench, Menu, X, UserCog, Settings as SettingsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, testId: "nav-dashboard" },
-  { to: "/inventory", label: "Inventory", icon: Package, testId: "nav-inventory" },
-  { to: "/movement", label: "Stock In / Out", icon: ArrowLeftRight, testId: "nav-movement" },
-  { to: "/transactions", label: "Transactions", icon: ScrollText, testId: "nav-transactions" },
-  { to: "/suppliers", label: "Suppliers", icon: Truck, testId: "nav-suppliers" },
-  { to: "/customers", label: "Customers", icon: Users, testId: "nav-customers" },
-  { to: "/reports", label: "Reports", icon: BarChart3, testId: "nav-reports" },
+  { to: "/", key: "dashboard", icon: LayoutDashboard, testId: "nav-dashboard" },
+  { to: "/inventory", key: "inventory", icon: Package, testId: "nav-inventory" },
+  { to: "/movement", key: "movement", icon: ArrowLeftRight, testId: "nav-movement" },
+  { to: "/transactions", key: "transactions", icon: ScrollText, testId: "nav-transactions" },
+  { to: "/suppliers", key: "suppliers", icon: Truck, testId: "nav-suppliers" },
+  { to: "/customers", key: "customers", icon: Users, testId: "nav-customers" },
+  { to: "/reports", key: "reports", icon: BarChart3, testId: "nav-reports" },
+];
+
+const OWNER_NAV = [
+  { to: "/staff", key: "staff", icon: UserCog, testId: "nav-staff" },
+  { to: "/settings", key: "settings", icon: SettingsIcon, testId: "nav-settings" },
 ];
 
 export default function DashboardLayout({ children }) {
   const { user, logout } = useAuth();
+  const { t, meta } = useLang();
   const [open, setOpen] = useState(false);
+  const isRTL = meta.dir === "rtl";
 
   return (
     <div className="min-h-screen bg-background flex">
       {/* Sidebar */}
       <aside className={cn(
-        "fixed lg:static inset-y-0 left-0 z-40 w-64 border-r border-border bg-card flex flex-col transition-transform duration-200",
-        open ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        "fixed lg:static inset-y-0 z-40 w-64 border-border bg-card flex flex-col transition-transform duration-200",
+        isRTL ? "right-0 border-l" : "left-0 border-r",
+        open ? "translate-x-0" : (isRTL ? "translate-x-full lg:translate-x-0" : "-translate-x-full lg:translate-x-0")
       )}>
         <div className="h-16 px-6 flex items-center gap-3 border-b border-border">
           <div className="h-9 w-9 rounded-md bg-primary/15 border border-primary/40 flex items-center justify-center">
@@ -51,9 +61,31 @@ export default function DashboardLayout({ children }) {
               )}
             >
               <n.icon className="h-4 w-4" />
-              <span>{n.label}</span>
+              <span>{t(n.key)}</span>
             </NavLink>
           ))}
+          {user?.role === "owner" && (
+            <>
+              <div className="pt-3 pb-1 px-3 text-[10px] font-mono uppercase tracking-widest text-muted-foreground/70">{t("owner")}</div>
+              {OWNER_NAV.map((n) => (
+                <NavLink
+                  key={n.to}
+                  to={n.to}
+                  data-testid={n.testId}
+                  onClick={() => setOpen(false)}
+                  className={({ isActive }) => cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors duration-200",
+                    isActive
+                      ? "bg-primary/15 text-primary border border-primary/30"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent border border-transparent"
+                  )}
+                >
+                  <n.icon className="h-4 w-4" />
+                  <span>{t(n.key)}</span>
+                </NavLink>
+              ))}
+            </>
+          )}
         </nav>
         <div className="p-3 border-t border-border">
           <div className="px-3 py-2 mb-2">
@@ -66,7 +98,7 @@ export default function DashboardLayout({ children }) {
             onClick={logout}
             data-testid="logout-button"
           >
-            <LogOut className="h-4 w-4" /> Sign out
+            <LogOut className="h-4 w-4" /> {t("signOut")}
           </Button>
         </div>
       </aside>
@@ -83,8 +115,11 @@ export default function DashboardLayout({ children }) {
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
             <span>Live</span>
           </div>
-          <div className="text-xs font-mono text-muted-foreground">
-            {new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+          <div className="flex items-center gap-3">
+            <div className="text-xs font-mono text-muted-foreground hidden sm:block">
+              {new Date().toLocaleDateString(meta.locale, { day: "2-digit", month: "short", year: "numeric" })}
+            </div>
+            <LanguageSwitcher />
           </div>
         </header>
         <main className="flex-1 grid-bg">

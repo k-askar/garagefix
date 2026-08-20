@@ -64,6 +64,11 @@ async def get_current_user(request: Request) -> dict:
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+async def require_owner(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != "owner":
+        raise HTTPException(status_code=403, detail="Owner access required")
+    return user
+
 # --- Models ---
 class UserRegister(BaseModel):
     email: EmailStr
@@ -254,8 +259,11 @@ def _generate_barcode() -> str:
     return "".join([str(random.randint(0, 9)) for _ in range(12)])
 
 @api_router.get("/inventory", response_model=List[InventoryItem])
-async def list_inventory(user: dict = Depends(get_current_user)):
-    rows = await db.inventory.find({}, {"_id": 0}).sort("name", 1).to_list(2000)
+async def list_inventory(vehicle: Optional[str] = None, user: dict = Depends(get_current_user)):
+    query = {}
+    if vehicle:
+        query["compatible_vehicles"] = {"$regex": vehicle, "$options": "i"}
+    rows = await db.inventory.find(query, {"_id": 0}).sort("name", 1).to_list(2000)
     return rows
 
 @api_router.get("/inventory/lookup")
@@ -286,7 +294,7 @@ async def create_inventory(payload: InventoryItemCreate, user: dict = Depends(ge
     return obj
 
 @api_router.put("/inventory/{item_id}", response_model=InventoryItem)
-async def update_inventory(item_id: str, payload: InventoryItemUpdate, user: dict = Depends(get_current_user)):
+async def update_inventory(item_id: str, payload: InventoryItemUpdate, user: dict = Depends(require_owner)):
     existing = await db.inventory.find_one({"id": item_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -296,7 +304,7 @@ async def update_inventory(item_id: str, payload: InventoryItemUpdate, user: dic
     return await db.inventory.find_one({"id": item_id}, {"_id": 0})
 
 @api_router.delete("/inventory/{item_id}")
-async def delete_inventory(item_id: str, user: dict = Depends(get_current_user)):
+async def delete_inventory(item_id: str, user: dict = Depends(require_owner)):
     await db.inventory.delete_one({"id": item_id})
     return {"ok": True}
 
@@ -406,6 +414,100 @@ async def report_movement(days: int = 14, user: dict = Depends(get_current_user)
 @api_router.get("/")
 async def root():
     return {"message": "Garage Inventory API"}
+
+# --- Users / Staff (owner only) ---
+@api_router.get("/users")
+async def list_users(user: dict = Depends(require_owner)):
+    rows = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(500)
+    return rows
+
+@api_router.post("/users")
+async def create_user(payload: UserRegister, user: dict = Depends(require_owner)):
+    email = payload.email.lower()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(status_code=400, detail="Email already registered")
+    uid = str(uuid.uuid4())
+    doc = {
+        "id": uid, "email": email, "name": payload.name, "role": payload.role,
+        "password_hash": hash_password(payload.password),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.users.insert_one(doc)
+    return {"id": uid, "email": email, "name": payload.name, "role": payload.role, "created_at": doc["created_at"]}
+
+@api_router.delete("/users/{user_id}")
+async def delete_user(user_id: str, user: dict = Depends(require_owner)):
+    if user["id"] == user_id:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account")
+    await db.users.delete_one({"id": user_id})
+    return {"ok": True}
+
+# --- Garage Settings ---
+class GarageSettings(BaseModel):
+    name: str = "PitStock Garage"
+    address: str = ""
+    phone: str = ""
+    email: str = ""
+    tax_id: str = ""
+    footer_note: str = "Thank you for choosing us!"
+
+@api_router.get("/settings")
+async def get_settings(user: dict = Depends(get_current_user)):
+    s = await db.settings.find_one({"_id": "garage"}, {"_id": 0})
+    if not s:
+        s = GarageSettings().model_dump()
+    return s
+
+@api_router.put("/settings")
+async def update_settings(payload: GarageSettings, user: dict = Depends(require_owner)):
+    await db.settings.update_one({"_id": "garage"}, {"$set": payload.model_dump()}, upsert=True)
+    return payload.model_dump()
+
+# --- CSV Import ---
+from fastapi import UploadFile, File
+import csv, io
+
+@api_router.post("/inventory/import")
+async def import_inventory(file: UploadFile = File(...), user: dict = Depends(require_owner)):
+    if not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Only .csv files are supported")
+    raw = (await file.read()).decode("utf-8-sig", errors="ignore")
+    reader = csv.DictReader(io.StringIO(raw))
+    created, updated, errors = 0, 0, []
+    for idx, row in enumerate(reader, start=2):
+        try:
+            name = (row.get("name") or "").strip()
+            if not name:
+                errors.append(f"Row {idx}: missing name")
+                continue
+            sku = (row.get("sku") or "").strip() or _generate_sku()
+            barcode = (row.get("barcode") or "").strip() or _generate_barcode()
+            data = {
+                "sku": sku,
+                "barcode": barcode,
+                "name": name,
+                "category": (row.get("category") or "General").strip() or "General",
+                "description": (row.get("description") or "").strip(),
+                "cost_price": float(row.get("cost_price") or 0),
+                "selling_price": float(row.get("selling_price") or 0),
+                "quantity": int(float(row.get("quantity") or 0)),
+                "reorder_point": int(float(row.get("reorder_point") or 5)),
+                "unit": (row.get("unit") or "pcs").strip() or "pcs",
+                "location": (row.get("location") or "").strip(),
+                "compatible_vehicles": (row.get("compatible_vehicles") or "").strip(),
+            }
+            existing = await db.inventory.find_one({"sku": sku}, {"_id": 0})
+            if existing:
+                data["updated_at"] = datetime.now(timezone.utc).isoformat()
+                await db.inventory.update_one({"id": existing["id"]}, {"$set": data})
+                updated += 1
+            else:
+                obj = InventoryItem(**data)
+                await db.inventory.insert_one(obj.model_dump())
+                created += 1
+        except Exception as e:
+            errors.append(f"Row {idx}: {str(e)}")
+    return {"created": created, "updated": updated, "errors": errors[:20]}
 
 app.include_router(api_router)
 

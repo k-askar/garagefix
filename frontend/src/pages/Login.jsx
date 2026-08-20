@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { useLang } from "@/i18n";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +13,7 @@ import { formatApiError } from "@/lib/api";
 
 export default function Login() {
   const { login } = useAuth();
+  const { t } = useLang();
   const nav = useNavigate();
   const [email, setEmail] = useState("admin@garage.com");
   const [password, setPassword] = useState("admin123");
@@ -21,7 +24,7 @@ export default function Login() {
     setLoading(true);
     try {
       await login(email, password);
-      toast.success("Welcome back");
+      toast.success(t("welcomeBack"));
       nav("/");
     } catch (err) {
       toast.error(formatApiError(err));
@@ -54,7 +57,10 @@ export default function Login() {
       </div>
 
       {/* Right: form */}
-      <div className="flex items-center justify-center p-8 lg:p-16">
+      <div className="flex items-center justify-center p-8 lg:p-16 relative">
+        <div className="absolute top-6 end-6 rtl:right-auto rtl:left-6">
+          <LanguageSwitcher />
+        </div>
         <div className="w-full max-w-md space-y-10">
           <div className="flex items-center gap-3">
             <div className="h-11 w-11 rounded-lg bg-primary/15 border border-primary/40 flex items-center justify-center">
@@ -67,15 +73,15 @@ export default function Login() {
           </div>
 
           <div className="space-y-2">
-            <h2 className="font-display text-3xl font-bold">Sign in</h2>
+            <h2 className="font-display text-3xl font-bold">{t("signIn")}</h2>
             <p className="text-sm text-muted-foreground">
-              Access your workshop's live inventory grid.
+              {t("accessSubtitle")}
             </p>
           </div>
 
           <form onSubmit={submit} className="space-y-6" data-testid="login-form">
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-xs uppercase tracking-widest font-mono text-muted-foreground">Email</Label>
+              <Label htmlFor="email" className="text-xs uppercase tracking-widest font-mono text-muted-foreground">{t("email")}</Label>
               <Input
                 id="email"
                 type="email"
@@ -87,7 +93,7 @@ export default function Login() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-xs uppercase tracking-widest font-mono text-muted-foreground">Password</Label>
+              <Label htmlFor="password" className="text-xs uppercase tracking-widest font-mono text-muted-foreground">{t("password")}</Label>
               <Input
                 id="password"
                 type="password"
@@ -104,10 +110,10 @@ export default function Login() {
               data-testid="login-submit-button"
               className="w-full h-11 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium group"
             >
-              {loading ? "Signing in..." : (
+              {loading ? "..." : (
                 <span className="inline-flex items-center gap-2">
-                  Enter workshop
-                  <ArrowRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform duration-200" />
+                  {t("enterWorkshop")}
+                  <ArrowRight className="h-4 w-4 group-hover:translate-x-0.5 rtl:rotate-180 transition-transform duration-200" />
                 </span>
               )}
             </Button>
@@ -115,7 +121,7 @@ export default function Login() {
 
           <Card className="p-4 bg-muted/40 border-dashed">
             <p className="text-xs font-mono text-muted-foreground">
-              <span className="text-primary">DEMO</span> · admin@garage.com / admin123
+              <span className="text-primary">{t("demo")}</span> · admin@garage.com / admin123
             </p>
           </Card>
         </div>

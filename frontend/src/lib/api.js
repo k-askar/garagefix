@@ -23,9 +23,9 @@ api.interceptors.response.use(
   }
 );
 
-export function formatEUR(v) {
+export function formatEUR(v, locale = "de-DE") {
   const n = Number(v || 0);
-  return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n);
+  return new Intl.NumberFormat(locale, { style: "currency", currency: "EUR" }).format(n);
 }
 
 export function formatApiError(err) {

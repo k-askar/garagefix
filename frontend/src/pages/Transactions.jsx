@@ -3,13 +3,16 @@ import { useQuery } from "@tanstack/react-query";
 import { api, formatEUR } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { ArrowDownRight, ArrowUpRight, Search } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Search, Printer } from "lucide-react";
+import { printReceipt } from "@/lib/receipt";
 
 export default function Transactions() {
   const { data: rows = [] } = useQuery({ queryKey: ["txns"], queryFn: () => api.get("/transactions").then((r) => r.data) });
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: () => api.get("/settings").then((r) => r.data) });
   const [q, setQ] = useState("");
   const [f, setF] = useState("all");
   const filtered = rows.filter((t) => {
@@ -52,6 +55,7 @@ export default function Transactions() {
                 <TableHead className="text-right">Qty</TableHead>
                 <TableHead className="text-right">Unit price</TableHead>
                 <TableHead className="text-right">Total</TableHead>
+                <TableHead className="text-right w-16"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -73,10 +77,23 @@ export default function Transactions() {
                   <TableCell className="text-right tabular-nums">{t.quantity}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatEUR(t.unit_price)}</TableCell>
                   <TableCell className="text-right tabular-nums font-mono">{formatEUR(t.total)}</TableCell>
+                  <TableCell className="text-right">
+                    {t.type === "OUT" && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => printReceipt({ txn: t, item: null, settings: settings || {} })}
+                        data-testid={`receipt-${t.id}`}
+                        title="Print receipt"
+                      >
+                        <Printer className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
               {filtered.length === 0 && (
-                <TableRow><TableCell colSpan={7} className="text-center py-16 text-muted-foreground">No transactions yet.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-center py-16 text-muted-foreground">No transactions yet.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
