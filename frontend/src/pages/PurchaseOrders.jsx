@@ -54,12 +54,16 @@ export default function PurchaseOrders() {
   const [selItemId, setSelItemId] = useState("");
   const [selQty, setSelQty] = useState(1);
   const [draft, setDraft] = useState({ supplier_id: "", items: [], note: "" });
+  const [payTarget, setPayTarget] = useState(null);
+  const [payMethodId, setPayMethodId] = useState("");
 
   const { data: pos = [] } = useQuery({ queryKey: ["pos"], queryFn: () => api.get("/purchase-orders").then(r => r.data) });
   const { data: suggestions = [] } = useQuery({ queryKey: ["po-suggest"], queryFn: () => api.get("/purchase-orders/suggest").then(r => r.data) });
   const { data: suppliers = [] } = useQuery({ queryKey: ["sup"], queryFn: () => api.get("/suppliers").then(r => r.data) });
   const { data: items = [] } = useQuery({ queryKey: ["inv"], queryFn: () => api.get("/inventory").then(r => r.data) });
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: () => api.get("/settings").then(r => r.data) });
+  const { data: pmSummary } = useQuery({ queryKey: ["pay-summary"], queryFn: () => api.get("/payments/summary").then(r => r.data) });
+  const methods = (pmSummary?.methods || []).filter(m => m.active);
 
   const createFromSuggestion = async (g) => {
     try {
@@ -90,8 +94,9 @@ export default function PurchaseOrders() {
 
   const action = async (id, verb) => {
     try {
-      await api.post(`/purchase-orders/${id}/${verb}`);
+      await api.post(`/purchase-orders/${id}/${verb}`, verb === "receive" ? { payment_method_id: payMethodId || null } : {});
       toast.success(verb === "send" ? "Marked as sent" : "Received · stock updated");
+      setPayTarget(null); setPayMethodId("");
       qc.invalidateQueries();
     } catch (e) { toast.error(formatApiError(e)); }
   };
@@ -146,7 +151,7 @@ export default function PurchaseOrders() {
                   <div className="flex justify-end gap-1">
                     <Button size="sm" variant="ghost" onClick={() => printPO(p, settings)} data-testid={`po-print-${p.po_number}`}><Printer className="h-4 w-4" /></Button>
                     {p.status === "draft" && <Button size="sm" variant="outline" className="rounded-full" onClick={() => action(p.id, "send")} data-testid={`po-send-${p.po_number}`}><Send className="h-3 w-3 mr-1" />Send</Button>}
-                    {p.status !== "received" && <Button size="sm" className="rounded-full bg-emerald-500 hover:bg-emerald-500/90 text-white" onClick={() => action(p.id, "receive")} data-testid={`po-receive-${p.po_number}`}><PackageCheck className="h-3 w-3 mr-1" />Receive</Button>}
+                    {p.status !== "received" && <Button size="sm" className="rounded-full bg-emerald-500 hover:bg-emerald-500/90 text-white" onClick={() => { setPayTarget(p); setPayMethodId(""); }} data-testid={`po-receive-${p.po_number}`}><PackageCheck className="h-3 w-3 mr-1" />Receive</Button>}
                     <Button size="icon" variant="ghost" onClick={() => del(p.id)}><Trash2 className="h-4 w-4 text-rose-400" /></Button>
                   </div>
                 </TableCell>
@@ -238,6 +243,38 @@ export default function PurchaseOrders() {
               <Button type="submit" className="rounded-full" data-testid="po-submit">Create PO</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!payTarget} onOpenChange={(v) => { if (!v) { setPayTarget(null); setPayMethodId(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle className="font-display">Receive · pick payment method</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            {payTarget && (
+              <div className="p-3 rounded-md border border-border bg-muted/40">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">PO</div>
+                <div className="font-mono font-bold">{payTarget.po_number} · {payTarget.supplier_name || "—"}</div>
+                <div className="mt-2 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Total</div>
+                <div className="font-display text-2xl font-bold">{formatEUR(payTarget.total)}</div>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label>Payment method (paid to supplier)</Label>
+              <Select value={payMethodId || "none"} onValueChange={(v) => setPayMethodId(v === "none" ? "" : v)}>
+                <SelectTrigger data-testid="po-paymethod-select"><SelectValue placeholder="Pick a method" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Skip (no payment logged)</SelectItem>
+                  {methods.map(m => <SelectItem key={m.id} value={m.id}>{m.name} · {formatEUR(m.balance)}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">Choose the account paying the supplier. Leave blank to just receive stock.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => { setPayTarget(null); setPayMethodId(""); }}>Cancel</Button>
+            <Button className="rounded-full bg-emerald-500 hover:bg-emerald-500/90" onClick={() => action(payTarget.id, "receive")} data-testid="po-receive-confirm">
+              <PackageCheck className="h-4 w-4 mr-2" /> Receive
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

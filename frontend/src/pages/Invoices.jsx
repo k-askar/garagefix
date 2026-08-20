@@ -14,6 +14,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { CheckCircle2, Printer, Trash2, Plus, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { whatsappShare } from "@/lib/whatsapp";
+import { useLang } from "@/i18n";
 
 function printInvoice(inv, settings) {
   const w = window.open("", "_blank", "width=720,height=900");
@@ -45,16 +46,21 @@ function printInvoice(inv, settings) {
 
 export default function Invoices() {
   const qc = useQueryClient();
+  const { t } = useLang();
   const [showCreate, setShowCreate] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [taxRate, setTaxRate] = useState(0);
   const [note, setNote] = useState("");
   const [selectedTxns, setSelectedTxns] = useState([]);
+  const [payTarget, setPayTarget] = useState(null);
+  const [payMethodId, setPayMethodId] = useState("");
 
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => api.get("/invoices").then(r => r.data) });
   const { data: customers = [] } = useQuery({ queryKey: ["cus"], queryFn: () => api.get("/customers").then(r => r.data) });
   const { data: txns = [] } = useQuery({ queryKey: ["txns"], queryFn: () => api.get("/transactions?limit=500").then(r => r.data) });
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: () => api.get("/settings").then(r => r.data) });
+  const { data: pmSummary } = useQuery({ queryKey: ["pay-summary"], queryFn: () => api.get("/payments/summary").then(r => r.data) });
+  const methods = (pmSummary?.methods || []).filter(m => m.active);
 
   const eligible = txns.filter(t => t.type === "OUT" && !t.invoice_id && (!customerId || t.customer_id === customerId));
 
@@ -78,7 +84,12 @@ export default function Invoices() {
   };
 
   const markPaid = async (id) => {
-    try { await api.post(`/invoices/${id}/mark-paid`); toast.success("Marked paid"); qc.invalidateQueries(); }
+    try {
+      await api.post(`/invoices/${id}/mark-paid`, { payment_method_id: payMethodId || null });
+      toast.success(t("markPaidWith"));
+      setPayTarget(null); setPayMethodId("");
+      qc.invalidateQueries();
+    }
     catch (e) { toast.error(formatApiError(e)); }
   };
 
@@ -172,7 +183,7 @@ export default function Invoices() {
                         total: inv.total, note: inv.status === "paid" ? "PAID" : "Please settle at your earliest.",
                       });
                     }} data-testid={`invoice-wa-${inv.invoice_number}`}><MessageCircle className="h-4 w-4" /></Button>
-                    {inv.status !== "paid" && <Button size="sm" variant="outline" className="rounded-full" onClick={() => markPaid(inv.id)} data-testid={`invoice-paid-${inv.invoice_number}`}><CheckCircle2 className="h-3 w-3 mr-1" />Paid</Button>}
+                    {inv.status !== "paid" && <Button size="sm" variant="outline" className="rounded-full" onClick={() => { setPayTarget(inv); setPayMethodId(methods[0]?.id || ""); }} data-testid={`invoice-paid-${inv.invoice_number}`}><CheckCircle2 className="h-3 w-3 mr-1" />Paid</Button>}
                     <Button size="icon" variant="ghost" onClick={() => del(inv.id)}><Trash2 className="h-4 w-4 text-rose-400" /></Button>
                   </div>
                 </TableCell>
@@ -228,6 +239,37 @@ export default function Invoices() {
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setShowCreate(false)}>Cancel</Button>
             <Button onClick={submit} className="rounded-full" data-testid="invoice-submit">Create invoice</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!payTarget} onOpenChange={(v) => { if (!v) { setPayTarget(null); setPayMethodId(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle className="font-display">{t("markPaidWith")}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            {payTarget && (
+              <div className="p-3 rounded-md border border-border bg-muted/40">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("invoiceNumber")}</div>
+                <div className="font-mono font-bold">{payTarget.invoice_number} · {payTarget.customer_name || t("walkIn")}</div>
+                <div className="mt-2 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("total")}</div>
+                <div className="font-display text-2xl font-bold">{formatEUR(payTarget.total)}</div>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label>{t("paymentMethod")}</Label>
+              <Select value={payMethodId || "none"} onValueChange={(v) => setPayMethodId(v === "none" ? "" : v)}>
+                <SelectTrigger data-testid="invoice-paymethod-select"><SelectValue placeholder={t("pickMethod")} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{t("payMethodNone")}</SelectItem>
+                  {methods.map(m => <SelectItem key={m.id} value={m.id}>{m.name} · {formatEUR(m.balance)}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => { setPayTarget(null); setPayMethodId(""); }}>{t("cancel")}</Button>
+            <Button className="rounded-full bg-emerald-500 hover:bg-emerald-500/90" onClick={() => markPaid(payTarget.id)} data-testid="invoice-paid-confirm">
+              <CheckCircle2 className="h-4 w-4 mr-2" /> {t("paid")}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

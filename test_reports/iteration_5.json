@@ -1,0 +1,56 @@
+{
+  "summary": "Iteration-5 full test of the new payment-methods / Accounts feature. Backend: created /app/backend/tests/test_iteration5.py (12 pytest cases) -> 11 PASSED / 1 FAILED. Covered default seeding of Cash/Bank Transfer/Card / ATM with computed balance, /api/payments/summary total consistency, owner-only CRUD + staff 403 on create/update/delete, delete blocked (400) while entries exist and succeeding once empty, validation (422 on bad type / amount<=0 / bad direction, 404 unknown method), manual deposit+withdrawal with running balance_after and statement math (opening 500 + 200 in - 75.5 out = 624.5), invoice mark-paid logging an IN entry equal to invoice total + 400 on re-mark + 404 on unknown method (invoice stays draft) + entry undeletable (400), PO receive logging an OUT entry equal to PO total, inventory qty/cost update, staff 403, duplicate receive 400, and cash-register exposing payment_method_name. Frontend (Playwright, owner + staff): /accounts renders 3 default cards + grand total, new method 'QA Wise Business' (bank, opening 250) created and card appears, deposit 100 -> balance 350 and grand total refreshed, statement table with period-opening/total-in/total-out/closing boxes + print/PDF buttons + entry row with running balance, invoice 'Paid' dialog with method select -> invoice becomes Paid, PO 'Receive' dialog with method select -> PO becomes Received (Cash 560 -> 562 after +20 invoice / -18 PO, arithmetic correct), cash-register shows 'By payment method' section and payment-method column, sidebar nav-accounts present between Cash Register and Reminders, staff sees read-only Accounts (no New method / edit / toggle / delete). Zero console errors and zero 4xx/5xx responses in all UI runs. Logo /logo-shawish.png serves 200 (40851 bytes) and settings.logo_url points at it. One real backend defect found (PO payment method stripped from API response). All QA/TEST data cleaned up.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/purchase-orders (+ receive)", "issue": "BUG: payment_method_id / payment_method_name are written to db.purchase_orders by receive_po but the PurchaseOrder Pydantic model has no such fields, so response_model=List[PurchaseOrder] strips them. Verified in Mongo: PO doc has payment_method_name='Bank Transfer' while the API returns no such key -> UI can never show which account paid a PO. Fix: add payment_method_id/payment_method_name Optional fields to PurchaseOrder (Invoice model already has them).", "priority": "MEDIUM"},
+      {"endpoint": "POST /api/invoices/{id}/mark-paid, POST /api/purchase-orders/{id}/receive", "issue": "payment_method_id is optional; when omitted (UI offers an explicit 'no method' option) the document is marked paid/received with NO ledger entry, so account balances silently diverge from revenue. If that is not intended, make the method mandatory or flag such documents as 'unallocated'."},
+      {"endpoint": "POST /api/purchase-orders/{id}/receive", "issue": "Inventory/transaction writes happen BEFORE the payment_method validation; a bad payment_method_id returns 404 after stock has already been incremented (partial write, no rollback). Validate the method first."},
+      {"endpoint": "GET /api/payment-methods, /api/payments/summary", "issue": "_pm_balance runs one full find() per method (N+1, up to 20000 docs each). Fine now, but replace with a single $group aggregation before the ledger grows."},
+      {"endpoint": "PUT /api/payment-methods/{id}", "issue": "updates dict drops None values, which also makes it impossible to clear 'note' back to null; active=false works correctly (verified). Low impact."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Accounts > statement", "issues": ["FROM/TO filters use native <input type=date> pickers instead of the shadcn Calendar/Popover used elsewhere (same nit as iteration 4 Reports tab)."]},
+      {"screen": "Cash Register > PDF/print export", "issues": ["The exported report headers are still ['Time','Invoice','Customer','Total'] — the new payment-method column present in the on-screen table is missing from the PDF/print output."]},
+      {"screen": "Accounts", "issues": ["Statement card only renders after a method card is clicked; there is no hint/empty-state prompting the user to pick an account (minor discoverability)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration5.py",
+    "/app/backend/tests/seed_iter5_ui.py",
+    "/app/backend/tests/cleanup_iter5.py",
+    "/app/test_reports/pytest/iteration5.xml"
+  ],
+  "action_items": [
+    "Add payment_method_id / payment_method_name Optional fields to the PurchaseOrder model so the received PO's payment account survives response serialization (and optionally show it as a column on /purchase-orders).",
+    "Decide whether payment_method is mandatory on mark-paid / receive; today the 'no method' choice silently skips the ledger entry.",
+    "Move the payment-method existence check in receive_po above the inventory/transaction writes to avoid partial receives on a bad method id.",
+    "Optional polish: include the payment-method column in the Cash Register PDF/print export; swap the Accounts statement native date inputs for the shadcn Calendar; replace the per-method balance find() with a single aggregation."
+  ],
+  "critical_code_review_comments": [
+    "Statement math is correct: period_opening only adds pre-range entries when `start` is supplied; without start it equals opening_balance. Verified numerically.",
+    "Ledger immutability is enforced: DELETE /api/payment-entries rejects reference_type in (invoice, po, repair) with 400 and is owner-only — verified for both invoice and PO entries.",
+    "Staff role can read every account balance and the grand total, and can also POST /api/payment-entries (only method CRUD is owner-gated). Confirm this is the intended privacy/authorisation model for a garage with mechanics.",
+    "server.py is now ~1533 lines and re-includes the api_router at the bottom (app.router.routes filtered then re-added) — split payments/invoices/POs into APIRouter modules; the route-stripping hack is fragile.",
+    "Payment entries carry no soft-delete/void path, so a wrongly-paid invoice cannot be corrected without direct DB access (only manual/opening entries are deletable)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration5.py (new)",
+    "/app/backend/tests/seed_iter5_ui.py (new)",
+    "/app/backend/tests/cleanup_iter5.py (new)",
+    "/app/frontend/src/pages/Accounts.jsx (testability only: data-testid accounts-total-card / accounts-total-value / method-delete-{id})",
+    "/app/frontend/src/pages/CashRegister.jsx (testability only: data-testid till-by-method)",
+    "/app/test_reports/iteration_5.json"
+  ],
+  "success_rate": {"backend": "92% (11/12 — only the PO payment_method_name response assertion fails)", "frontend": "100% of tested flows (accounts CRUD, entry, statement, invoice paid dialog, PO receive dialog, cash register breakdown, nav, staff read-only)"},
+  "seed_data_creation": "Created via API for testing: inventory items TEST_PM Widget / QA_UI Part, customers TEST_PM Customer / QA_UI Customer, suppliers TEST_PM Supplier / QA_UI Supplier, invoice INV-260820-4FD5, POs PO-260820-5727 / PO-260820-EB38, payment method 'QA Wise Business'. ALL removed afterwards by /app/backend/tests/cleanup_iter5.py. NOTE: one pre-existing manual Cash entry of 500,00 EUR (not created by me) remains in db.payment_entries, so Cash shows a 500 EUR balance.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "Owner admin@garage.com/admin123, Staff mike@garage.com/mike1234 — both valid",
+  "context_for_next_testing_agent": "Run `cd /app/backend && python -m pytest tests/test_iteration5.py -v` (12 cases). The only expected failure is TestPOReceive asserting payment_method_name on GET /api/purchase-orders — it will pass once the PurchaseOrder model gains the payment_method fields. Use /app/backend/tests/seed_iter5_ui.py to seed an unpaid invoice + draft PO for UI dialogs and cleanup_iter5.py afterwards. Accounts UI testids: accounts-page, accounts-total-value, accounts-new-method, accounts-new-entry, method-card-{id}, method-edit/toggle/delete-{id}, method-name-input, method-type-select, method-opening-input, method-save, entry-method-select, entry-in-btn/entry-out-btn, entry-amount-input, entry-save, statement-card, stmt-start/end/print/pdf, entry-row-{id}; cash register: till-by-method.",
+  "rca_of_the_issue": "PO payment method missing from API: receive_po persists payment_method_id/payment_method_name via $set, but GET /api/purchase-orders declares response_model=List[PurchaseOrder] and the PurchaseOrder model (server.py:534) does not declare those fields, so FastAPI filters them out of the serialized response. Confirmed by reading the Mongo doc directly (payment_method_name='Bank Transfer') while the HTTP response omits the key."
+}

@@ -184,6 +184,9 @@ class Transaction(BaseModel):
     created_by: str = ""
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
+class MarkPaidPayload(BaseModel):
+    payment_method_id: Optional[str] = None
+
 class TransactionCreate(BaseModel):
     type: Literal["IN", "OUT"]
     item_id: str
@@ -537,6 +540,8 @@ class PurchaseOrder(BaseModel):
     status: Literal["draft", "sent", "received", "cancelled"] = "draft"
     total: float = 0.0
     note: Optional[str] = ""
+    payment_method_id: Optional[str] = None
+    payment_method_name: Optional[str] = ""
     created_by: str = ""
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     sent_at: Optional[str] = None
@@ -605,12 +610,18 @@ async def send_po(po_id: str, user: dict = Depends(require_owner)):
     return {"ok": True}
 
 @api_router.post("/purchase-orders/{po_id}/receive")
-async def receive_po(po_id: str, user: dict = Depends(require_owner)):
+async def receive_po(po_id: str, payload: MarkPaidPayload = MarkPaidPayload(), user: dict = Depends(require_owner)):
     po = await db.purchase_orders.find_one({"id": po_id}, {"_id": 0})
     if not po:
         raise HTTPException(status_code=404, detail="PO not found")
     if po["status"] == "received":
         raise HTTPException(status_code=400, detail="Already received")
+    # Validate payment method up-front to avoid partial inventory writes
+    method = None
+    if payload.payment_method_id:
+        method = await db.payment_methods.find_one({"id": payload.payment_method_id}, {"_id": 0})
+        if not method:
+            raise HTTPException(status_code=404, detail="Payment method not found")
     now = datetime.now(timezone.utc).isoformat()
     for line in po["items"]:
         item = await db.inventory.find_one({"id": line["item_id"]}, {"_id": 0})
@@ -633,7 +644,19 @@ async def receive_po(po_id: str, user: dict = Depends(require_owner)):
             "cost_price": line["unit_cost"],
             "updated_at": now,
         }})
-    await db.purchase_orders.update_one({"id": po_id}, {"$set": {"status": "received", "received_at": now}})
+    update = {"status": "received", "received_at": now}
+    if method:
+        update["payment_method_id"] = payload.payment_method_id
+        update["payment_method_name"] = method.get("name", "")
+        await _log_payment(
+            method_id=payload.payment_method_id, direction="out",
+            amount=float(po.get("total") or 0), reference_type="po",
+            reference_id=po_id, reference_no=po.get("po_number", ""),
+            counterpart=po.get("supplier_name", "") or "Supplier",
+            note=f"PO payment",
+            created_by=user.get("email", ""),
+        )
+    await db.purchase_orders.update_one({"id": po_id}, {"$set": update})
     return {"ok": True}
 
 @api_router.delete("/purchase-orders/{po_id}")
@@ -665,6 +688,8 @@ class Invoice(BaseModel):
     note: Optional[str] = ""
     transaction_ids: List[str] = []
     repair_id: Optional[str] = None
+    payment_method_id: Optional[str] = None
+    payment_method_name: Optional[str] = ""
     created_by: str = ""
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     paid_at: Optional[str] = None
@@ -707,11 +732,31 @@ async def invoice_from_txns(payload: InvoiceFromTxns, user: dict = Depends(get_c
     return inv
 
 @api_router.post("/invoices/{inv_id}/mark-paid")
-async def mark_paid(inv_id: str, user: dict = Depends(get_current_user)):
-    r = await db.invoices.update_one({"id": inv_id}, {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}})
-    if r.matched_count == 0:
+async def mark_paid(inv_id: str, payload: MarkPaidPayload = MarkPaidPayload(), user: dict = Depends(get_current_user)):
+    inv = await db.invoices.find_one({"id": inv_id}, {"_id": 0})
+    if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    return {"ok": True}
+    if inv.get("status") == "paid":
+        raise HTTPException(status_code=400, detail="Invoice already paid")
+    update = {"status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}
+    method_name = ""
+    if payload.payment_method_id:
+        m = await db.payment_methods.find_one({"id": payload.payment_method_id}, {"_id": 0})
+        if not m:
+            raise HTTPException(status_code=404, detail="Payment method not found")
+        method_name = m.get("name", "")
+        update["payment_method_id"] = payload.payment_method_id
+        update["payment_method_name"] = method_name
+        await _log_payment(
+            method_id=payload.payment_method_id, direction="in",
+            amount=float(inv.get("total") or 0), reference_type="invoice",
+            reference_id=inv_id, reference_no=inv.get("invoice_number", ""),
+            counterpart=inv.get("customer_name", "") or "Walk-in",
+            note=f"Invoice payment",
+            created_by=user.get("email", ""),
+        )
+    await db.invoices.update_one({"id": inv_id}, {"$set": update})
+    return {"ok": True, "payment_method": method_name}
 
 @api_router.delete("/invoices/{inv_id}")
 async def delete_invoice(inv_id: str, user: dict = Depends(require_owner)):
@@ -1227,6 +1272,217 @@ async def cash_register(date: Optional[str] = None, user: dict = Depends(get_cur
         "by_customer": sorted(by_customer.values(), key=lambda x: -x["total"]),
         "invoices": sorted(invs, key=lambda i: i.get("paid_at", "")),
     }
+
+# =========================
+# Payment Methods & Accounts
+# =========================
+DEFAULT_PAYMENT_METHODS = [
+    {"name": "Cash", "type": "cash"},
+    {"name": "Bank Transfer", "type": "bank"},
+    {"name": "Card / ATM", "type": "card"},
+]
+
+class PaymentMethod(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    type: Literal["cash", "bank", "card", "other"] = "other"
+    opening_balance: float = 0.0
+    note: Optional[str] = ""
+    active: bool = True
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+class PaymentMethodCreate(BaseModel):
+    name: str
+    type: Literal["cash", "bank", "card", "other"] = "other"
+    opening_balance: float = 0.0
+    note: Optional[str] = ""
+    active: bool = True
+
+class PaymentMethodUpdate(BaseModel):
+    name: Optional[str] = None
+    type: Optional[Literal["cash", "bank", "card", "other"]] = None
+    opening_balance: Optional[float] = None
+    note: Optional[str] = None
+    active: Optional[bool] = None
+
+class PaymentEntry(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    method_id: str
+    method_name: str = ""
+    direction: Literal["in", "out"]  # in = deposit / income, out = withdrawal / expense
+    amount: float = Field(gt=0)
+    reference_type: Literal["invoice", "po", "repair", "manual", "opening"] = "manual"
+    reference_id: Optional[str] = None
+    reference_no: Optional[str] = ""
+    counterpart: Optional[str] = ""   # customer or supplier name
+    note: Optional[str] = ""
+    created_by: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+class PaymentEntryCreate(BaseModel):
+    method_id: str
+    direction: Literal["in", "out"]
+    amount: float = Field(gt=0)
+    note: Optional[str] = ""
+    counterpart: Optional[str] = ""
+
+async def _seed_payment_methods():
+    if await db.payment_methods.count_documents({}) == 0:
+        for pm in DEFAULT_PAYMENT_METHODS:
+            obj = PaymentMethod(**pm)
+            await db.payment_methods.insert_one(obj.model_dump())
+
+async def _pm_balance(method: dict) -> float:
+    entries = await db.payment_entries.find({"method_id": method["id"]}, {"_id": 0}).to_list(20000)
+    net = sum((e["amount"] if e["direction"] == "in" else -e["amount"]) for e in entries)
+    return round(float(method.get("opening_balance") or 0) + net, 2)
+
+async def _log_payment(*, method_id: str, direction: str, amount: float,
+                       reference_type: str, reference_id: Optional[str] = None,
+                       reference_no: str = "", counterpart: str = "",
+                       note: str = "", created_by: str = "") -> Optional[PaymentEntry]:
+    if not method_id or amount <= 0:
+        return None
+    m = await db.payment_methods.find_one({"id": method_id}, {"_id": 0})
+    if not m:
+        return None
+    entry = PaymentEntry(
+        method_id=method_id, method_name=m.get("name", ""),
+        direction=direction, amount=round(float(amount), 2),
+        reference_type=reference_type, reference_id=reference_id,
+        reference_no=reference_no, counterpart=counterpart,
+        note=note, created_by=created_by,
+    )
+    await db.payment_entries.insert_one(entry.model_dump())
+    return entry
+
+@api_router.get("/payment-methods")
+async def list_payment_methods(user: dict = Depends(get_current_user)):
+    await _seed_payment_methods()
+    methods = await db.payment_methods.find({}, {"_id": 0}).sort("created_at", 1).to_list(200)
+    result = []
+    for m in methods:
+        m["balance"] = await _pm_balance(m)
+        result.append(m)
+    return result
+
+@api_router.post("/payment-methods", response_model=PaymentMethod)
+async def create_payment_method(payload: PaymentMethodCreate, user: dict = Depends(require_owner)):
+    obj = PaymentMethod(**payload.model_dump())
+    await db.payment_methods.insert_one(obj.model_dump())
+    return obj
+
+@api_router.put("/payment-methods/{mid}", response_model=PaymentMethod)
+async def update_payment_method(mid: str, payload: PaymentMethodUpdate, user: dict = Depends(require_owner)):
+    existing = await db.payment_methods.find_one({"id": mid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Payment method not found")
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    await db.payment_methods.update_one({"id": mid}, {"$set": updates})
+    return await db.payment_methods.find_one({"id": mid}, {"_id": 0})
+
+@api_router.delete("/payment-methods/{mid}")
+async def delete_payment_method(mid: str, user: dict = Depends(require_owner)):
+    count = await db.payment_entries.count_documents({"method_id": mid})
+    if count > 0:
+        raise HTTPException(status_code=400, detail=f"Cannot delete — {count} entries linked. Mark inactive instead.")
+    await db.payment_methods.delete_one({"id": mid})
+    return {"ok": True}
+
+@api_router.get("/payment-entries")
+async def list_payment_entries(method_id: Optional[str] = None,
+                                start: Optional[str] = None,
+                                end: Optional[str] = None,
+                                limit: int = 500,
+                                user: dict = Depends(get_current_user)):
+    q = {}
+    if method_id:
+        q["method_id"] = method_id
+    if start or end:
+        rng = {}
+        if start: rng["$gte"] = start + "T00:00:00+00:00"
+        if end: rng["$lte"] = end + "T23:59:59+00:00"
+        q["created_at"] = rng
+    return await db.payment_entries.find(q, {"_id": 0}).sort("created_at", -1).to_list(limit)
+
+@api_router.post("/payment-entries", response_model=PaymentEntry)
+async def create_payment_entry(payload: PaymentEntryCreate, user: dict = Depends(get_current_user)):
+    entry = await _log_payment(
+        method_id=payload.method_id, direction=payload.direction,
+        amount=payload.amount, reference_type="manual",
+        counterpart=payload.counterpart or "",
+        note=payload.note or "",
+        created_by=user.get("email", ""),
+    )
+    if not entry:
+        raise HTTPException(status_code=404, detail="Payment method not found")
+    return entry
+
+@api_router.delete("/payment-entries/{eid}")
+async def delete_payment_entry(eid: str, user: dict = Depends(require_owner)):
+    entry = await db.payment_entries.find_one({"id": eid}, {"_id": 0})
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    if entry.get("reference_type") not in ("manual", "opening"):
+        raise HTTPException(status_code=400, detail="Only manual entries can be deleted. Void the source document instead.")
+    await db.payment_entries.delete_one({"id": eid})
+    return {"ok": True}
+
+@api_router.get("/payment-methods/{mid}/statement")
+async def payment_method_statement(mid: str,
+                                    start: Optional[str] = None,
+                                    end: Optional[str] = None,
+                                    user: dict = Depends(get_current_user)):
+    m = await db.payment_methods.find_one({"id": mid}, {"_id": 0})
+    if not m:
+        raise HTTPException(status_code=404, detail="Payment method not found")
+    q = {"method_id": mid}
+    if start or end:
+        rng = {}
+        if start: rng["$gte"] = start + "T00:00:00+00:00"
+        if end: rng["$lte"] = end + "T23:59:59+00:00"
+        q["created_at"] = rng
+    entries = await db.payment_entries.find(q, {"_id": 0}).sort("created_at", 1).to_list(10000)
+    opening = float(m.get("opening_balance") or 0)
+    total_in = round(sum(e["amount"] for e in entries if e["direction"] == "in"), 2)
+    total_out = round(sum(e["amount"] for e in entries if e["direction"] == "out"), 2)
+    # Running balance rows
+    running = opening
+    if start:
+        # exclude entries in the queried range to compute opening for range
+        all_before = await db.payment_entries.find({
+            "method_id": mid, "created_at": {"$lt": start + "T00:00:00+00:00"}
+        }, {"_id": 0}).to_list(10000)
+        for e in all_before:
+            running += (e["amount"] if e["direction"] == "in" else -e["amount"])
+    period_opening = round(running, 2)
+    rows = []
+    for e in entries:
+        running += (e["amount"] if e["direction"] == "in" else -e["amount"])
+        rows.append({**e, "balance_after": round(running, 2)})
+    closing_balance = round(running, 2)
+    return {
+        "method": m,
+        "opening_balance": opening,
+        "period_opening": period_opening,
+        "total_in": total_in,
+        "total_out": total_out,
+        "closing_balance": closing_balance,
+        "entries": rows,
+    }
+
+@api_router.get("/payments/summary")
+async def payments_summary(user: dict = Depends(get_current_user)):
+    """Aggregate: overall balance per method + grand total."""
+    await _seed_payment_methods()
+    methods = await db.payment_methods.find({}, {"_id": 0}).sort("created_at", 1).to_list(200)
+    total = 0.0
+    result = []
+    for m in methods:
+        bal = await _pm_balance(m)
+        total += bal
+        result.append({**m, "balance": bal})
+    return {"methods": result, "total_balance": round(total, 2)}
 
 # --- Cron endpoint (daily reminders sweep) ---
 @api_router.post("/cron/reminders")

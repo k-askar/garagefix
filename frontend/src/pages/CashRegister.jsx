@@ -23,11 +23,12 @@ export default function CashRegister() {
     const args = {
       title: `Cash Register · ${date}`,
       subtitle: `${data?.invoice_count || 0} paid invoices`,
-      headers: ["Time", "Invoice", "Customer", "Total"],
+      headers: ["Time", "Invoice", "Customer", "Method", "Total"],
       rows: (data?.invoices || []).map(i => [
         (i.paid_at || "").slice(11, 16),
         i.invoice_number,
         i.customer_name || "Walk-in",
+        i.payment_method_name || "—",
         formatEUR(i.total),
       ]),
       summary: [
@@ -78,11 +79,44 @@ export default function CashRegister() {
         ))}
       </div>
 
+      <Card className="p-6 border-border overflow-x-auto" data-testid="till-by-method">
+        <h3 className="font-display text-xl font-bold mb-4">{t("tillByMethod")}</h3>
+        {(() => {
+          const grouped = {};
+          (data?.invoices || []).forEach(i => {
+            const k = i.payment_method_name || "—";
+            grouped[k] = grouped[k] || { name: k, count: 0, total: 0 };
+            grouped[k].count += 1; grouped[k].total += i.total;
+          });
+          const rows = Object.values(grouped);
+          return (
+            <Table>
+              <TableHeader><TableRow className="hover:bg-transparent">
+                <TableHead>{t("paymentMethod")}</TableHead>
+                <TableHead className="text-right">{t("invoices")}</TableHead>
+                <TableHead className="text-right">{t("total")}</TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {rows.map(r => (
+                  <TableRow key={r.name}>
+                    <TableCell>{r.name}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.count}</TableCell>
+                    <TableCell className="text-right tabular-nums font-mono font-bold">{formatEUR(r.total)}</TableCell>
+                  </TableRow>
+                ))}
+                {!rows.length && <TableRow><TableCell colSpan={3} className="text-center py-6 text-muted-foreground">—</TableCell></TableRow>}
+              </TableBody>
+            </Table>
+          );
+        })()}
+      </Card>
+
       <Card className="p-6 border-border overflow-x-auto">
         <h3 className="font-display text-xl font-bold mb-4">Paid invoices ({data?.invoice_count || 0})</h3>
         <Table>
           <TableHeader><TableRow className="hover:bg-transparent">
             <TableHead>Time</TableHead><TableHead>Invoice</TableHead><TableHead>Customer</TableHead>
+            <TableHead>{t("paymentMethod")}</TableHead>
             <TableHead className="text-right">Tax</TableHead><TableHead className="text-right">Total</TableHead>
           </TableRow></TableHeader>
           <TableBody>
@@ -91,11 +125,12 @@ export default function CashRegister() {
                 <TableCell className="font-mono text-xs">{(i.paid_at || "").slice(11, 16)}</TableCell>
                 <TableCell className="font-mono text-xs">{i.invoice_number}</TableCell>
                 <TableCell>{i.customer_name || "Walk-in"}</TableCell>
+                <TableCell><span className="text-xs font-mono text-muted-foreground">{i.payment_method_name || "—"}</span></TableCell>
                 <TableCell className="text-right tabular-nums text-muted-foreground">{formatEUR(i.tax || 0)}</TableCell>
                 <TableCell className="text-right tabular-nums font-mono font-bold">{formatEUR(i.total)}</TableCell>
               </TableRow>
             ))}
-            {!(data?.invoices || []).length && <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No paid invoices for this day.</TableCell></TableRow>}
+            {!(data?.invoices || []).length && <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No paid invoices for this day.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </Card>

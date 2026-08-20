@@ -47,13 +47,41 @@
 - **Print** button on every list & card (physical printer OR native Save-as-PDF)
 - **Full Arabic i18n** with RTL layout (Cairo/Amiri fonts), plus Dutch. Language switcher in header.
 
+### Iteration 6 — Cash Register, Reminders, Scan Pickup
+- **Cash Register** daily till (paid invoices, tax, in/out flow, by-customer split, PDF/print)
+- **Service Reminders** with Resend-managed email + `.emergent/crons.yml` daily sweep
+- **Scan Pickup** — warehouse-to-jobcard barcode allocation flow
+- SHAWISH branded logo (`/logo-shawish.png`) in header + job card PDFs; **replaced 2026-02 with cleaner watermark-free variant** (`nrg6whzv_image.png`, ~40 KB)
+
+### Iteration 7 — Payment Methods & Account Balances (Feb 2026)
+- **Dynamic payment methods**: seed defaults Cash / Bank Transfer / Card-ATM; owner can add/edit/deactivate/delete (delete blocked while entries exist). Types: cash / bank / card / other.
+- **Opening balance** per method + full ledger (`payment_entries`) with running balance.
+- **Manual entries**: deposits & withdrawals with counterpart + note; only manual/opening entries are user-deletable (ledger immutability for invoice/PO/repair-linked entries).
+- **Invoice mark-paid dialog** picks a payment method → auto-logs an IN entry equal to invoice total.
+- **PO receive dialog** picks a payment method → auto-logs an OUT entry equal to PO total (payment_method fields serialized on the model). Method existence validated up-front to avoid partial receive.
+- **Accounts page** (`/accounts`): method cards with balances, grand total card, statement per method with date range + summary boxes (period opening / total in / total out / closing) + PDF/print export.
+- **Cash Register** now shows a "By payment method" breakdown and a payment-method column (incl. in PDF/print export).
+- 12/12 pytest cases in `/app/backend/tests/test_iteration5.py` green.
+
 ## Admin Seed
 - **Owner**: admin@garage.com / admin123
 - **Staff**: mike@garage.com / mike1234
 
+## Roadmap / Backlog
+- Time tracking for labor (mechanics clock in/out on repair cards) — P1
+- SMS fallback via Twilio when a customer has no email — P2
+- Photo attachments for cars (vehicle damage/status on repair card) — P2
+- Loyalty credit for returning customers (€ off after N paid invoices) — P2
+- Refactor `server.py` (~1550 lines) into APIRouter modules per domain
+- Replace per-method balance N+1 with a single Mongo `$group` aggregation
+- Void/reverse ledger entries for invoice/PO corrections (soft-delete)
+
 ## Files of note
 - `/app/backend/server.py`
+- `/app/backend/tests/test_iteration5.py` (payment method regression)
+- `/app/frontend/src/pages/Accounts.jsx` (new)
 - `/app/frontend/src/i18n/index.jsx` (EN/NL/AR dictionaries)
 - `/app/frontend/src/lib/pdf.js` (html2canvas + jsPDF)
 - `/app/frontend/src/lib/reports.js` (list & repair-card report builders)
 - `/app/frontend/src/lib/barcode-batch.js` (label grid)
+- `/app/frontend/public/logo-shawish.png` (SHAWISH brand, 40 KB variant)
