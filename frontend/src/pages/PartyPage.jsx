@@ -20,6 +20,7 @@ export default function PartyPage({ kind }) {
   const label = isSup ? t("supplier") : t("customer");
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "" });
+  const [vehForm2, setVehForm2] = useState({ make: "", model: "", year: "", plate: "", color: "", km: "" });
   const [exporting, setExporting] = useState(false);
   const [historyId, setHistoryId] = useState(null);
   const [downloadingHistoryId, setDownloadingHistoryId] = useState(null);
@@ -58,9 +59,17 @@ export default function PartyPage({ kind }) {
   const save = async (e) => {
     e.preventDefault();
     try {
-      await api.post(`/${kind}`, form);
+      const summaryVehicle = isSup ? "" : [vehForm2.make, vehForm2.model, vehForm2.year, vehForm2.plate].filter(Boolean).join(" ");
+      const { data: created } = await api.post(`/${kind}`, { ...form, vehicle: summaryVehicle || form.vehicle });
+      // If customer + at least make/plate provided, register the vehicle as a first-class record
+      if (!isSup && (vehForm2.make || vehForm2.plate)) {
+        try {
+          await api.post(`/customers/${created.id}/vehicles`, vehForm2);
+        } catch (err) { /* silent — customer is saved even if vehicle fails */ }
+      }
       toast.success(`${label} added`);
       setForm({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "" });
+      setVehForm2({ make: "", model: "", year: "", plate: "", color: "", km: "" });
       setOpen(false);
       qc.invalidateQueries({ queryKey: [kind] });
     } catch (e) { toast.error(formatApiError(e)); }
@@ -142,7 +151,20 @@ export default function PartyPage({ kind }) {
             <form onSubmit={save} className="space-y-4">
               <div className="space-y-1.5"><Label>{t("name")}</Label><Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid={`${kind}-name`} /></div>
               {isSup && <div className="space-y-1.5"><Label>{t("contactPerson")}</Label><Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} /></div>}
-              {!isSup && <div className="space-y-1.5"><Label>{t("vehicle")}</Label><Input value={form.vehicle} onChange={(e) => setForm({ ...form, vehicle: e.target.value })} placeholder={t("vehicleHint")} /></div>}
+              {!isSup && (
+                <div className="space-y-2 p-3 rounded-md border border-border bg-muted/20">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("vehicle")} · {t("optional")}</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1.5"><Label className="text-xs">{t("make")}</Label><Input value={vehForm2.make} onChange={(e) => setVehForm2({ ...vehForm2, make: e.target.value })} placeholder="e.g. VW, BMW, Toyota" data-testid="new-cust-veh-make" /></div>
+                    <div className="space-y-1.5"><Label className="text-xs">{t("model")}</Label><Input value={vehForm2.model} onChange={(e) => setVehForm2({ ...vehForm2, model: e.target.value })} placeholder="e.g. Golf, 320i" data-testid="new-cust-veh-model" /></div>
+                    <div className="space-y-1.5"><Label className="text-xs">{t("year")}</Label><Input value={vehForm2.year} onChange={(e) => setVehForm2({ ...vehForm2, year: e.target.value })} placeholder="2020" /></div>
+                    <div className="space-y-1.5"><Label className="text-xs">{t("plateNumber")}</Label><Input value={vehForm2.plate} onChange={(e) => setVehForm2({ ...vehForm2, plate: e.target.value })} placeholder="NL-XX-00" data-testid="new-cust-veh-plate" /></div>
+                    <div className="space-y-1.5"><Label className="text-xs">{t("color")}</Label><Input value={vehForm2.color} onChange={(e) => setVehForm2({ ...vehForm2, color: e.target.value })} /></div>
+                    <div className="space-y-1.5"><Label className="text-xs">{t("odometer")}</Label><Input value={vehForm2.km} onChange={(e) => setVehForm2({ ...vehForm2, km: e.target.value })} placeholder="km" /></div>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">{t("addMoreVehiclesHint")}</p>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5"><Label>{t("email")}</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
                 <div className="space-y-1.5"><Label>{t("phone")}</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
