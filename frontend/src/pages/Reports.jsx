@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, formatEUR } from "@/lib/api";
+import { api, formatEUR, formatApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
-import { TrendingUp, Wallet } from "lucide-react";
+import { TrendingUp, Wallet, FileSpreadsheet } from "lucide-react";
+import { toast } from "sonner";
 
 const COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#06b6d4", "#f472b6", "#eab308"];
 
@@ -41,10 +42,30 @@ export default function Reports() {
 
   return (
     <div className="space-y-8" data-testid="reports-page">
-      <div>
-        <div className="text-xs font-mono uppercase tracking-widest text-primary mb-2">Insights</div>
-        <h1 className="font-display text-4xl font-black tracking-tight">Reports</h1>
-        <p className="text-muted-foreground mt-2">Read the workshop's pulse and profitability.</p>
+      <div className="flex items-end justify-between flex-wrap gap-3">
+        <div>
+          <div className="text-xs font-mono uppercase tracking-widest text-primary mb-2">Insights</div>
+          <h1 className="font-display text-4xl font-black tracking-tight">Reports</h1>
+          <p className="text-muted-foreground mt-2">Read the workshop's pulse and profitability.</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" className="rounded-full" onClick={async () => {
+            try {
+              const res = await api.get("/reports/inventory/excel", { responseType: "blob" });
+              const url = URL.createObjectURL(res.data);
+              const a = document.createElement("a"); a.href = url; a.download = `inventory-${new Date().toISOString().slice(0, 10)}.xlsx`;
+              document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+            } catch (e) { toast.error(formatApiError(e)); }
+          }} data-testid="report-inv-excel"><FileSpreadsheet className="h-4 w-4 mr-2" /> Inventory · Excel</Button>
+          <Button variant="outline" className="rounded-full" onClick={async () => {
+            try {
+              const res = await api.get(`/reports/profit/excel?start=${start}&end=${end}`, { responseType: "blob" });
+              const url = URL.createObjectURL(res.data);
+              const a = document.createElement("a"); a.href = url; a.download = `profit-${start}-${end}.xlsx`;
+              document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+            } catch (e) { toast.error(formatApiError(e)); }
+          }} data-testid="report-profit-excel"><FileSpreadsheet className="h-4 w-4 mr-2" /> Profit · Excel</Button>
+        </div>
       </div>
 
       <Tabs defaultValue="overview">

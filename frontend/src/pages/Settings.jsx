@@ -69,6 +69,11 @@ export default function Settings() {
             <p className="text-[11px] text-muted-foreground">Used by the labor time clock on repair cards to auto-fill the labor charge.</p>
           </div>
           <div className="space-y-1.5">
+            <Label>Default BTW / VAT rate (%)</Label>
+            <Input type="number" step="0.1" min="0" max="100" value={form.default_tax_rate ?? 21} onChange={(e) => setForm({ ...form, default_tax_rate: Number(e.target.value) })} data-testid="settings-tax-rate" />
+            <p className="text-[11px] text-muted-foreground">Applied by default on repair cards and invoices. NL standard 21%, reduced 9%.</p>
+          </div>
+          <div className="space-y-1.5">
             <Label>Receipt footer note</Label>
             <Input value={form.footer_note} onChange={(e) => setForm({ ...form, footer_note: e.target.value })} placeholder="Thank you for choosing us!" />
           </div>

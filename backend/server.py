@@ -54,7 +54,9 @@ def create_access_token(user_id: str, email: str, role: str) -> str:
 
 async def get_current_user(request: Request) -> dict:
     auth_header = request.headers.get("Authorization", "")
-    token = auth_header[7:] if auth_header.startswith("Bearer ") else request.cookies.get("access_token")
+    token = auth_header[7:] if auth_header.startswith("Bearer ") else (
+        request.query_params.get("auth") or request.cookies.get("access_token")
+    )
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
@@ -605,6 +607,66 @@ async def dashboard_summary(user: dict = Depends(get_current_user)):
         movers[t["item_id"]]["revenue"] += t["total"]
     top_movers = sorted(movers.values(), key=lambda x: x["qty"], reverse=True)[:5]
 
+    # Open repair cards (in workshop right now)
+    open_cards_raw = await db.repairs.find(
+        {"status": {"$in": ["open", "in_progress"]}},
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(50)
+    now = datetime.now(timezone.utc)
+    open_cars = []
+    total_mech_minutes = 0.0
+    for c in open_cards_raw:
+        try:
+            created = datetime.fromisoformat(c["created_at"].replace("Z", "+00:00"))
+            hours_in_shop = round((now - created).total_seconds() / 3600.0, 1)
+        except Exception:
+            hours_in_shop = 0
+        # cover photo = first photo path
+        cover = None
+        if c.get("photos"):
+            cover = c["photos"][0].get("id")
+        open_cars.append({
+            "id": c["id"],
+            "card_number": c["card_number"],
+            "customer_name": c.get("customer_name") or "Walk-in",
+            "car_make": c.get("car_make", ""),
+            "car_model": c.get("car_model", ""),
+            "car_plate": c.get("car_plate", ""),
+            "car_year": c.get("car_year", ""),
+            "mechanic_name": c.get("mechanic_name", ""),
+            "status": c.get("status"),
+            "grand_total": c.get("grand_total", 0),
+            "hours_in_shop": hours_in_shop,
+            "cover_photo_id": cover,
+            "parts_count": len(c.get("parts_used") or []),
+        })
+        total_mech_minutes += float(c.get("labor_minutes") or 0)
+
+    # Weekly / monthly revenue (paid invoices)
+    now_iso = now.isoformat()
+    week_start = (now - timedelta(days=7)).isoformat()
+    month_start = (now - timedelta(days=30)).isoformat()
+    week_invs = await db.invoices.find({"status": "paid", "paid_at": {"$gte": week_start, "$lte": now_iso}}, {"_id": 0, "total": 1}).to_list(2000)
+    month_invs = await db.invoices.find({"status": "paid", "paid_at": {"$gte": month_start, "$lte": now_iso}}, {"_id": 0, "total": 1}).to_list(5000)
+    revenue_week = round(sum(i["total"] for i in week_invs), 2)
+    revenue_month = round(sum(i["total"] for i in month_invs), 2)
+
+    # Today's mechanic-hours (all completed time logs today)
+    today_iso_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    all_cards = await db.repairs.find({}, {"_id": 0, "time_logs": 1, "mechanic_name": 1}).to_list(5000)
+    today_minutes = 0.0
+    by_mech = {}
+    for c in all_cards:
+        for l in (c.get("time_logs") or []):
+            if l.get("stopped_at") and (l.get("stopped_at", "") >= today_iso_start):
+                m = float(l.get("minutes") or 0)
+                today_minutes += m
+                name = l.get("mechanic_name") or c.get("mechanic_name") or "—"
+                by_mech[name] = by_mech.get(name, 0) + m
+    mechanic_hours_today = [
+        {"name": k, "hours": round(v / 60.0, 2)} for k, v in sorted(by_mech.items(), key=lambda x: -x[1])
+    ]
+
     return {
         "total_stock_value": total_stock_value,
         "total_retail_value": total_retail_value,
@@ -617,6 +679,13 @@ async def dashboard_summary(user: dict = Depends(get_current_user)):
         "out_today": round(out_today, 2),
         "todays_txn_count": len(todays_txns),
         "top_movers": top_movers,
+        "open_cars": open_cars,
+        "open_cars_count": len(open_cars),
+        "revenue_today": round(sum(i.get("total", 0) for i in await db.invoices.find({"status": "paid", "paid_at": {"$gte": today_iso_start}}, {"_id": 0, "total": 1}).to_list(1000)), 2),
+        "revenue_week": revenue_week,
+        "revenue_month": revenue_month,
+        "mechanic_hours_today": mechanic_hours_today,
+        "mechanic_minutes_today": round(today_minutes, 1),
     }
 
 @api_router.get("/reports/movement")
@@ -674,6 +743,7 @@ class GarageSettings(BaseModel):
     footer_note: str = "Thank you for choosing us!"
     logo_url: str = "/logo-shawish.png"
     labor_rate: float = 45.0  # € per hour used to auto-fill labor charge from time logs
+    default_tax_rate: float = 21.0  # BTW / VAT %  (NL standard 21, reduced 9)
 
 @api_router.get("/settings")
 async def get_settings(user: dict = Depends(get_current_user)):
@@ -1117,6 +1187,17 @@ class TimeLogManualCreate(BaseModel):
     stopped_at: str  # ISO datetime
     note: Optional[str] = ""
 
+class RepairPhoto(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    storage_path: str
+    filename: str
+    content_type: str
+    size: int
+    caption: str = ""
+    kind: str = "general"   # before | after | damage | general
+    uploaded_by: str = ""
+    uploaded_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
 class RepairCard(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     card_number: str
@@ -1137,10 +1218,14 @@ class RepairCard(BaseModel):
     work_done: str = ""
     parts_used: List[PartUsed] = []
     time_logs: List[TimeLog] = []
+    photos: List[RepairPhoto] = []
     labor_minutes: float = 0.0
     labor_charge: float = 0.0
     parts_total: float = 0.0
     grand_total: float = 0.0
+    tax_rate: float = 21.0
+    tax_amount: float = 0.0
+    total_with_tax: float = 0.0
     status: Literal["open", "in_progress", "completed"] = "open"
     notes: str = ""
     invoice_id: Optional[str] = None
@@ -1179,6 +1264,7 @@ class RepairUpdate(BaseModel):
     diagnosis: Optional[str] = None
     work_done: Optional[str] = None
     labor_charge: Optional[float] = None
+    tax_rate: Optional[float] = None
     notes: Optional[str] = None
     status: Optional[Literal["open", "in_progress", "completed"]] = None
 
@@ -1191,10 +1277,26 @@ def _recalc_repair(card: dict) -> dict:
     parts_total = round(sum(p["total"] for p in card.get("parts_used", [])), 2)
     minutes = round(sum(l.get("minutes") or 0 for l in card.get("time_logs", []) if l.get("stopped_at")), 2)
     grand = round(parts_total + float(card.get("labor_charge") or 0), 2)
+    tax_rate = float(card.get("tax_rate") or 0)
+    tax_amount = round(grand * tax_rate / 100.0, 2)
+    total_with_tax = round(grand + tax_amount, 2)
     card["parts_total"] = parts_total
     card["labor_minutes"] = minutes
     card["grand_total"] = grand
+    card["tax_amount"] = tax_amount
+    card["total_with_tax"] = total_with_tax
     return card
+
+def _recalc_fields(card: dict) -> dict:
+    """Return the subset of a recalculated card that must be persisted after any
+    parts_used / time_logs / labor_charge / tax_rate change."""
+    return {
+        "parts_total": card["parts_total"],
+        "labor_minutes": card["labor_minutes"],
+        "grand_total": card["grand_total"],
+        "tax_amount": card["tax_amount"],
+        "total_with_tax": card["total_with_tax"],
+    }
 
 @api_router.get("/repairs", response_model=List[RepairCard])
 async def list_repairs(status: Optional[str] = None, user: dict = Depends(get_current_user)):
@@ -1260,11 +1362,10 @@ async def update_repair(rid: str, payload: RepairUpdate, user: dict = Depends(ge
     if updates.get("status") == "completed" and card.get("status") != "completed":
         updates["completed_at"] = datetime.now(timezone.utc).isoformat()
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
-    # Merge and recompute totals so labor_charge changes persist
+    # Merge and recompute totals so labor_charge / tax_rate changes persist
     merged = {**card, **updates}
     merged = _recalc_repair(merged)
-    updates["parts_total"] = merged["parts_total"]
-    updates["grand_total"] = merged["grand_total"]
+    updates.update(_recalc_fields(merged))
     await db.repairs.update_one({"id": rid}, {"$set": updates})
     return await db.repairs.find_one({"id": rid}, {"_id": 0})
 
@@ -1317,8 +1418,7 @@ async def add_part_to_repair(rid: str, payload: AddPart, user: dict = Depends(ge
     card["updated_at"] = datetime.now(timezone.utc).isoformat()
     await db.repairs.update_one({"id": rid}, {"$set": {
         "parts_used": card["parts_used"],
-        "parts_total": card["parts_total"],
-        "grand_total": card["grand_total"],
+        **_recalc_fields(card),
         "updated_at": card["updated_at"],
     }})
     return card
@@ -1340,7 +1440,8 @@ async def remove_part_from_repair(rid: str, txn_id: str, user: dict = Depends(ge
     card = _recalc_repair(card)
     card["updated_at"] = datetime.now(timezone.utc).isoformat()
     await db.repairs.update_one({"id": rid}, {"$set": {
-        "parts_used": parts, "parts_total": card["parts_total"], "grand_total": card["grand_total"],
+        "parts_used": parts,
+        **_recalc_fields(card),
         "updated_at": card["updated_at"],
     }})
     return card
@@ -1406,7 +1507,7 @@ async def clock_out(rid: str, payload: ClockOutPayload, user: dict = Depends(get
     card["updated_at"] = datetime.now(timezone.utc).isoformat()
     await db.repairs.update_one({"id": rid}, {"$set": {
         "time_logs": logs, "labor_charge": labor_charge,
-        "labor_minutes": card["labor_minutes"], "grand_total": card["grand_total"],
+        **_recalc_fields(card),
         "updated_at": card["updated_at"],
     }})
     return await db.repairs.find_one({"id": rid}, {"_id": 0})
@@ -1444,7 +1545,7 @@ async def add_manual_time_log(rid: str, payload: TimeLogManualCreate, user: dict
     card["updated_at"] = datetime.now(timezone.utc).isoformat()
     await db.repairs.update_one({"id": rid}, {"$set": {
         "time_logs": logs, "labor_charge": labor_charge,
-        "labor_minutes": card["labor_minutes"], "grand_total": card["grand_total"],
+        **_recalc_fields(card),
         "updated_at": card["updated_at"],
     }})
     return await db.repairs.find_one({"id": rid}, {"_id": 0})
@@ -1467,16 +1568,23 @@ async def delete_time_log(rid: str, log_id: str, user: dict = Depends(get_curren
     card["updated_at"] = datetime.now(timezone.utc).isoformat()
     await db.repairs.update_one({"id": rid}, {"$set": {
         "time_logs": logs, "labor_charge": labor_charge,
-        "labor_minutes": card["labor_minutes"], "grand_total": card["grand_total"],
+        **_recalc_fields(card),
         "updated_at": card["updated_at"],
     }})
     return await db.repairs.find_one({"id": rid}, {"_id": 0})
 
 @api_router.post("/repairs/{rid}/invoice", response_model=Invoice)
-async def invoice_repair(rid: str, tax_rate: float = 0.0, user: dict = Depends(get_current_user)):
+async def invoice_repair(rid: str, tax_rate: Optional[float] = None, user: dict = Depends(get_current_user)):
     card = await db.repairs.find_one({"id": rid}, {"_id": 0})
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
+    # Default to the card's own tax rate, then to global settings default
+    if tax_rate is None:
+        tax_rate = card.get("tax_rate")
+    if tax_rate is None:
+        s = await db.settings.find_one({"_id": "garage"}, {"_id": 0}) or {}
+        tax_rate = float(s.get("default_tax_rate") or 0)
+    tax_rate = float(tax_rate or 0)
     lines = [InvoiceLine(item_id=p["item_id"], sku=p["sku"], name=p["name"],
                          quantity=p["quantity"], unit_price=p["unit_price"], total=p["total"]) for p in card.get("parts_used", [])]
     if card.get("labor_charge", 0) > 0:
@@ -1735,6 +1843,10 @@ async def cash_register(date: Optional[str] = None, user: dict = Depends(get_cur
     out_total = round(sum(t["total"] for t in txns if t["type"] == "OUT"), 2)
     revenue = round(sum(i["total"] for i in invs), 2)
     tax = round(sum(i.get("tax", 0) for i in invs), 2)
+    # Manual till movements for the day (deposits/withdrawals/expenses)
+    manual = await db.cash_movements.find({"date": d}, {"_id": 0}).sort("created_at", 1).to_list(2000)
+    manual_in = round(sum(m["amount"] for m in manual if m["direction"] == "IN"), 2)
+    manual_out = round(sum(m["amount"] for m in manual if m["direction"] == "OUT"), 2)
     by_customer = {}
     for i in invs:
         k = i.get("customer_name") or "Walk-in"
@@ -1749,7 +1861,10 @@ async def cash_register(date: Optional[str] = None, user: dict = Depends(get_cur
         "tax": tax,
         "in_total": in_total,
         "out_total": out_total,
-        "net_flow": round(revenue - in_total, 2),
+        "manual_in": manual_in,
+        "manual_out": manual_out,
+        "manual_movements": manual,
+        "net_flow": round(revenue + manual_in - in_total - manual_out, 2),
         "by_customer": sorted(by_customer.values(), key=lambda x: -x["total"]),
         "invoices": sorted(invs, key=lambda i: i.get("paid_at", "")),
     }
@@ -2006,6 +2121,10 @@ async def cron_backup(background: BackgroundTasks, authorization: Optional[str] 
 from backup import register_routes as _register_backup_routes  # noqa: E402
 _backup_router = _register_backup_routes(db, require_owner)
 api_router.include_router(_backup_router)
+
+# --- Extras: repair photos, cash movements, Excel exports ---
+from extras import register as _register_extras  # noqa: E402
+api_router.include_router(_register_extras(db, get_current_user, require_owner))
 
 # Re-include the router now that new routes have been declared.
 app.router.routes = [r for r in app.router.routes if not (getattr(r, 'path', '') or '').startswith('/api')]

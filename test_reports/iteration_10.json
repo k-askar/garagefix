@@ -1,0 +1,107 @@
+{
+  "summary": "Iteration 10 full-stack test of dashboard v2, repair photos, BTW/VAT, cash movements, Excel exports and invoice ZIP. Backend: 32 pytest cases in /app/backend/tests/test_iteration10.py -> 29 pass, 3 fail (all one root cause: repair tax_amount/total_with_tax never persisted). Frontend: Playwright covered login, Dashboard, Repairs card (photos + tax card), Invoices (checkbox + ZIP + Excel), Cash Register (manual movements + Excel), Reports (2 Excel buttons), Settings (default_tax_rate). 2 HIGH bugs found: (1) repair BTW always 0, (2) all photo <img> tags 401 -> broken thumbnails on Repairs + Dashboard.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "PUT /api/repairs/{rid}",
+        "issue": "tax_amount / total_with_tax are computed by _recalc_repair() but NEVER written to Mongo. update_repair (server.py ~1354-1357) only $sets parts_total and grand_total from the recalculated merge; the add-part / remove-part / time-log handlers (lines ~1405,1429,1494,1532,1555) do the same. Result: tax_amount stays 0.0 and total_with_tax stays 0.0 forever. Verified: PUT {labor_charge:100, tax_rate:21} -> grand_total 100, tax_amount 0.0, total_with_tax 0.0 (expected 21.0 / 121.0). Same with tax_rate=9 (expected 18/218).",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "GET /api/photos/{id}?auth=<token>",
+        "issue": "Returns 401. get_current_user() (server.py:55-57) only reads the Authorization header or an access_token cookie; it does NOT read the ?auth= query param, and login never calls response.set_cookie (no set_cookie anywhere in server.py). Since <img src> cannot send an Authorization header, every repair photo thumbnail/preview and every Dashboard open-car cover photo renders as an empty broken tile. Reproduced in browser (console: 'Failed to load resource: 401', naturalWidth=0) and via requests (query-string-only -> 401, cookie-only -> 401).",
+        "priority": "HIGH"
+      },
+      {
+        "endpoint": "POST /api/repairs/{rid}/invoice",
+        "issue": "Endpoint takes tax_rate as a query param defaulting to 0.0, and Repairs.jsx:267 calls it with no tax_rate. Invoices generated from a job card therefore always get 0% BTW even when the card is set to 21%, contradicting the 'BTW on repair card + invoice' requirement. Should default to the card's tax_rate (or settings.default_tax_rate).",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "DELETE /api/cash-movements/{id}, DELETE /api/repairs/{rid}/photos/{id}",
+        "issue": "extras.py register() receives require_owner_dep but never uses it - every route (incl. deletes) is gated only by current_user_dep, so a staff account can delete cash movements and photos. Confirm whether that is intended; the review request stated deletes are admin-only."
+      },
+      {
+        "endpoint": "GET /api/cash-register",
+        "issue": "net_flow = revenue + manual_in - in_total - manual_out mixes till cash (paid invoices / manual movements) with stock purchase value (in_total from IN transactions), producing a negative 'net flow' (-486 EUR) on a day with zero cash activity. Pre-existing, but the new manual_in/out make it more visible."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "RepairPhotos / Dashboard open-cars",
+        "issue": "Photo thumbnails are blank grey tiles - src uses `${API}/api/photos/{id}?auth=<token>` which the backend rejects with 401 (see backend issue). Upload/list/delete themselves work; only rendering is broken.",
+        "selector": "[data-testid='repair-photos'] img, [data-testid^='open-car-'] img",
+        "priority": "HIGH"
+      },
+      {
+        "component": "Repairs totals card",
+        "issue": "Label renders as 'TAX RATE (%) (%)'. i18n/index.jsx defines the key `taxRate` twice per language (line 45 'BTW rate' and line 174 'Tax rate (%)'); the later duplicate wins, and Repairs.jsx:423 appends another ' (%)'. Same duplicate-key collision exists in the NL (284/397) and AR (502/615) blocks.",
+        "selector": "[data-testid='repair-tax-rate']",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "Repairs totals card",
+        "issue": "`data.total_with_tax || data.grand_total` silently falls back to the ex-VAT total, so the broken BTW math shows as a plausible-looking 'Total incl. BTW = 100,00 EUR' instead of an obvious error. Verified in UI: Subtotal 100,00 / BTW 0,00 / Total incl. BTW 100,00 with rate 21.",
+        "selector": "[data-testid='repair-total-with-tax']",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "Dashboard open-car tile",
+        "issue": "When mechanic_name is empty the meta line renders a dangling double separator ('8.5h · · 0,00 €').",
+        "selector": "[data-testid^='open-car-']",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Repair card -> change BTW rate -> Save changes",
+        "issue": "Save succeeds (PUT 200) but BTW amount and Total incl. BTW remain 0,00 EUR because the backend does not persist tax_amount/total_with_tax.",
+        "affected_selectors": ["[data-testid='repair-tax-rate']", "[data-testid='repair-tax-amount']", "[data-testid='repair-total-with-tax']", "[data-testid='repair-save-button']"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Dashboard",
+        "issues": ["'Mechanic hours today' panel is conditional on data and was absent (no time logs today) - not a bug, but unverified visually.", "Layout, contrast and spacing of the new KPI row and Open-cars grid look correct in light theme."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration10.py",
+    "/app/backend/tests/seed_iter10_invoices.py",
+    "/app/backend/tests/cleanup_iter10.py",
+    "/app/test_reports/pytest/iteration10.xml"
+  ],
+  "action_items": [
+    "Persist the full recalc in update_repair and all part/time-log handlers: $set labor_minutes, tax_rate, tax_amount and total_with_tax (or just $set the whole merged/recalced doc) - server.py lines ~1354-1357, 1405-1411, 1427-1433, 1494, 1532, 1555.",
+    "Make GET /api/photos/{id} accept the token from the ?auth= query string (a dedicated dependency that falls back to request.query_params['auth']), or set the httpOnly access_token cookie on login so <img> requests authenticate.",
+    "Pass the card's tax_rate to POST /api/repairs/{rid}/invoice (frontend Repairs.jsx:267) and/or default it server-side to card.tax_rate / settings.default_tax_rate.",
+    "Remove the duplicate `taxRate` i18n keys (EN/NL/AR) and drop the extra ' (%)' suffix in Repairs.jsx:423.",
+    "Decide + enforce role gating in extras.py: require_owner_dep is imported/passed but unused, so staff can DELETE photos and cash movements.",
+    "Fix the dangling '·' separator on the Dashboard open-car tile when mechanic_name is empty."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 2153 lines - well past the 700-line guideline; split repairs/invoices/cash-register into modules like extras.py.",
+    "_recalc_repair returns a fully recalculated card but every caller cherry-picks 2 of the 5 computed fields into $set - the root cause of the BTW bug and a DRY/consistency trap. Persist the recalc result in one place.",
+    "extras.py profit_excel duplicates the whole profit aggregation from the existing /api/reports/profit endpoint (~40 lines) - extract a shared async helper so the Excel and JSON reports cannot drift.",
+    "extras.py upload_repair_photo trusts the client-declared content_type only; a renamed .exe with content-type image/jpeg passes. Consider magic-byte sniffing.",
+    "MAX_PHOTO_BYTES is enforced after await file.read(), so a malicious 500 MB upload is fully buffered in memory before rejection - stream/chunk-check or rely on an ingress body limit.",
+    "The repair card's Save button lacks a stable data-testid pattern match with the rest of the doc (it is repair-save-button, review request implied repair-save) - keep testids in sync with the handoff notes."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration10.py",
+    "/app/backend/tests/seed_iter10_invoices.py",
+    "/app/backend/tests/cleanup_iter10.py"
+  ],
+  "success_rate": {"backend": "91% (29/32)", "frontend": "80% (2 HIGH rendering/calculation defects)"},
+  "seed_data_creation": "Created 3 TEST_seed invoices from unbilled OUT transactions (seed_iter10_invoices.py) to exercise the invoice checkbox/ZIP flow, plus transient TEST_ repair cards, TEST_ photos and TEST_ cash movements. All removed afterwards by cleanup_iter10.py (verified: 3 invoices, 1 movement, 1 photo deleted).",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@garage.com/admin123 (owner), mike@garage.com/mike1234 (staff) - both valid, /app/memory/test_credentials.md present and accurate.",
+  "context_for_next_testing_agent": "Re-run `cd /app/backend && python -m pytest tests/test_iteration10.py -v` - the 3 TestRepairTax failures are the tax-persistence bug and must go green after the fix. What already PASSES and needs no re-verification unless touched: dashboard/summary new fields + auth, photo upload/list/download-with-header/delete, PNG accepted, PDF->400, 6MB->413, 11th photo->400, staff upload allowed, cash-movements CRUD + payment_entries mirror (source='cash_movement') + delete cascade, cash-register manual_in/manual_out/net_flow deltas, all 4 Excel exports (headers, sheet names, row counts, 401 without token), PUT/GET settings default_tax_rate (persists via API AND via UI - an earlier UI FAIL was a Playwright fill() artifact on the number input; use click+Ctrl+A+type), invoices ZIP (client-side JSZip, correct entry count and label 'Download ZIP (N)'), all Excel download buttons on Reports/CashRegister/Invoices, cash-movements UI form. Useful selectors: repair cards are [data-testid^='repair-row-'] (card grid, NOT a table), save button is [data-testid='repair-save-button']. To re-verify photo rendering, upload via the UI and assert img naturalWidth > 0. Run /app/backend/tests/cleanup_iter10.py after seeding.",
+  "rca_of_the_issue": "BTW bug: _recalc_repair(merged) computes parts_total/labor_minutes/grand_total/tax_amount/total_with_tax, but update_repair only copies parts_total and grand_total into the $set payload, so the tax fields keep their insert-time 0.0 values; the part/time-log handlers repeat the same partial copy. Photo bug: RepairPhotos.jsx and Dashboard.jsx authenticate <img> requests with a ?auth= query string, but get_current_user only accepts the Authorization header or an access_token cookie, and the login route never sets that cookie - so every image request is 401."
+}

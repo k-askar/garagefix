@@ -3,10 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { api, formatEUR } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Package, Euro, AlertTriangle, ArrowDownRight, ArrowUpRight, Boxes, TrendingUp } from "lucide-react";
+import { Package, Euro, AlertTriangle, ArrowDownRight, ArrowUpRight, Boxes, TrendingUp, Car, Clock, Wrench, Users as UsersIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { useLang } from "@/i18n";
 
 function KpiCard({ label, value, hint, icon: Icon, accent, testId }) {
   return (
@@ -26,43 +27,138 @@ function KpiCard({ label, value, hint, icon: Icon, accent, testId }) {
 }
 
 export default function Dashboard() {
+  const { t } = useLang();
   const { data: sum } = useQuery({ queryKey: ["dash"], queryFn: () => api.get("/dashboard/summary").then((r) => r.data) });
   const { data: movement = [] } = useQuery({ queryKey: ["move14"], queryFn: () => api.get("/reports/movement?days=14").then((r) => r.data) });
 
   const s = sum || {};
+  const token = localStorage.getItem("garage_token") || "";
+  const API = process.env.REACT_APP_BACKEND_URL;
 
   return (
     <div className="space-y-8" data-testid="dashboard-page">
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
-          <div className="text-xs font-mono uppercase tracking-widest text-primary mb-2">Overview · Live</div>
-          <h1 className="font-display text-4xl lg:text-5xl font-black tracking-tight">Workshop dashboard</h1>
-          <p className="text-muted-foreground mt-2 max-w-xl">A single, honest view of every part, every euro on the floor.</p>
+          <div className="text-xs font-mono uppercase tracking-widest text-primary mb-2">{t("overviewLive")}</div>
+          <h1 className="font-display text-4xl lg:text-5xl font-black tracking-tight">{t("workshopDashboard")}</h1>
+          <p className="text-muted-foreground mt-2 max-w-xl">{t("dashboardSubtitle")}</p>
         </div>
         <div className="flex gap-2">
           <Button asChild variant="outline" className="rounded-full" data-testid="quick-inventory">
-            <Link to="/inventory"><Package className="h-4 w-4 mr-2" /> Inventory</Link>
+            <Link to="/inventory"><Package className="h-4 w-4 mr-2" /> {t("inventory")}</Link>
           </Button>
           <Button asChild className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90" data-testid="quick-movement">
-            <Link to="/movement"><ArrowUpRight className="h-4 w-4 mr-2" /> Move stock</Link>
+            <Link to="/movement"><ArrowUpRight className="h-4 w-4 mr-2" /> {t("moveStock")}</Link>
           </Button>
         </div>
       </div>
 
+      {/* Revenue snapshot */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-        <KpiCard testId="kpi-stock-value" label="Stock value (cost)" value={formatEUR(s.total_stock_value)}
-          hint={`Retail ${formatEUR(s.total_retail_value)}`} icon={Euro}
+        <KpiCard testId="kpi-cars-open" label={t("carsInWorkshop")} value={s.open_cars_count ?? 0}
+          hint={`${(s.mechanic_minutes_today || 0) / 60 | 0}h ${(s.mechanic_minutes_today || 0) % 60 | 0}m ${t("laborToday")}`} icon={Car}
           accent="bg-primary/15 border-primary/30 text-primary" />
-        <KpiCard testId="kpi-total-units" label="Units on floor" value={(s.total_units ?? 0).toLocaleString()}
-          hint={`${s.total_items ?? 0} unique SKUs`} icon={Boxes}
+        <KpiCard testId="kpi-revenue-today" label={t("revenueToday")} value={formatEUR(s.revenue_today ?? 0)}
+          hint={`${s.todays_txn_count ?? 0} ${t("transactions")}`} icon={Euro}
           accent="bg-emerald-500/15 border-emerald-500/30 text-emerald-700 dark:text-emerald-400" />
-        <KpiCard testId="kpi-low-stock" label="Low stock" value={s.low_stock_count ?? 0}
-          hint={`${s.out_of_stock_count ?? 0} out of stock`} icon={AlertTriangle}
+        <KpiCard testId="kpi-revenue-week" label={t("revenueWeek")} value={formatEUR(s.revenue_week ?? 0)}
+          hint={t("last7Days")} icon={TrendingUp}
+          accent="bg-fuchsia-500/15 border-fuchsia-500/30 text-fuchsia-700 dark:text-fuchsia-400" />
+        <KpiCard testId="kpi-revenue-month" label={t("revenueMonth")} value={formatEUR(s.revenue_month ?? 0)}
+          hint={t("last30Days")} icon={TrendingUp}
+          accent="bg-sky-500/15 border-sky-500/30 text-sky-700 dark:text-sky-400" />
+      </div>
+
+      {/* Open cars in the workshop */}
+      {(s.open_cars || []).length > 0 && (
+        <Card className="p-6 border-border" data-testid="open-cars-panel">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <div className="text-[11px] font-mono uppercase tracking-widest text-primary">{t("liveWorkshop")}</div>
+              <h3 className="font-display text-2xl font-bold">{t("openCars")}</h3>
+            </div>
+            <Button asChild variant="outline" className="rounded-full" data-testid="dash-goto-repairs">
+              <Link to="/repairs"><Wrench className="h-4 w-4 mr-2" /> {t("jobCards")}</Link>
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {(s.open_cars || []).map((c) => (
+              <Link
+                key={c.id}
+                to={`/repairs`}
+                data-testid={`open-car-${c.card_number}`}
+                className="group flex gap-3 p-3 rounded-md border border-border bg-muted/30 hover:border-primary/50 transition-colors"
+              >
+                <div className="h-20 w-20 rounded-md overflow-hidden bg-secondary shrink-0 flex items-center justify-center border border-border">
+                  {c.cover_photo_id ? (
+                    <img
+                      src={`${API}/api/photos/${c.cover_photo_id}?auth=${encodeURIComponent(token)}`}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <Car className="h-8 w-8 text-muted-foreground" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-mono text-[10px] text-primary uppercase tracking-widest">{c.card_number}</div>
+                    <Badge className={c.status === "in_progress"
+                      ? "bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/40"
+                      : "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30"}>
+                      {t(`repair_status_${c.status}`)}
+                    </Badge>
+                  </div>
+                  <div className="font-display font-bold truncate">{[c.car_make, c.car_model].filter(Boolean).join(" ") || t("vehicleTbd")}</div>
+                  <div className="text-[11px] font-mono text-muted-foreground truncate">
+                    {c.car_plate || "—"}{c.customer_name ? ` · ${c.customer_name}` : ""}
+                  </div>
+                  <div className="mt-1 flex items-center gap-3 text-[11px] font-mono">
+                    <span className="inline-flex items-center gap-1 text-muted-foreground"><Clock className="h-3 w-3" />{c.hours_in_shop}h</span>
+                    {c.mechanic_name && <><span className="text-muted-foreground">·</span><span className="text-muted-foreground truncate">{c.mechanic_name}</span></>}
+                    <span className="text-muted-foreground">·</span>
+                    <span className="tabular-nums">{formatEUR(c.grand_total || 0)}</span>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Inventory KPIs (kept from before) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <KpiCard testId="kpi-stock-value" label={t("stockValueCost")} value={formatEUR(s.total_stock_value)}
+          hint={`${t("retail")} ${formatEUR(s.total_retail_value)}`} icon={Euro}
+          accent="bg-primary/15 border-primary/30 text-primary" />
+        <KpiCard testId="kpi-total-units" label={t("unitsOnFloor")} value={(s.total_units ?? 0).toLocaleString()}
+          hint={`${s.total_items ?? 0} ${t("uniqueSkus")}`} icon={Boxes}
+          accent="bg-emerald-500/15 border-emerald-500/30 text-emerald-700 dark:text-emerald-400" />
+        <KpiCard testId="kpi-low-stock" label={t("lowStock")} value={s.low_stock_count ?? 0}
+          hint={`${s.out_of_stock_count ?? 0} ${t("outOfStock")}`} icon={AlertTriangle}
           accent="bg-amber-500/20 border-amber-500/40 text-amber-700 dark:text-amber-400" />
-        <KpiCard testId="kpi-today" label="Today's flow" value={`${s.todays_txn_count ?? 0}`}
+        <KpiCard testId="kpi-today" label={t("todaysFlow")} value={`${s.todays_txn_count ?? 0}`}
           hint={`IN ${formatEUR(s.in_today)} · OUT ${formatEUR(s.out_today)}`} icon={TrendingUp}
           accent="bg-fuchsia-500/15 border-fuchsia-500/30 text-fuchsia-700 dark:text-fuchsia-400" />
       </div>
+
+      {(s.mechanic_hours_today || []).length > 0 && (
+        <Card className="p-6 border-border" data-testid="mech-hours-panel">
+          <div className="flex items-center gap-2 mb-3">
+            <UsersIcon className="h-5 w-5 text-primary" />
+            <h3 className="font-display text-xl font-bold">{t("mechanicHoursToday")}</h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {(s.mechanic_hours_today || []).map((m) => (
+              <div key={m.name} className="p-3 rounded-md border border-border bg-muted/30 flex items-center justify-between">
+                <span className="font-medium">{m.name}</span>
+                <span className="font-mono tabular-nums text-primary">{m.hours}h</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <Card className="xl:col-span-2 p-6 border-border">

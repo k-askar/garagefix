@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, formatEUR } from "@/lib/api";
+import { api, formatEUR, formatApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLang } from "@/i18n";
 import { downloadListReportPdf, printListReport } from "@/lib/reports";
-import { Printer, FileDown, Wallet, TrendingUp, TrendingDown, Users as UsersIcon } from "lucide-react";
+import { Printer, FileDown, FileSpreadsheet, Wallet, TrendingUp, TrendingDown, Users as UsersIcon } from "lucide-react";
+import { toast } from "sonner";
+import CashMovementsPanel from "@/components/CashMovementsPanel";
 
 function todayISO(offset = 0) { const d = new Date(); d.setDate(d.getDate() + offset); return d.toISOString().slice(0, 10); }
 
@@ -57,6 +59,14 @@ export default function CashRegister() {
           <Button variant="outline" className="rounded-full" onClick={() => setDate(todayISO(0))}>Today</Button>
           <Button variant="outline" className="rounded-full" onClick={() => exportReport("print")} data-testid="till-print"><Printer className="h-4 w-4 mr-2" /> {t("print")}</Button>
           <Button variant="outline" className="rounded-full" onClick={() => exportReport("pdf")} disabled={exporting} data-testid="till-pdf"><FileDown className="h-4 w-4 mr-2" /> {t("pdf")}</Button>
+          <Button variant="outline" className="rounded-full" onClick={async () => {
+            try {
+              const res = await api.get(`/reports/cash-register/excel?date=${date}`, { responseType: "blob" });
+              const url = URL.createObjectURL(res.data);
+              const a = document.createElement("a"); a.href = url; a.download = `cash-register-${date}.xlsx`;
+              document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+            } catch (e) { toast.error(formatApiError(e)); }
+          }} data-testid="till-excel"><FileSpreadsheet className="h-4 w-4 mr-2" /> Excel</Button>
         </div>
       </div>
 
@@ -150,6 +160,8 @@ export default function CashRegister() {
           </Table>
         </Card>
       )}
+
+      <CashMovementsPanel date={date} />
     </div>
   );
 }

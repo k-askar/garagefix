@@ -11,10 +11,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { CheckCircle2, Printer, Trash2, Plus, MessageCircle } from "lucide-react";
+import { CheckCircle2, Printer, Trash2, Plus, MessageCircle, Archive, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 import { whatsappShare } from "@/lib/whatsapp";
 import { useLang } from "@/i18n";
+import { downloadInvoicesZip } from "@/lib/invoice-zip";
 
 function printInvoice(inv, settings) {
   const w = window.open("", "_blank", "width=720,height=900");
@@ -54,6 +55,8 @@ export default function Invoices() {
   const [selectedTxns, setSelectedTxns] = useState([]);
   const [payTarget, setPayTarget] = useState(null);
   const [payMethodId, setPayMethodId] = useState("");
+  const [selectedInvoices, setSelectedInvoices] = useState([]);
+  const [zipping, setZipping] = useState(false);
 
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => api.get("/invoices").then(r => r.data) });
   const { data: customers = [] } = useQuery({ queryKey: ["cus"], queryFn: () => api.get("/customers").then(r => r.data) });
@@ -118,9 +121,43 @@ export default function Invoices() {
           <h1 className="font-display text-4xl font-black tracking-tight">Invoices</h1>
           <p className="text-muted-foreground mt-2">{invoices.length} invoices · {formatEUR(invoices.filter(i => i.status !== "paid").reduce((s, i) => s + i.total, 0))} outstanding</p>
         </div>
-        <Button className="rounded-full bg-primary hover:bg-primary/90" onClick={() => setShowCreate(true)} data-testid="invoice-create-button">
-          <Plus className="h-4 w-4 mr-2" /> New invoice
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            className="rounded-full"
+            disabled={zipping || invoices.length === 0}
+            onClick={async () => {
+              setZipping(true);
+              try {
+                const list = selectedInvoices.length > 0 ? invoices.filter(i => selectedInvoices.includes(i.id)) : invoices;
+                await downloadInvoicesZip(list, settings, `invoices-${new Date().toISOString().slice(0, 10)}.zip`);
+                toast.success(t("zipDownloaded"));
+              } catch (e) { toast.error(formatApiError(e)); }
+              finally { setZipping(false); }
+            }}
+            data-testid="invoices-zip-button"
+          >
+            <Archive className="h-4 w-4 mr-2" /> {zipping ? "..." : (selectedInvoices.length > 0 ? `${t("downloadZip")} (${selectedInvoices.length})` : t("downloadAllZip"))}
+          </Button>
+          <Button
+            variant="outline"
+            className="rounded-full"
+            onClick={async () => {
+              try {
+                const res = await api.get("/reports/invoices/excel", { responseType: "blob" });
+                const url = URL.createObjectURL(res.data);
+                const a = document.createElement("a"); a.href = url; a.download = `invoices-${new Date().toISOString().slice(0, 10)}.xlsx`;
+                document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+              } catch (e) { toast.error(formatApiError(e)); }
+            }}
+            data-testid="invoices-excel-button"
+          >
+            <FileSpreadsheet className="h-4 w-4 mr-2" /> Excel
+          </Button>
+          <Button className="rounded-full bg-primary hover:bg-primary/90" onClick={() => setShowCreate(true)} data-testid="invoice-create-button">
+            <Plus className="h-4 w-4 mr-2" /> New invoice
+          </Button>
+        </div>
       </div>
 
       {balances.length > 0 && (
@@ -149,6 +186,13 @@ export default function Invoices() {
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={invoices.length > 0 && selectedInvoices.length === invoices.length}
+                  onCheckedChange={(v) => setSelectedInvoices(v ? invoices.map(i => i.id) : [])}
+                  data-testid="invoices-select-all"
+                />
+              </TableHead>
               <TableHead>Invoice #</TableHead>
               <TableHead>Customer</TableHead>
               <TableHead>Lines</TableHead>
@@ -161,6 +205,13 @@ export default function Invoices() {
           <TableBody>
             {invoices.map(inv => (
               <TableRow key={inv.id} data-testid={`invoice-row-${inv.invoice_number}`}>
+                <TableCell>
+                  <Checkbox
+                    checked={selectedInvoices.includes(inv.id)}
+                    onCheckedChange={() => setSelectedInvoices(s => s.includes(inv.id) ? s.filter(x => x !== inv.id) : [...s, inv.id])}
+                    data-testid={`invoice-select-${inv.invoice_number}`}
+                  />
+                </TableCell>
                 <TableCell className="font-mono text-xs">{inv.invoice_number}</TableCell>
                 <TableCell>{inv.customer_name || "Walk-in"}</TableCell>
                 <TableCell className="text-muted-foreground">{inv.lines.length}</TableCell>
@@ -189,7 +240,7 @@ export default function Invoices() {
                 </TableCell>
               </TableRow>
             ))}
-            {invoices.length === 0 && <TableRow><TableCell colSpan={7} className="text-center py-16 text-muted-foreground">No invoices yet.</TableCell></TableRow>}
+            {invoices.length === 0 && <TableRow><TableCell colSpan={8} className="text-center py-16 text-muted-foreground">No invoices yet.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </Card>

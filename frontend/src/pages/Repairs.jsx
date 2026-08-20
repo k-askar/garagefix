@@ -16,6 +16,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useLang } from "@/i18n";
 import { downloadRepairCardPdf, printRepairCard, downloadListReportPdf, printListReport } from "@/lib/reports";
 import { whatsappShare } from "@/lib/whatsapp";
+import RepairPhotos from "@/components/RepairPhotos";
 
 const STATUS_STYLE = {
   open: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30",
@@ -405,12 +406,36 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
             </div>
           </Card>
 
-          {/* Totals */}
-          <Card className="p-5 border-primary/30 bg-primary/5">
+          {/* Photos of the vehicle */}
+          <Card className="p-5 border-border">
+            <RepairPhotos repairId={data.id} photos={data.photos || []} onChange={(photos) => setData({ ...data, photos })} />
+          </Card>
+
+          {/* Totals with BTW / VAT breakdown */}
+          <Card className="p-5 border-primary/30 bg-primary/5 space-y-4">
             <div className="grid grid-cols-3 gap-4 text-center">
-              <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Parts</div><div className="font-display text-2xl font-bold tabular-nums mt-1">{formatEUR(data.parts_total)}</div></div>
-              <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Labor</div><div className="font-display text-2xl font-bold tabular-nums mt-1">{formatEUR(data.labor_charge)}</div></div>
-              <div><div className="text-[10px] font-mono uppercase tracking-widest text-primary">Grand total</div><div className="font-display text-2xl font-bold tabular-nums mt-1 text-primary">{formatEUR(data.grand_total)}</div></div>
+              <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("parts")}</div><div className="font-display text-2xl font-bold tabular-nums mt-1">{formatEUR(data.parts_total)}</div></div>
+              <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("labor")}</div><div className="font-display text-2xl font-bold tabular-nums mt-1">{formatEUR(data.labor_charge)}</div></div>
+              <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("subtotal")}</div><div className="font-display text-2xl font-bold tabular-nums mt-1">{formatEUR(data.grand_total)}</div></div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end pt-3 border-t border-primary/20">
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("taxRate")}</Label>
+                <Input
+                  type="number" step="0.1" min="0" max="100"
+                  value={data.tax_rate ?? settings?.default_tax_rate ?? 21}
+                  onChange={(e) => set("tax_rate", Number(e.target.value))}
+                  data-testid="repair-tax-rate"
+                />
+              </div>
+              <div className="text-center">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("btw")}</div>
+                <div className="font-display text-xl font-bold tabular-nums mt-1" data-testid="repair-tax-amount">{formatEUR(data.tax_amount || 0)}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("totalWithTax")}</div>
+                <div className="font-display text-3xl font-bold tabular-nums mt-1 text-primary" data-testid="repair-total-with-tax">{formatEUR(data.total_with_tax || data.grand_total)}</div>
+              </div>
             </div>
           </Card>
         </div>

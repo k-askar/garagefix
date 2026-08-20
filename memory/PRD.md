@@ -77,6 +77,17 @@
 - **Owner**: admin@garage.com / admin123
 - **Staff**: mike@garage.com / mike1234
 
+### Iteration 11 — Dashboard v2 + Photos + BTW + ZIP + Cash Movements + Excel (Feb 2026)
+- **Dashboard v2**: open-cars grid (photo/plate/customer/hours-in-shop/grand-total), revenue today / week / month KPIs, mechanic-hours-today panel, cars-in-workshop count.
+- **Vehicle photos on repair cards**: `POST/GET/DELETE /api/repairs/{rid}/photos` + `GET /api/photos/{id}?auth=<token>` (query-string auth so `<img src>` works) — Emergent Object Storage backed, 10 photos × 5 MB cap, kind = before/after/damage/general. New `RepairPhotos` component in the editor with grid + preview modal.
+- **BTW / VAT breakdown**: `RepairCard.tax_rate/tax_amount/total_with_tax` + `_recalc_repair` recomputes on every save. `_recalc_fields()` helper ensures all 5 computed fields (`parts_total/labor_minutes/grand_total/tax_amount/total_with_tax`) persist on every mutation (PUT, add-part, remove-part, clock-out, add/delete time log). `POST /api/repairs/{rid}/invoice` now defaults tax_rate to card.tax_rate then settings.default_tax_rate.
+- **Bulk invoice ZIP** (`/app/frontend/src/lib/invoice-zip.js`): JSZip + file-saver, per-row checkboxes; "Download all · ZIP" or selected subset.
+- **Manual cash movements**: `POST/GET/DELETE /api/cash-movements`; every entry mirrors into `payment_entries` so account balances stay in sync. `CashMovementsPanel` in the Cash Register page.
+- **Excel exports** (`openpyxl`): `/api/reports/inventory/excel`, `/api/reports/invoices/excel`, `/api/reports/profit/excel` (2 sheets), `/api/reports/cash-register/excel` (2 sheets). Buttons wired in Reports / Invoices / Cash Register.
+- **Users management**: already existed on Staff page — invite email/password/role.
+- **Auth**: `get_current_user` now also accepts `?auth=<token>` query-string (needed by `<img>` tags).
+- Verified end-to-end via curl: tax persistence (100 × 21% → 21 / 121), photo upload+download via query auth (200 with correct bytes), 401 without auth, invoice from repair inherits card tax_rate.
+
 ### Iteration 10 — Database Backup & Cloud Sync (Feb 2026)
 - **`/app/backend/backup.py`** — self-contained backup module: `build_snapshot()` gzips 14 managed collections into a `version:1 / app:pitstock` JSON archive; `restore_snapshot()` wipes + inserts atomically; Emergent Object Storage helpers (`init_storage`, `_put_object`, `_get_object`) with dead-key retry.
 - **Owner-only endpoints under `/api/backup/*`**: `GET /export` (streams `.json.gz`), `POST /import` (multipart, 200 MB guard), `POST /cloud/push`, `GET /cloud/list`, `GET /cloud/download/{id}`, `POST /cloud/restore/{id}`, `DELETE /cloud/{id}` (soft-delete since Object Storage has no delete API).

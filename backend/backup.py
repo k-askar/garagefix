@@ -32,6 +32,7 @@ MANAGED_COLLECTIONS = [
     "repairs", "invoices",
     "appointments", "reminders",
     "payment_methods", "payment_entries",
+    "cash_movements",
 ]
 
 APP_PREFIX = "pitstock/backups"
