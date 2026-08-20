@@ -77,6 +77,13 @@
 - **Owner**: admin@garage.com / admin123
 - **Staff**: mike@garage.com / mike1234
 
+### Iteration 10 — Database Backup & Cloud Sync (Feb 2026)
+- **`/app/backend/backup.py`** — self-contained backup module: `build_snapshot()` gzips 14 managed collections into a `version:1 / app:pitstock` JSON archive; `restore_snapshot()` wipes + inserts atomically; Emergent Object Storage helpers (`init_storage`, `_put_object`, `_get_object`) with dead-key retry.
+- **Owner-only endpoints under `/api/backup/*`**: `GET /export` (streams `.json.gz`), `POST /import` (multipart, 200 MB guard), `POST /cloud/push`, `GET /cloud/list`, `GET /cloud/download/{id}`, `POST /cloud/restore/{id}`, `DELETE /cloud/{id}` (soft-delete since Object Storage has no delete API).
+- **Nightly cron** `/api/cron/backup` (bearer = `WEBHOOK_CRON_SECRET`) added to `.emergent/crons.yml` at `30 2 * * *`; auto-prunes to last 30 backups.
+- **Frontend `BackupPanel`** (`/app/frontend/src/components/BackupPanel.jsx`) mounted at bottom of `/settings`: manual download, restore-from-file (with destructive-restore warning that flags user-account replacement), push-to-cloud, per-row download / restore / delete for cloud backups, EN/NL/AR translations.
+- **13/13** new pytest cases in `/app/backend/tests/test_backup.py` + full 26/26 regression suite green (iteration_9).
+
 ### Iteration 9 — System Dark/Light Theme (Feb 2026)
 - **ThemeProvider + ThemeToggle**: cycle `system → light → dark → system`, persisted in `localStorage['garage_theme']`; live-reacts to `prefers-color-scheme` change when set to `system`; initial `resolved` derived from storage (no first-paint flash).
 - **index.css** rewritten: `:root` = LIGHT tokens (paper background, ink foreground), `.dark` = DARK tokens (industrial workshop). All shadcn tokens (background/foreground/card/border/muted/primary/accent/destructive/ring) covered.

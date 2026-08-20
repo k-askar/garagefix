@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Save } from "lucide-react";
 import { toast } from "sonner";
 import { useLang } from "@/i18n";
+import BackupPanel from "@/components/BackupPanel";
 
 export default function Settings() {
   const { t } = useLang();
@@ -76,6 +77,8 @@ export default function Settings() {
           </Button>
         </form>
       </Card>
+
+      <BackupPanel />
     </div>
   );
 }

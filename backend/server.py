@@ -1980,6 +1980,33 @@ async def cron_reminders(background: BackgroundTasks, authorization: Optional[st
         background.add_task(_send_reminder, r["id"])
     return {"queued": len(due)}
 
+
+@api_router.post("/cron/backup")
+async def cron_backup(background: BackgroundTasks, authorization: Optional[str] = Header(default=None)):
+    """Nightly cloud backup — ack immediately, do the work in the background."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer")
+    token = authorization[7:]
+    if not secrets.compare_digest(token, WEBHOOK_CRON_SECRET or ""):
+        raise HTTPException(status_code=401, detail="Bad token")
+    from backup import run_daily_cloud_backup
+
+    async def _run():
+        try:
+            result = await run_daily_cloud_backup(db)
+            logger.info(f"Nightly backup ok: {result}")
+        except Exception as e:
+            logger.exception(f"Nightly backup failed: {e}")
+
+    background.add_task(_run)
+    return {"queued": True}
+
+
+# --- Backup / restore (owner-only) ---
+from backup import register_routes as _register_backup_routes  # noqa: E402
+_backup_router = _register_backup_routes(db, require_owner)
+api_router.include_router(_backup_router)
+
 # Re-include the router now that new routes have been declared.
 app.router.routes = [r for r in app.router.routes if not (getattr(r, 'path', '') or '').startswith('/api')]
 app.include_router(api_router)
@@ -1998,6 +2025,14 @@ async def startup():
     await db.users.create_index("email", unique=True)
     await db.inventory.create_index("sku", unique=True)
     await db.inventory.create_index("barcode", unique=True)
+    await db.backups.create_index("created_at")
+    # Init cloud object storage (best-effort — backup UI still works locally without it)
+    try:
+        from backup import init_storage
+        init_storage()
+        logger.info("Emergent Object Storage initialised for backups")
+    except Exception as e:
+        logger.warning(f"Object storage init failed (cloud backup will be unavailable): {e}")
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@garage.com").lower()
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")

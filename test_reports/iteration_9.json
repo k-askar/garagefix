@@ -1,0 +1,35 @@
+{
+  "summary": "E2E tested the new Backup & Restore feature (local export/import + Emergent Object Storage cloud backups + nightly cron). Backend: 13 new pytest cases in /app/backend/tests/test_backup.py — all pass (export gzip/headers/14 collections, import roundtrip + 4 bad-archive edge cases, full cloud lifecycle push→list→download→restore→delete→404s, unknown-id 404s, staff 403 on all 7 endpoints, cron 401/401/200 with row trigger='cron'). Regression suite backend_test.py (26 tests) still passes after restores, so no data loss. Frontend: owner login → /settings shows backup-panel; download triggers a real .json.gz download; push-to-cloud creates a new backup-row with working download/restore/delete icon buttons; window.confirm flows work; delete removes the row; corrupt-file upload surfaces the backend 400 message in a toast without reloading; cloud restore reloads and app data stays intact; staff (mike@garage.com) is redirected from /settings to / and BackupPanel is not rendered; panel renders legibly in both light and dark themes.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/backup/cloud/*", "issue": "Object Storage calls use blocking `requests` inside async endpoints (timeouts up to 180s) — blocks the FastAPI event loop during push/download/restore. Wrap in run_in_threadpool or use httpx.AsyncClient."},
+      {"endpoint": "/api/backup/import", "issue": "200MB size guard is applied AFTER the whole upload is read into memory (await file.read()); a huge file still balloons memory before rejection."},
+      {"endpoint": "/api/cron/backup", "issue": "Background task failures are only logged; the endpoint always returns 200 so cron monitoring can never see a failed nightly backup."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_backup.py", "/app/test_reports/pytest/backup_results.xml"],
+  "action_items": [
+    "Optional: offload blocking requests calls in backup.py to a threadpool (event-loop blocking during cloud push/restore).",
+    "Optional: take an automatic pre-restore snapshot — restore_snapshot() delete_many()s all 14 collections (incl. users) with no rollback if insert_many fails midway.",
+    "Cleanup: remove dead code _require_owner_factory/_require_owner globals in backup.py."
+  ],
+  "critical_code_review_comments": [
+    "restore_snapshot() is non-atomic and destructive: it wipes every managed collection before inserting; a partial failure (bad doc, BSON error) leaves the DB empty with no rollback path.",
+    "Restoring an old snapshot rewrites the `users` collection, which can delete the currently-logged-in owner / password changes — worth an explicit warning in the confirm() text.",
+    "backup.py module-level `router` means register_routes() is only safe to call once; a second call would duplicate routes."
+  ],
+  "updated_files": ["/app/backend/tests/test_backup.py"],
+  "success_rate": {"backend": "100% (13/13 new + 26/26 regression)", "frontend": "100% of tested flows"},
+  "seed_data_creation": "No new seed data. Created and soft-deleted transient cloud backup rows; 2 pre-existing cloud rows (1 manual, 1 cron) left in db.backups so the list UI is non-empty.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "owner admin@garage.com/admin123, staff mike@garage.com/mike1234, cron token from backend/.env WEBHOOK_CRON_SECRET",
+  "context_for_next_testing_agent": "test_backup.py has a module-scoped `pristine` fixture that exports the DB first and re-imports it at the end, so running it is safe. Note: writing files under /app/backend triggers uvicorn hot reload and drops in-flight HTTP connections — sleep a few seconds after creating test files before running pytest. Theme is stored in localStorage key 'garage_theme' (light/dark/system) and the toggle cycles system→light→dark.",
+  "rca_of_the_issue": "Initial run showed 2 connection-aborted failures; root cause was backend hot reload triggered by creating the test file inside /app/backend, not an application defect. Re-run after reload was clean."
+}
