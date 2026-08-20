@@ -7,6 +7,7 @@ const DICT = {
     transactions: "Transactions", suppliers: "Suppliers", customers: "Customers",
     reports: "Reports", staff: "Staff", settings: "Settings",
     jobCards: "Job cards", invoices: "Invoices", purchaseOrders: "Purchase Orders",
+    cashRegister: "Cash Register", reminders: "Reminders",
     signIn: "Sign in", signOut: "Sign out", welcomeBack: "Welcome back",
     owner: "Owner", live: "Live", language: "Language",
     // Common
@@ -132,6 +133,7 @@ const DICT = {
     transactions: "Transacties", suppliers: "Leveranciers", customers: "Klanten",
     reports: "Rapporten", staff: "Personeel", settings: "Instellingen",
     jobCards: "Werkbonnen", invoices: "Facturen", purchaseOrders: "Inkooporders",
+    cashRegister: "Kassa", reminders: "Herinneringen",
     signIn: "Inloggen", signOut: "Uitloggen", welcomeBack: "Welkom terug",
     owner: "Eigenaar", live: "Live", language: "Taal",
     save: "Opslaan", cancel: "Annuleren", close: "Sluiten", delete: "Verwijderen", edit: "Bewerken",
@@ -243,6 +245,7 @@ const DICT = {
     transactions: "الحركات", suppliers: "الموردون", customers: "العملاء",
     reports: "التقارير", staff: "الموظفون", settings: "الإعدادات",
     jobCards: "بطاقات الصيانة", invoices: "الفواتير", purchaseOrders: "أوامر الشراء",
+    cashRegister: "الخزينة", reminders: "التذكيرات",
     signIn: "تسجيل الدخول", signOut: "تسجيل الخروج", welcomeBack: "مرحبًا بعودتك",
     owner: "المالك", live: "مباشر", language: "اللغة",
     save: "حفظ", cancel: "إلغاء", close: "إغلاق", delete: "حذف", edit: "تعديل",

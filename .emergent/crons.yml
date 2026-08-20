@@ -1,0 +1,8 @@
+crons:
+  - name: daily-reminders
+    description: "Sends garage service reminders whose due_date is today or overdue"
+    cron: "0 9 * * *"
+    endpoint: "{{BASE_URL}}/api/cron/reminders"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true

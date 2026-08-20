@@ -12,11 +12,15 @@ import jwt
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Literal
 
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, BackgroundTasks, Header
 from fastapi.security import HTTPBearer
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
+import httpx, secrets, re, ipaddress
+from html import escape
+from html.parser import HTMLParser
+from urllib.parse import urlparse
 
 # --- DB ---
 mongo_url = os.environ['MONGO_URL']
@@ -1037,6 +1041,211 @@ async def report_profit(start: Optional[str] = None, end: Optional[str] = None, 
     }
 
 app.include_router(api_router)
+
+# =========================
+# Email (Resend managed proxy) + Service Reminders + Cash Register + Cron
+# =========================
+EMAIL_BASE_URL = "https://integrations.emergentagent.com"
+EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY", "")
+EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "PitStock Garage")
+WEBHOOK_CRON_SECRET = os.environ.get("WEBHOOK_CRON_SECRET", "")
+
+_SHORTENERS = ("bit.ly", "tinyurl.com", "t.co", "is.gd", "cutt.ly", "goo.gl", "rebrand.ly")
+_CRED_ASK = ("reply with your password", "reply with the code", "send your password", "cvv",
+             "seed phrase", "recovery phrase", "verify your card", "social security number")
+_HOSTISH = re.compile(r"\b(?:https?://)?((?:[a-z0-9-]+\.)+[a-z]{2,})", re.I)
+
+def _host_ok(h):
+    if not h or "xn--" in h: return False
+    try: ipaddress.ip_address(h); return False
+    except ValueError: pass
+    return not any(h == s or h.endswith("." + s) for s in _SHORTENERS)
+
+class _EmailScan(HTMLParser):
+    def __init__(self):
+        super().__init__(); self.tags, self.urls, self.anchors = set(), [], []
+        self._href, self._text = None, []
+    def handle_starttag(self, tag, attrs):
+        self.tags.add(tag.lower())
+        self.urls += [v for k, v in attrs if k.lower() in ("href", "src") and v]
+        if tag.lower() == "a":
+            self._href = dict((k.lower(), v) for k, v in attrs).get("href"); self._text = []
+    def handle_data(self, data):
+        if self._href is not None: self._text.append(data)
+    def handle_endtag(self, tag):
+        if tag.lower() == "a" and self._href is not None:
+            self.anchors.append((self._href, "".join(self._text))); self._href, self._text = None, []
+
+def _assert_safe_email(subject, html):
+    scan = _EmailScan(); scan.feed(html)
+    if scan.tags & {"form", "input", "textarea", "select"}: raise ValueError("No forms in email (G2)")
+    body = f"{subject}\n{html}".lower()
+    for p in _CRED_ASK:
+        if p in body: raise ValueError(f"Credential ask: {p} (G2)")
+    for url in scan.urls:
+        low = url.strip().lower()
+        if low.startswith(("mailto:", "tel:", "cid:", "#")): continue
+        if not low.startswith("https://"): raise ValueError(f"Non-https: {url} (G3)")
+        h = urlparse(low).hostname or ""
+        if not _host_ok(h) or urlparse(low).username is not None:
+            raise ValueError(f"Unsafe URL: {url} (G3)")
+
+async def send_email(*, to, subject, html):
+    _assert_safe_email(subject, html)
+    payload = {"to": [to], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME}
+    try:
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.post(f"{EMAIL_BASE_URL}/api/v1/email/send",
+                             headers={"X-Email-Key": EMAIL_KEY}, json=payload)
+        r.raise_for_status()
+        return r.json().get("id")
+    except Exception as e:
+        logger.error(f"Email send failed: {e}")
+        raise HTTPException(status_code=502, detail="Failed to send email")
+
+# --- Reminders ---
+class Reminder(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    customer_id: str
+    customer_name: str = ""
+    customer_email: str = ""
+    car_plate: str = ""
+    car_make: str = ""
+    car_model: str = ""
+    reason: str = "Scheduled service"
+    due_date: str  # ISO date
+    due_km: Optional[int] = None
+    last_service_km: Optional[int] = None
+    status: Literal["pending", "sent", "cancelled"] = "pending"
+    channel: Literal["email"] = "email"
+    created_by: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    sent_at: Optional[str] = None
+
+class ReminderCreate(BaseModel):
+    customer_id: str
+    reason: str = "Scheduled service"
+    due_date: str
+    due_km: Optional[int] = None
+    last_service_km: Optional[int] = None
+    car_plate: str = ""
+    car_make: str = ""
+    car_model: str = ""
+
+def _reminder_html(rem, garage_name):
+    return (f'<table role="presentation" width="100%"><tr><td style="padding:24px;'
+            f'font-family:Arial,sans-serif;color:#111;max-width:560px">'
+            f'<h2 style="margin:0 0 12px">Service reminder from {escape(garage_name)}</h2>'
+            f'<p>Hi {escape(rem.get("customer_name") or "there")},</p>'
+            f'<p>Your <strong>{escape((rem.get("car_make") or "") + " " + (rem.get("car_model") or ""))}</strong>'
+            f'{" (" + escape(rem["car_plate"]) + ")" if rem.get("car_plate") else ""} '
+            f'is due for <strong>{escape(rem.get("reason") or "service")}</strong> on '
+            f'<strong>{escape(rem["due_date"])}</strong>'
+            f'{" or at " + str(rem["due_km"]) + " km" if rem.get("due_km") else ""}.</p>'
+            f'<p>Give us a call to book a slot that suits you.</p>'
+            f'<p style="font-size:12px;color:#888;margin-top:24px">Sent by {escape(garage_name)}. '
+            f'We never ask for your password or card details by email.</p>'
+            f'</td></tr></table>')
+
+async def _send_reminder(rem_id: str):
+    rem = await db.reminders.find_one({"id": rem_id}, {"_id": 0})
+    if not rem or rem["status"] != "pending":
+        return
+    if not rem.get("customer_email"):
+        await db.reminders.update_one({"id": rem_id}, {"$set": {"status": "cancelled"}})
+        return
+    settings = await db.settings.find_one({"_id": "garage"}, {"_id": 0}) or {}
+    garage_name = settings.get("name") or "PitStock Garage"
+    html = _reminder_html(rem, garage_name)
+    try:
+        await send_email(to=rem["customer_email"],
+                         subject=f"Service reminder — {rem.get('reason') or 'workshop visit'}",
+                         html=html)
+        await db.reminders.update_one({"id": rem_id}, {"$set": {"status": "sent",
+                                                                "sent_at": datetime.now(timezone.utc).isoformat()}})
+    except Exception as e:
+        logger.error(f"reminder send failed: {e}")
+
+@api_router.get("/reminders", response_model=List[Reminder])
+async def list_reminders(user: dict = Depends(get_current_user)):
+    return await db.reminders.find({}, {"_id": 0}).sort("due_date", 1).to_list(500)
+
+@api_router.post("/reminders", response_model=Reminder)
+async def create_reminder(payload: ReminderCreate, user: dict = Depends(get_current_user)):
+    c = await db.customers.find_one({"id": payload.customer_id}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    rem = Reminder(**payload.model_dump(),
+                   customer_name=c.get("name", ""), customer_email=c.get("email", ""),
+                   created_by=user.get("email", ""))
+    await db.reminders.insert_one(rem.model_dump())
+    return rem
+
+@api_router.post("/reminders/{rid}/send")
+async def send_reminder_now(rid: str, background: BackgroundTasks, user: dict = Depends(get_current_user)):
+    rem = await db.reminders.find_one({"id": rid}, {"_id": 0})
+    if not rem:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not rem.get("customer_email"):
+        raise HTTPException(status_code=400, detail="Customer has no email on file")
+    background.add_task(_send_reminder, rid)
+    return {"ok": True}
+
+@api_router.delete("/reminders/{rid}")
+async def delete_reminder(rid: str, user: dict = Depends(get_current_user)):
+    await db.reminders.delete_one({"id": rid})
+    return {"ok": True}
+
+# --- Cash Register / Daily Till ---
+@api_router.get("/cash-register")
+async def cash_register(date: Optional[str] = None, user: dict = Depends(get_current_user)):
+    d = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    start = d + "T00:00:00+00:00"
+    end = d + "T23:59:59+00:00"
+    invs = await db.invoices.find({"paid_at": {"$gte": start, "$lte": end}, "status": "paid"}, {"_id": 0}).to_list(2000)
+    txns = await db.transactions.find({"created_at": {"$gte": start, "$lte": end}}, {"_id": 0}).to_list(5000)
+    in_total = round(sum(t["total"] for t in txns if t["type"] == "IN"), 2)
+    out_total = round(sum(t["total"] for t in txns if t["type"] == "OUT"), 2)
+    revenue = round(sum(i["total"] for i in invs), 2)
+    tax = round(sum(i.get("tax", 0) for i in invs), 2)
+    by_customer = {}
+    for i in invs:
+        k = i.get("customer_name") or "Walk-in"
+        by_customer.setdefault(k, {"customer": k, "count": 0, "total": 0})
+        by_customer[k]["count"] += 1
+        by_customer[k]["total"] += i["total"]
+    for v in by_customer.values(): v["total"] = round(v["total"], 2)
+    return {
+        "date": d,
+        "invoice_count": len(invs),
+        "revenue": revenue,
+        "tax": tax,
+        "in_total": in_total,
+        "out_total": out_total,
+        "net_flow": round(revenue - in_total, 2),
+        "by_customer": sorted(by_customer.values(), key=lambda x: -x["total"]),
+        "invoices": sorted(invs, key=lambda i: i.get("paid_at", "")),
+    }
+
+# --- Cron endpoint (daily reminders sweep) ---
+@api_router.post("/cron/reminders")
+async def cron_reminders(background: BackgroundTasks, authorization: Optional[str] = Header(default=None)):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer")
+    token = authorization[7:]
+    if not secrets.compare_digest(token, WEBHOOK_CRON_SECRET or ""):
+        raise HTTPException(status_code=401, detail="Bad token")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    due = await db.reminders.find({"status": "pending", "due_date": {"$lte": today}}, {"_id": 0}).to_list(500)
+    for r in due:
+        background.add_task(_send_reminder, r["id"])
+    return {"queued": len(due)}
+
+# Re-include the router now that new routes have been declared.
+app.router.routes = [r for r in app.router.routes if not (getattr(r, 'path', '') or '').startswith('/api')]
+app.include_router(api_router)
+
 
 app.add_middleware(
     CORSMiddleware,

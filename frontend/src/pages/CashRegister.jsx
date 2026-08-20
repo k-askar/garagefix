@@ -1,0 +1,120 @@
+import React, { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { api, formatEUR } from "@/lib/api";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useLang } from "@/i18n";
+import { downloadListReportPdf, printListReport } from "@/lib/reports";
+import { Printer, FileDown, Wallet, TrendingUp, TrendingDown, Users as UsersIcon } from "lucide-react";
+
+function todayISO(offset = 0) { const d = new Date(); d.setDate(d.getDate() + offset); return d.toISOString().slice(0, 10); }
+
+export default function CashRegister() {
+  const { t, meta } = useLang();
+  const [date, setDate] = useState(todayISO(0));
+  const { data } = useQuery({ queryKey: ["till", date], queryFn: () => api.get(`/cash-register?date=${date}`).then(r => r.data) });
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: () => api.get("/settings").then(r => r.data) });
+  const [exporting, setExporting] = useState(false);
+
+  const exportReport = async (mode) => {
+    const args = {
+      title: `Cash Register · ${date}`,
+      subtitle: `${data?.invoice_count || 0} paid invoices`,
+      headers: ["Time", "Invoice", "Customer", "Total"],
+      rows: (data?.invoices || []).map(i => [
+        (i.paid_at || "").slice(11, 16),
+        i.invoice_number,
+        i.customer_name || "Walk-in",
+        formatEUR(i.total),
+      ]),
+      summary: [
+        { label: "Revenue", value: formatEUR(data?.revenue) },
+        { label: "Tax", value: formatEUR(data?.tax) },
+        { label: "Stock IN", value: formatEUR(data?.in_total) },
+        { label: "Net flow", value: formatEUR(data?.net_flow) },
+      ],
+      settings, dir: meta.dir, footerNote: "End-of-day closing report — verified by owner",
+    };
+    if (mode === "pdf") { setExporting(true); try { await downloadListReportPdf(args); } finally { setExporting(false); } }
+    else printListReport(args);
+  };
+
+  return (
+    <div className="space-y-8" data-testid="till-page">
+      <div className="flex items-end justify-between flex-wrap gap-4">
+        <div>
+          <div className="text-xs font-mono uppercase tracking-widest text-primary mb-2">End of day</div>
+          <h1 className="font-display text-4xl font-black tracking-tight">Cash Register</h1>
+          <p className="text-muted-foreground mt-2">Daily till summary of paid invoices.</p>
+        </div>
+        <div className="flex gap-2 flex-wrap items-end">
+          <div className="space-y-1"><Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">Date</Label>
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-44" data-testid="till-date" /></div>
+          <Button variant="outline" className="rounded-full" onClick={() => setDate(todayISO(0))}>Today</Button>
+          <Button variant="outline" className="rounded-full" onClick={() => exportReport("print")} data-testid="till-print"><Printer className="h-4 w-4 mr-2" /> {t("print")}</Button>
+          <Button variant="outline" className="rounded-full" onClick={() => exportReport("pdf")} disabled={exporting} data-testid="till-pdf"><FileDown className="h-4 w-4 mr-2" /> {t("pdf")}</Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {[
+          { label: "Revenue", value: formatEUR(data?.revenue || 0), icon: Wallet, accent: "text-emerald-400" },
+          { label: "Tax", value: formatEUR(data?.tax || 0), icon: TrendingUp, accent: "text-fuchsia-400" },
+          { label: "Stock IN", value: formatEUR(data?.in_total || 0), icon: TrendingDown, accent: "text-rose-400" },
+          { label: "Net flow", value: formatEUR(data?.net_flow || 0), icon: UsersIcon, accent: "text-primary" },
+        ].map((k) => (
+          <Card key={k.label} className="p-6 border-border">
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">{k.label}</div>
+                <div className={`font-display text-3xl font-bold tabular-nums mt-2 ${k.accent}`}>{k.value}</div>
+              </div>
+              <k.icon className="h-5 w-5 text-muted-foreground" />
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      <Card className="p-6 border-border overflow-x-auto">
+        <h3 className="font-display text-xl font-bold mb-4">Paid invoices ({data?.invoice_count || 0})</h3>
+        <Table>
+          <TableHeader><TableRow className="hover:bg-transparent">
+            <TableHead>Time</TableHead><TableHead>Invoice</TableHead><TableHead>Customer</TableHead>
+            <TableHead className="text-right">Tax</TableHead><TableHead className="text-right">Total</TableHead>
+          </TableRow></TableHeader>
+          <TableBody>
+            {(data?.invoices || []).map(i => (
+              <TableRow key={i.id}>
+                <TableCell className="font-mono text-xs">{(i.paid_at || "").slice(11, 16)}</TableCell>
+                <TableCell className="font-mono text-xs">{i.invoice_number}</TableCell>
+                <TableCell>{i.customer_name || "Walk-in"}</TableCell>
+                <TableCell className="text-right tabular-nums text-muted-foreground">{formatEUR(i.tax || 0)}</TableCell>
+                <TableCell className="text-right tabular-nums font-mono font-bold">{formatEUR(i.total)}</TableCell>
+              </TableRow>
+            ))}
+            {!(data?.invoices || []).length && <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No paid invoices for this day.</TableCell></TableRow>}
+          </TableBody>
+        </Table>
+      </Card>
+
+      {(data?.by_customer || []).length > 0 && (
+        <Card className="p-6 border-border overflow-x-auto">
+          <h3 className="font-display text-xl font-bold mb-4">By customer</h3>
+          <Table>
+            <TableHeader><TableRow className="hover:bg-transparent"><TableHead>Customer</TableHead><TableHead className="text-right">Invoices</TableHead><TableHead className="text-right">Total</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {(data?.by_customer || []).map(c => (
+                <TableRow key={c.customer}><TableCell>{c.customer}</TableCell>
+                  <TableCell className="text-right tabular-nums">{c.count}</TableCell>
+                  <TableCell className="text-right tabular-nums font-mono font-bold">{formatEUR(c.total)}</TableCell></TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
+    </div>
+  );
+}

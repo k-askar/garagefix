@@ -10,11 +10,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Car, Wrench, Plus, Trash2, CheckCircle2, FileText, Printer, User, Gauge, X, ClipboardList, FileDown } from "lucide-react";
+import { Car, Wrench, Plus, Trash2, CheckCircle2, FileText, Printer, User, Gauge, X, ClipboardList, FileDown, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { useLang } from "@/i18n";
 import { downloadRepairCardPdf, printRepairCard, downloadListReportPdf, printListReport } from "@/lib/reports";
+import { whatsappShare } from "@/lib/whatsapp";
 
 const STATUS_STYLE = {
   open: "bg-blue-500/15 text-blue-400 border-blue-500/30",
@@ -259,6 +260,16 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
           </Button>
           <Button variant="outline" className="rounded-full" onClick={() => downloadRepairCardPdf(data, settings, meta.dir, repairLabels(t))} data-testid="repair-pdf-button">
             <FileDown className="h-4 w-4 mr-2" /> {t("pdf")}
+          </Button>
+          <Button variant="outline" className="rounded-full text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10" onClick={() => whatsappShare({
+              phone: data.customer_phone, garageName: settings?.name,
+              header: `Job card ${data.card_number}`,
+              lines: [`${[data.car_make, data.car_model, data.car_year].filter(Boolean).join(" ")} · ${data.car_plate || ""}`,
+                      ...(data.parts_used || []).map(p => `• ${p.name} × ${p.quantity} — ${p.total.toFixed(2)}€`),
+                      data.labor_charge ? `• Labor — ${Number(data.labor_charge).toFixed(2)}€` : ""],
+              total: data.grand_total,
+            })} data-testid="repair-whatsapp-button">
+            <MessageCircle className="h-4 w-4 mr-2" /> WhatsApp
           </Button>
           {!data.invoice_id && <Button variant="outline" className="rounded-full" onClick={invoice} data-testid="repair-invoice-button"><FileText className="h-4 w-4 mr-2" /> {t("createInvoice")}</Button>}
           <Button onClick={saveField} disabled={saving} className="rounded-full bg-primary hover:bg-primary/90" data-testid="repair-save-button">

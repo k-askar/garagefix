@@ -4,7 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useLang } from "@/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Package, ArrowLeftRight, ScrollText, Truck, Users, BarChart3, LogOut, Wrench, Menu, X, UserCog, Settings as SettingsIcon, ClipboardList, Receipt, ShoppingCart } from "lucide-react";
+import { LayoutDashboard, Package, ArrowLeftRight, ScrollText, Truck, Users, BarChart3, LogOut, Wrench, Menu, X, UserCog, Settings as SettingsIcon, ClipboardList, Receipt, ShoppingCart, Bell, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -14,6 +14,8 @@ const NAV = [
   { to: "/movement", key: "movement", icon: ArrowLeftRight, testId: "nav-movement" },
   { to: "/transactions", key: "transactions", icon: ScrollText, testId: "nav-transactions" },
   { to: "/invoices", key: "invoices", icon: Receipt, testId: "nav-invoices" },
+  { to: "/cash-register", key: "cashRegister", icon: Wallet, testId: "nav-till" },
+  { to: "/reminders", key: "reminders", icon: Bell, testId: "nav-reminders" },
   { to: "/suppliers", key: "suppliers", icon: Truck, testId: "nav-suppliers" },
   { to: "/customers", key: "customers", icon: Users, testId: "nav-customers" },
   { to: "/reports", key: "reports", icon: BarChart3, testId: "nav-reports" },

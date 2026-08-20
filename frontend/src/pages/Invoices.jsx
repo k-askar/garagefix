@@ -11,8 +11,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { CheckCircle2, Printer, Trash2, Plus } from "lucide-react";
+import { CheckCircle2, Printer, Trash2, Plus, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
+import { whatsappShare } from "@/lib/whatsapp";
 
 function printInvoice(inv, settings) {
   const w = window.open("", "_blank", "width=720,height=900");
@@ -162,6 +163,15 @@ export default function Invoices() {
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
                     <Button size="icon" variant="ghost" onClick={() => printInvoice(inv, settings)} data-testid={`invoice-print-${inv.invoice_number}`}><Printer className="h-4 w-4" /></Button>
+                    <Button size="icon" variant="ghost" className="text-emerald-400 hover:text-emerald-400" onClick={() => {
+                      const cust = customers.find(c => c.id === inv.customer_id);
+                      whatsappShare({
+                        phone: cust?.phone, garageName: settings?.name,
+                        header: `Invoice ${inv.invoice_number}`,
+                        lines: inv.lines.map(l => `• ${l.name} × ${l.quantity} — ${l.total.toFixed(2)}€`),
+                        total: inv.total, note: inv.status === "paid" ? "PAID" : "Please settle at your earliest.",
+                      });
+                    }} data-testid={`invoice-wa-${inv.invoice_number}`}><MessageCircle className="h-4 w-4" /></Button>
                     {inv.status !== "paid" && <Button size="sm" variant="outline" className="rounded-full" onClick={() => markPaid(inv.id)} data-testid={`invoice-paid-${inv.invoice_number}`}><CheckCircle2 className="h-3 w-3 mr-1" />Paid</Button>}
                     <Button size="icon" variant="ghost" onClick={() => del(inv.id)}><Trash2 className="h-4 w-4 text-rose-400" /></Button>
                   </div>
