@@ -8,8 +8,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Save } from "lucide-react";
 import { toast } from "sonner";
+import { useLang } from "@/i18n";
 
 export default function Settings() {
+  const { t } = useLang();
   const { data } = useQuery({ queryKey: ["settings"], queryFn: () => api.get("/settings").then((r) => r.data) });
   const [form, setForm] = useState({ name: "", address: "", phone: "", email: "", tax_id: "", footer_note: "" });
   const [saving, setSaving] = useState(false);
@@ -59,6 +61,11 @@ export default function Settings() {
           <div className="space-y-1.5">
             <Label>Tax ID / VAT</Label>
             <Input value={form.tax_id} onChange={(e) => setForm({ ...form, tax_id: e.target.value })} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Labor rate (€ / hour)</Label>
+            <Input type="number" step="0.5" min="0" value={form.labor_rate ?? 45} onChange={(e) => setForm({ ...form, labor_rate: Number(e.target.value) })} data-testid="settings-labor-rate" />
+            <p className="text-[11px] text-muted-foreground">Used by the labor time clock on repair cards to auto-fill the labor charge.</p>
           </div>
           <div className="space-y-1.5">
             <Label>Receipt footer note</Label>

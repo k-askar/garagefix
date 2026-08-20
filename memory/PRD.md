@@ -63,6 +63,16 @@
 - **Cash Register** now shows a "By payment method" breakdown and a payment-method column (incl. in PDF/print export).
 - 12/12 pytest cases in `/app/backend/tests/test_iteration5.py` green.
 
+### Iteration 8 — Labor Time Clock (Feb 2026)
+- **Settings.labor_rate** (€ / hour) editable from Owner → Settings.
+- **RepairCard.time_logs**: array of `{mechanic_id, mechanic_name, started_at, stopped_at, minutes, note}`; `labor_minutes` totals completed sessions.
+- Endpoints: `POST /api/repairs/{rid}/clock-in`, `POST /api/repairs/{rid}/clock-out`, `POST /api/repairs/{rid}/time-logs` (manual), `DELETE /api/repairs/{rid}/time-logs/{log_id}`.
+- On clock-out/manual add/delete: `labor_charge = round(total_minutes/60 × labor_rate, 2)` and `grand_total = parts_total + labor_charge` — persisted + recomputed. Manual override via PUT still allowed (next clock-out will re-sync).
+- Guards: 400 when clocking in while another log is running; 400 when clocking out with no running log; 400 on stopped_at <= started_at for manual entries.
+- **UI**: `TimeClockPanel` inside the repair card editor with live HH:MM:SS timer, mechanic + start-time display, Clock in/out button, per-log rows (mechanic, start→stop, minutes, €, note, remove), summary tiles (Duration / Rate / Auto-labor). Status auto-flips from `open` → `in_progress` on first clock-in.
+- **PDF**: exported job card now includes a "Labor time clock" table with all logs and total duration (i18n-aware).
+- 81/81 backend pytest cases green (`/app/backend/tests/test_iteration6.py`).
+
 ## Admin Seed
 - **Owner**: admin@garage.com / admin123
 - **Staff**: mike@garage.com / mike1234

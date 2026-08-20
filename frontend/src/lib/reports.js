@@ -82,7 +82,9 @@ export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels =
     diagnosis: "Diagnosis", workDone: "Work performed", part: "Part",
     qty: "Qty", unitPrice: "Unit price", total: "Total", noParts: "No parts",
     partsTotal: "Parts total", labor: "Labor", grandTotal: "Grand total",
-    plate: "Plate", km: "km", ...labels,
+    plate: "Plate", km: "km",
+    timeClock: "Labor time clock", startedAt: "Started", stopped: "Stopped", duration: "Duration",
+    ...labels,
   };
   const rows = (card.parts_used || []).map(p =>
     `<tr><td>${p.name}<div style="font-size:10px;color:#888;direction:ltr">${p.sku}</div></td><td class="right">${p.quantity}</td><td class="right">${formatEUR(p.unit_price)}</td><td class="right">${formatEUR(p.total)}</td></tr>`).join("");
@@ -130,6 +132,12 @@ export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels =
       ${card.complaint ? `<div style="margin-top:16px"><div class="lbl">${l.complaint}</div><p>${card.complaint}</p></div>` : ""}
       ${card.diagnosis ? `<div style="margin-top:8px"><div class="lbl">${l.diagnosis}</div><p>${card.diagnosis}</p></div>` : ""}
       ${card.work_done ? `<div style="margin-top:8px"><div class="lbl">${l.workDone}</div><p>${card.work_done}</p></div>` : ""}
+      ${(card.time_logs && card.time_logs.length) ? `<div style="margin-top:12px"><div class="lbl">${l.timeClock || 'Labor time clock'}</div>
+        <table style="margin-top:6px"><thead><tr><th>${l.mechanic}</th><th>${l.startedAt || 'Start'}</th><th>${l.stopped || 'Stop'}</th><th class="right">${l.duration || 'Duration'}</th></tr></thead><tbody>
+        ${card.time_logs.map(tl => `<tr><td>${tl.mechanic_name || '—'}</td><td>${new Date(tl.started_at).toLocaleString(dir === 'rtl' ? 'ar-EG' : 'en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td><td>${tl.stopped_at ? new Date(tl.stopped_at).toLocaleString(dir === 'rtl' ? 'ar-EG' : 'en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}</td><td class="right">${Math.round(Number(tl.minutes) || 0)} min</td></tr>`).join('')}
+        </tbody></table>
+        <div class="muted" style="margin-top:6px;text-align:${alignEnd}">${l.duration || 'Duration'}: ${Math.round(Number(card.labor_minutes) || 0)} min</div>
+      </div>` : ""}
       <table><thead><tr><th>${l.part}</th><th class="right">${l.qty}</th><th class="right">${l.unitPrice}</th><th class="right">${l.total}</th></tr></thead>
       <tbody>${rows || `<tr><td colspan="4" style="text-align:center;color:#888;padding:16px">${l.noParts}</td></tr>`}</tbody></table>
       <div style="margin-top:16px;text-align:${alignEnd}">

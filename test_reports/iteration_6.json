@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 6 testing of the labor time clock (backend endpoints + TimeClockPanel UI) and settings.labor_rate. Added /app/backend/tests/test_iteration6.py (19 tests) — full suite now 81/81 pass (includes iterations 1-5 regression). Frontend flows verified end-to-end with Playwright: settings labor rate persistence, clock-in live timer, clock-out auto labor computation, log deletion recompute, PDF export. One CRITICAL frontend crash found and fixed (Settings page used t() without the useLang hook → whole /settings route threw a React error and rendered nothing).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/settings", "issue": "Takes the full GarageSettings model, so any client that omits a field silently resets it to the model default (e.g. a partial PUT would wipe name/address or reset labor_rate to 45). Consider a partial/optional update model."},
+      {"endpoint": "POST /api/repairs/{rid}/clock-in|clock-out", "issue": "No concurrency guard — the running-log check is read-then-write, so two simultaneous clock-in requests could both insert a running log. Low risk for single-garage use; an atomic update filter would harden it."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Settings.jsx", "issue": "FIXED BY TESTER: page called t(\"garageName\") but never imported/used useLang → ReferenceError, entire /settings route crashed (blank page, no labor rate field). Added `import { useLang } from \"@/i18n\"` + `const { t } = useLang()`. Please review — the remaining labels on that page are still hardcoded English while the label uses i18n.", "selector": "[data-testid=\"settings-labor-rate\"]", "priority": "CRITICAL"}
+    ],
+    "integration_issues": [
+      {"flow": "Repair card PDF / print", "issue": "repairLabels(t) in Repairs.jsx does not pass timeClock/startedAt/stopped/duration labels, so the PDF 'Labor time clock' block always falls back to hardcoded English headers even in NL/AR (RTL) mode.", "affected_selectors": ["[data-testid=\"repair-pdf-button\"]", "[data-testid=\"repair-print-button\"]"]},
+      {"flow": "Duplicate clock-in", "issue": "Not reachable through the UI (the Clock in button is swapped for Clock out while a log runs), so the 400 toast path is only covered by backend tests. A second browser tab with stale state also correctly shows Clock out. No defect, informational."}
+    ],
+    "design_issues": [
+      {"screen": "Repair card editor — Labor time clock", "issues": ["Log rows and the Duration tile round to whole minutes, so short sessions display '0m' while the € cost shows a non-zero value (e.g. 0m / 0,07 €) — consider showing seconds or 1 decimal for sub-minute logs.", "PDF time-log duration is also rounded to whole minutes (0 min for short sessions)."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration6.py", "/app/backend/tests/cleanup_iter6.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Review the Settings.jsx useLang fix applied by the tester (or convert the remaining hardcoded English labels on that page to i18n).",
+    "Pass timeClock/startedAt/stopped/duration into repairLabels(t) so the PDF time-log table is translated.",
+    "Optional: make PUT /api/settings a partial update model; show sub-minute precision in the time log rows."
+  ],
+  "critical_code_review_comments": [
+    "Settings.jsx referenced t() with no hook — this class of bug is caught instantly by loading each route once after edit; consider a smoke test over all routes.",
+    "clock-in/clock-out/manual/delete each duplicate the same 'recompute labor_charge from completed logs' block in server.py — extract a helper (_apply_time_logs) to keep the rate math in one place.",
+    "server.py is ~1700 lines; split into routers (repairs, inventory, invoices, settings)."
+  ],
+  "updated_files": ["/app/frontend/src/pages/Settings.jsx", "/app/backend/tests/test_iteration6.py", "/app/backend/tests/cleanup_iter6.py"],
+  "success_rate": {"backend": "100% (81/81 incl. regression)", "frontend": "95% (all time-clock flows pass; 1 crash found & fixed)"},
+  "seed_data_creation": "Created TEST_ repair cards via API and TEST_UI_* cards via UI — all deleted by cleanup_iter6.py (verified none remain). settings.labor_rate intentionally left at 60.0 (test suite sets it; no teardown restore to avoid xdist races).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@garage.com/admin123 (owner), mike@garage.com/mike1234 (staff)",
+  "context_for_next_testing_agent": "test_iteration6.py covers labor_rate settings, clock-in/out, duplicate/no-running 400s, manual time logs (incl. bad ISO / stop<=start), delete-log recompute, manual labor override overwritten by clock-out, staff clocking, and card delete cleanup. NOTE: settings are global — test_iteration6 uses an autouse fixture that PUTs labor_rate=60 before each test and deliberately does NOT restore, because a teardown write races the second xdist worker (this caused one flaky 67.5 vs 90.0 failure before the change). The Settings page renders only because of the useLang fix in /app/frontend/src/pages/Settings.jsx.",
+  "rca_of_the_issue": "Settings page: `<Label>{t(\"garageName\")}</Label>` was added without importing the i18n hook, so `t` was an undefined identifier → ReferenceError during render → React unmounted the route (console: 'An error occurred in the <Settings> component'), making the new labor rate field unreachable. Fixed by adding useLang() to the component. Backend labor math verified correct: labor_charge = round(total_completed_minutes/60 * settings.labor_rate, 2) and grand_total = parts_total + labor_charge, persisted and re-read via GET."
+}

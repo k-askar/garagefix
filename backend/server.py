@@ -462,13 +462,16 @@ class GarageSettings(BaseModel):
     tax_id: str = ""
     footer_note: str = "Thank you for choosing us!"
     logo_url: str = "/logo-shawish.png"
+    labor_rate: float = 45.0  # € per hour used to auto-fill labor charge from time logs
 
 @api_router.get("/settings")
 async def get_settings(user: dict = Depends(get_current_user)):
     s = await db.settings.find_one({"_id": "garage"}, {"_id": 0})
+    defaults = GarageSettings().model_dump()
     if not s:
-        s = GarageSettings().model_dump()
-    return s
+        return defaults
+    # Fill in any missing default keys (e.g. labor_rate on legacy docs)
+    return {**defaults, **s}
 
 @api_router.put("/settings")
 async def update_settings(payload: GarageSettings, user: dict = Depends(require_owner)):
@@ -782,6 +785,29 @@ class PartUsed(BaseModel):
     unit_price: float = Field(ge=0)
     total: float
 
+class TimeLog(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    mechanic_id: Optional[str] = None
+    mechanic_name: str = ""
+    started_at: str
+    stopped_at: Optional[str] = None
+    minutes: float = 0.0
+    note: Optional[str] = ""
+
+class ClockInPayload(BaseModel):
+    mechanic_id: Optional[str] = None
+    note: Optional[str] = ""
+
+class ClockOutPayload(BaseModel):
+    log_id: Optional[str] = None  # if omitted, stop the newest running log
+    note: Optional[str] = ""
+
+class TimeLogManualCreate(BaseModel):
+    mechanic_id: Optional[str] = None
+    started_at: str  # ISO datetime
+    stopped_at: str  # ISO datetime
+    note: Optional[str] = ""
+
 class RepairCard(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     card_number: str
@@ -800,6 +826,8 @@ class RepairCard(BaseModel):
     diagnosis: str = ""
     work_done: str = ""
     parts_used: List[PartUsed] = []
+    time_logs: List[TimeLog] = []
+    labor_minutes: float = 0.0
     labor_charge: float = 0.0
     parts_total: float = 0.0
     grand_total: float = 0.0
@@ -850,8 +878,10 @@ class AddPart(BaseModel):
 
 def _recalc_repair(card: dict) -> dict:
     parts_total = round(sum(p["total"] for p in card.get("parts_used", [])), 2)
+    minutes = round(sum(l.get("minutes") or 0 for l in card.get("time_logs", []) if l.get("stopped_at")), 2)
     grand = round(parts_total + float(card.get("labor_charge") or 0), 2)
     card["parts_total"] = parts_total
+    card["labor_minutes"] = minutes
     card["grand_total"] = grand
     return card
 
@@ -990,6 +1020,133 @@ async def remove_part_from_repair(rid: str, txn_id: str, user: dict = Depends(ge
         "updated_at": card["updated_at"],
     }})
     return card
+
+async def _labor_rate() -> float:
+    s = await db.settings.find_one({"_id": "garage"}, {"_id": 0}) or {}
+    return float(s.get("labor_rate") or 45.0)
+
+@api_router.post("/repairs/{rid}/clock-in", response_model=RepairCard)
+async def clock_in(rid: str, payload: ClockInPayload, user: dict = Depends(get_current_user)):
+    card = await db.repairs.find_one({"id": rid}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+    logs = card.get("time_logs") or []
+    if any(l for l in logs if not l.get("stopped_at")):
+        raise HTTPException(status_code=400, detail="A time log is already running on this card")
+    mechanic_id = payload.mechanic_id or card.get("mechanic_id") or user.get("id")
+    mechanic_name = ""
+    if mechanic_id:
+        m = await db.users.find_one({"id": mechanic_id}, {"_id": 0})
+        if m: mechanic_name = m.get("name") or m.get("email", "")
+    log = TimeLog(
+        mechanic_id=mechanic_id, mechanic_name=mechanic_name,
+        started_at=datetime.now(timezone.utc).isoformat(),
+        note=payload.note or "",
+    )
+    logs.append(log.model_dump())
+    updates = {"time_logs": logs, "updated_at": datetime.now(timezone.utc).isoformat()}
+    if card.get("status") == "open":
+        updates["status"] = "in_progress"
+    await db.repairs.update_one({"id": rid}, {"$set": updates})
+    return await db.repairs.find_one({"id": rid}, {"_id": 0})
+
+@api_router.post("/repairs/{rid}/clock-out", response_model=RepairCard)
+async def clock_out(rid: str, payload: ClockOutPayload, user: dict = Depends(get_current_user)):
+    card = await db.repairs.find_one({"id": rid}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+    logs = card.get("time_logs") or []
+    # Find the running log — either by id or the most recent open one
+    target = None
+    if payload.log_id:
+        target = next((l for l in logs if l["id"] == payload.log_id and not l.get("stopped_at")), None)
+    else:
+        running = [l for l in logs if not l.get("stopped_at")]
+        target = running[-1] if running else None
+    if not target:
+        raise HTTPException(status_code=400, detail="No running time log to stop")
+    now = datetime.now(timezone.utc)
+    started = datetime.fromisoformat(target["started_at"])
+    minutes = round((now - started).total_seconds() / 60.0, 2)
+    target["stopped_at"] = now.isoformat()
+    target["minutes"] = max(minutes, 0.0)
+    if payload.note:
+        target["note"] = (target.get("note") or "") + (" · " if target.get("note") else "") + payload.note
+    # Recompute labor_charge from all completed logs × rate
+    rate = await _labor_rate()
+    total_minutes = sum(l.get("minutes") or 0 for l in logs if l.get("stopped_at"))
+    labor_charge = round((total_minutes / 60.0) * rate, 2)
+    card["time_logs"] = logs
+    card["labor_charge"] = labor_charge
+    card = _recalc_repair(card)
+    card["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.repairs.update_one({"id": rid}, {"$set": {
+        "time_logs": logs, "labor_charge": labor_charge,
+        "labor_minutes": card["labor_minutes"], "grand_total": card["grand_total"],
+        "updated_at": card["updated_at"],
+    }})
+    return await db.repairs.find_one({"id": rid}, {"_id": 0})
+
+@api_router.post("/repairs/{rid}/time-logs", response_model=RepairCard)
+async def add_manual_time_log(rid: str, payload: TimeLogManualCreate, user: dict = Depends(get_current_user)):
+    card = await db.repairs.find_one({"id": rid}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+    try:
+        started = datetime.fromisoformat(payload.started_at)
+        stopped = datetime.fromisoformat(payload.stopped_at)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid datetime. Use ISO format.")
+    if stopped <= started:
+        raise HTTPException(status_code=400, detail="Stopped-at must be after started-at")
+    mechanic_id = payload.mechanic_id or card.get("mechanic_id") or user.get("id")
+    mechanic_name = ""
+    if mechanic_id:
+        m = await db.users.find_one({"id": mechanic_id}, {"_id": 0})
+        if m: mechanic_name = m.get("name") or m.get("email", "")
+    log = TimeLog(
+        mechanic_id=mechanic_id, mechanic_name=mechanic_name,
+        started_at=started.isoformat(), stopped_at=stopped.isoformat(),
+        minutes=round((stopped - started).total_seconds() / 60.0, 2),
+        note=payload.note or "",
+    )
+    logs = (card.get("time_logs") or []) + [log.model_dump()]
+    rate = await _labor_rate()
+    total_minutes = sum(l.get("minutes") or 0 for l in logs if l.get("stopped_at"))
+    labor_charge = round((total_minutes / 60.0) * rate, 2)
+    card["time_logs"] = logs
+    card["labor_charge"] = labor_charge
+    card = _recalc_repair(card)
+    card["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.repairs.update_one({"id": rid}, {"$set": {
+        "time_logs": logs, "labor_charge": labor_charge,
+        "labor_minutes": card["labor_minutes"], "grand_total": card["grand_total"],
+        "updated_at": card["updated_at"],
+    }})
+    return await db.repairs.find_one({"id": rid}, {"_id": 0})
+
+@api_router.delete("/repairs/{rid}/time-logs/{log_id}", response_model=RepairCard)
+async def delete_time_log(rid: str, log_id: str, user: dict = Depends(get_current_user)):
+    card = await db.repairs.find_one({"id": rid}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+    logs = card.get("time_logs") or []
+    if not any(l["id"] == log_id for l in logs):
+        raise HTTPException(status_code=404, detail="Time log not found")
+    logs = [l for l in logs if l["id"] != log_id]
+    rate = await _labor_rate()
+    total_minutes = sum(l.get("minutes") or 0 for l in logs if l.get("stopped_at"))
+    labor_charge = round((total_minutes / 60.0) * rate, 2)
+    card["time_logs"] = logs
+    card["labor_charge"] = labor_charge
+    card = _recalc_repair(card)
+    card["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.repairs.update_one({"id": rid}, {"$set": {
+        "time_logs": logs, "labor_charge": labor_charge,
+        "labor_minutes": card["labor_minutes"], "grand_total": card["grand_total"],
+        "updated_at": card["updated_at"],
+    }})
+    return await db.repairs.find_one({"id": rid}, {"_id": 0})
 
 @api_router.post("/repairs/{rid}/invoice", response_model=Invoice)
 async def invoice_repair(rid: str, tax_rate: float = 0.0, user: dict = Depends(get_current_user)):

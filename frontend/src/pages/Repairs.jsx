@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatEUR, formatApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Car, Wrench, Plus, Trash2, CheckCircle2, FileText, Printer, User, Gauge, X, ClipboardList, FileDown, MessageCircle } from "lucide-react";
+import { Car, Wrench, Plus, Trash2, CheckCircle2, FileText, Printer, User, Gauge, X, ClipboardList, FileDown, MessageCircle, Play, Square, Timer } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { useLang } from "@/i18n";
@@ -32,6 +32,7 @@ function repairLabels(t) {
     qty: t("qty"), unitPrice: t("unitPrice"), total: t("total"), noParts: t("noParts") || "—",
     partsTotal: t("parts"), labor: t("labor"), grandTotal: t("grandTotal"),
     plate: t("plate"), km: t("km"),
+    timeClock: t("timeClock"), startedAt: t("startedAt"), stopped: t("stopped"), duration: t("duration"),
   };
 }
 
@@ -66,6 +67,154 @@ function printJobCard(card, settings) {
     </body></html>`);
   w.document.close();
   setTimeout(() => w.print(), 300);
+}
+
+function fmtDuration(mins) {
+  const total = Math.max(0, Math.round(Number(mins) || 0));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function fmtLive(seconds) {
+  const s = Math.max(0, Math.floor(seconds));
+  const h = String(Math.floor(s / 3600)).padStart(2, "0");
+  const m = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+  const sec = String(s % 60).padStart(2, "0");
+  return `${h}:${m}:${sec}`;
+}
+
+function TimeClockPanel({ card, setData, settings, refetch }) {
+  const { t, meta } = useLang();
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const rate = Number(settings?.labor_rate || 45);
+  const logs = card.time_logs || [];
+  const running = useMemo(() => logs.find(l => !l.stopped_at), [logs]);
+  const totalMinutes = logs.reduce((s, l) => s + (l.stopped_at ? (Number(l.minutes) || 0) : 0), 0);
+  const autoCharge = (totalMinutes / 60) * rate;
+
+  useEffect(() => {
+    if (!running) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [running]);
+
+  const liveSeconds = running ? Math.max(0, (now - new Date(running.started_at).getTime()) / 1000) : 0;
+
+  const clockIn = async () => {
+    setBusy(true);
+    try {
+      const { data: updated } = await api.post(`/repairs/${card.id}/clock-in`, { note });
+      setData(updated); setNote("");
+      toast.success(t("clockInSuccess"));
+      refetch();
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setBusy(false); }
+  };
+
+  const clockOut = async () => {
+    setBusy(true);
+    try {
+      const { data: updated } = await api.post(`/repairs/${card.id}/clock-out`, { note });
+      setData(updated); setNote("");
+      toast.success(t("clockOutSuccess"));
+      refetch();
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setBusy(false); }
+  };
+
+  const removeLog = async (logId) => {
+    if (!window.confirm(t("delete") + "?")) return;
+    try {
+      const { data: updated } = await api.delete(`/repairs/${card.id}/time-logs/${logId}`);
+      setData(updated); toast.success(t("deleted"));
+      refetch();
+    } catch (e) { toast.error(formatApiError(e)); }
+  };
+
+  const localeStr = meta.dir === "rtl" ? "ar-EG" : "en-GB";
+
+  return (
+    <Card className="p-5 border-border space-y-4" data-testid="time-clock-panel">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Timer className="h-4 w-4 text-primary" />
+          <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">{t("timeClock")}</div>
+        </div>
+        <div className="text-[11px] font-mono text-muted-foreground">{t("rate")}: {formatEUR(rate)} / {t("hours")}</div>
+      </div>
+
+      {/* Live timer + clock in/out */}
+      <div className={`rounded-md border p-4 flex items-center justify-between gap-3 ${running ? "border-emerald-500/40 bg-emerald-500/5" : "border-border bg-muted/30"}`}>
+        <div>
+          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            {running ? `${t("running")} · ${running.mechanic_name || t("mechanic")}` : t("stopped")}
+          </div>
+          <div className={`font-display text-3xl font-black tabular-nums mt-1 ${running ? "text-emerald-400" : "text-muted-foreground"}`} data-testid="time-clock-live">
+            {running ? fmtLive(liveSeconds) : "00:00:00"}
+          </div>
+          {running && <div className="text-[11px] font-mono text-muted-foreground mt-1">{t("startedAt")}: {new Date(running.started_at).toLocaleTimeString(localeStr, { hour: "2-digit", minute: "2-digit" })}</div>}
+        </div>
+        <div className="flex flex-col gap-2 min-w-[220px]">
+          <Input placeholder={t("logNote")} value={note} onChange={(e) => setNote(e.target.value)} data-testid="time-clock-note" />
+          {running ? (
+            <Button onClick={clockOut} disabled={busy} className="rounded-full bg-rose-500 hover:bg-rose-500/90 text-white" data-testid="time-clock-out">
+              <Square className="h-4 w-4 mr-2" /> {t("clockOut")}
+            </Button>
+          ) : (
+            <Button onClick={clockIn} disabled={busy} className="rounded-full bg-emerald-500 hover:bg-emerald-500/90 text-white" data-testid="time-clock-in">
+              <Play className="h-4 w-4 mr-2" /> {t("clockIn")}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Summary */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="p-3 rounded-md border border-border">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("duration")}</div>
+          <div className="font-mono font-bold text-lg tabular-nums">{fmtDuration(totalMinutes)}</div>
+        </div>
+        <div className="p-3 rounded-md border border-border">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("rate")}</div>
+          <div className="font-mono font-bold text-lg tabular-nums">{formatEUR(rate)}</div>
+        </div>
+        <div className="p-3 rounded-md border border-primary/30 bg-primary/5">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("autoLabor")}</div>
+          <div className="font-mono font-bold text-lg tabular-nums text-primary" data-testid="time-clock-auto-labor">{formatEUR(autoCharge)}</div>
+        </div>
+      </div>
+
+      {/* Logs list */}
+      <div className="space-y-2">
+        {logs.length === 0 && <div className="text-sm text-muted-foreground text-center py-6">{t("noTimeLogs")}</div>}
+        {logs.slice().sort((a, b) => b.started_at.localeCompare(a.started_at)).map(l => (
+          <div key={l.id} className="flex items-center justify-between p-3 rounded-md bg-muted/40 border border-border" data-testid={`time-log-row-${l.id}`}>
+            <div className="min-w-0">
+              <div className="text-sm font-medium truncate">{l.mechanic_name || t("unassigned")}</div>
+              <div className="text-[11px] font-mono text-muted-foreground">
+                {new Date(l.started_at).toLocaleString(localeStr, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                {" → "}
+                {l.stopped_at ? new Date(l.stopped_at).toLocaleString(localeStr, { hour: "2-digit", minute: "2-digit" }) : <span className="text-emerald-400">{t("liveTimer")}</span>}
+              </div>
+              {l.note && <div className="text-[11px] text-muted-foreground mt-0.5">{l.note}</div>}
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <div className="text-sm font-mono font-bold tabular-nums">{l.stopped_at ? fmtDuration(l.minutes) : "…"}</div>
+                {l.stopped_at && <div className="text-[10px] font-mono text-muted-foreground">{formatEUR((Number(l.minutes) / 60) * rate)}</div>}
+              </div>
+              <Button size="icon" variant="ghost" onClick={() => removeLog(l.id)} data-testid={`time-log-remove-${l.id}`}>
+                <X className="h-4 w-4 text-rose-400" />
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
 }
 
 function CardEditor({ card, onClose, users, customers, items, settings, refetch }) {
@@ -204,10 +353,15 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
             <div className="space-y-1.5"><Label className="text-xs">Diagnosis</Label><Textarea rows={2} value={data.diagnosis || ""} onChange={(e) => set("diagnosis", e.target.value)} data-testid="repair-diagnosis" /></div>
             <div className="space-y-1.5"><Label className="text-xs">Work performed</Label><Textarea rows={3} value={data.work_done || ""} onChange={(e) => set("work_done", e.target.value)} data-testid="repair-work" /></div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5"><Label className="text-xs">Labor charge (€)</Label><Input type="number" step="0.01" value={data.labor_charge || 0} onChange={(e) => set("labor_charge", e.target.value)} data-testid="repair-labor" /></div>
+              <div className="space-y-1.5"><Label className="text-xs">Labor charge (€)</Label><Input type="number" step="0.01" value={data.labor_charge || 0} onChange={(e) => set("labor_charge", e.target.value)} data-testid="repair-labor" />
+                <p className="text-[10px] text-muted-foreground">{t("laborAuto")}</p>
+              </div>
               <div className="space-y-1.5"><Label className="text-xs">Internal notes</Label><Input value={data.notes || ""} onChange={(e) => set("notes", e.target.value)} /></div>
             </div>
           </Card>
+
+          {/* Labor time clock */}
+          <TimeClockPanel card={data} setData={setData} settings={settings} refetch={refetch} />
 
           {/* Parts used */}
           <Card className="p-5 border-border">
