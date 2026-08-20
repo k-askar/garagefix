@@ -2,7 +2,94 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Chivo:wght@400;500;600;700;800;900&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Chivo:wght@400;500;600;700;800;900&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Cairo:wght@400;500;600;700;800&family=Amiri:wght@400;700&display=swap');
+
+@layer base {
+  :root {
+    --background: 222 47% 4%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 7%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 7%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 217 33% 12%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 12%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 33% 14%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --warning: 38 92% 50%;
+    --border: 217 33% 15%;
+    --input: 217 33% 15%;
+    --ring: 217 91% 60%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  html, body, #root {
+    @apply bg-background text-foreground;
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  h1, h2, h3, h4, h5, .font-display {
+    font-family: 'Chivo', system-ui, sans-serif;
+    letter-spacing: -0.01em;
+  }
+  .font-mono, code, .tabular-nums {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Arabic: use Cairo everywhere including display headings */
+  html[lang="ar"], html[lang="ar"] body, html[lang="ar"] .font-mono,
+  html[lang="ar"] code, html[lang="ar"] h1, html[lang="ar"] h2,
+  html[lang="ar"] h3, html[lang="ar"] h4, html[lang="ar"] h5,
+  html[lang="ar"] .font-display, html[lang="ar"] .tabular-nums {
+    font-family: 'Cairo', 'Amiri', 'IBM Plex Sans', system-ui, sans-serif;
+    letter-spacing: 0;
+  }
+  html[dir="rtl"] .font-mono, html[dir="rtl"] code {
+    direction: ltr;
+    unicode-bidi: embed;
+  }
+}
+
+/* Grid backdrop for dashboard */
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(59, 130, 246, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59, 130, 246, 0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+.card-hover {
+  transition: transform 200ms ease, border-color 200ms ease, background-color 200ms ease;
+}
+.card-hover:hover {
+  transform: translateY(-1px);
+  border-color: hsl(var(--primary) / 0.5);
+}
+
+::selection { background: hsl(var(--primary) / 0.35); color: white; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: hsl(var(--background)); }
+::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.5); }
+
+/* RTL mirroring helpers */
+html[dir="rtl"] .lucide { transform: none; }
+html[dir="rtl"] [data-lucide="chevron-right"],
+html[dir="rtl"] [data-lucide="chevron-left"],
+html[dir="rtl"] [data-lucide="arrow-right"],
+html[dir="rtl"] [data-lucide="arrow-left"] { transform: scaleX(-1); }
 
 @layer base {
   :root {

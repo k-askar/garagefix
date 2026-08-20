@@ -14,6 +14,9 @@ import Transactions from "@/pages/Transactions";
 import Reports from "@/pages/Reports";
 import Staff from "@/pages/Staff";
 import Settings from "@/pages/Settings";
+import PurchaseOrders from "@/pages/PurchaseOrders";
+import Invoices from "@/pages/Invoices";
+import Repairs from "@/pages/Repairs";
 import "@/App.css";
 
 function ProtectedShell() {
@@ -50,6 +53,9 @@ function App() {
               <Route path="/suppliers" element={<Suppliers />} />
               <Route path="/customers" element={<Customers />} />
               <Route path="/reports" element={<Reports />} />
+              <Route path="/repairs" element={<Repairs />} />
+              <Route path="/invoices" element={<Invoices />} />
+              <Route path="/purchase-orders" element={<OwnerRoute><PurchaseOrders /></OwnerRoute>} />
               <Route path="/staff" element={<OwnerRoute><Staff /></OwnerRoute>} />
               <Route path="/settings" element={<OwnerRoute><Settings /></OwnerRoute>} />
             </Route>

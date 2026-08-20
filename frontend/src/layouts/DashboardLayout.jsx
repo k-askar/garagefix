@@ -4,20 +4,23 @@ import { useAuth } from "@/context/AuthContext";
 import { useLang } from "@/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Package, ArrowLeftRight, ScrollText, Truck, Users, BarChart3, LogOut, Wrench, Menu, X, UserCog, Settings as SettingsIcon } from "lucide-react";
+import { LayoutDashboard, Package, ArrowLeftRight, ScrollText, Truck, Users, BarChart3, LogOut, Wrench, Menu, X, UserCog, Settings as SettingsIcon, ClipboardList, Receipt, ShoppingCart } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV = [
   { to: "/", key: "dashboard", icon: LayoutDashboard, testId: "nav-dashboard" },
+  { to: "/repairs", key: "jobCards", icon: ClipboardList, testId: "nav-repairs" },
   { to: "/inventory", key: "inventory", icon: Package, testId: "nav-inventory" },
   { to: "/movement", key: "movement", icon: ArrowLeftRight, testId: "nav-movement" },
   { to: "/transactions", key: "transactions", icon: ScrollText, testId: "nav-transactions" },
+  { to: "/invoices", key: "invoices", icon: Receipt, testId: "nav-invoices" },
   { to: "/suppliers", key: "suppliers", icon: Truck, testId: "nav-suppliers" },
   { to: "/customers", key: "customers", icon: Users, testId: "nav-customers" },
   { to: "/reports", key: "reports", icon: BarChart3, testId: "nav-reports" },
 ];
 
 const OWNER_NAV = [
+  { to: "/purchase-orders", key: "purchaseOrders", icon: ShoppingCart, testId: "nav-po" },
   { to: "/staff", key: "staff", icon: UserCog, testId: "nav-staff" },
   { to: "/settings", key: "settings", icon: SettingsIcon, testId: "nav-settings" },
 ];
@@ -113,7 +116,7 @@ export default function DashboardLayout({ children }) {
           </Button>
           <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground uppercase tracking-widest">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Live</span>
+            <span>{t("live")}</span>
           </div>
           <div className="flex items-center gap-3">
             <div className="text-xs font-mono text-muted-foreground hidden sm:block">

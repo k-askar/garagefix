@@ -1,0 +1,53 @@
+{
+  "summary": "Iteration 3 full-stack testing of the 5 new PitStock features (Purchase Orders, Invoices, Profit Report, Barcode batch print, Repair/Job Cards). Backend: 19 new pytest cases in /app/backend/tests/test_iteration3.py — 17 passed, 2 failed. Frontend: Playwright e2e as owner (job card create -> auto-open editor -> add part -> labor/status -> save -> create invoice; PO suggest -> draft -> send -> receive; invoice from OUT transactions + mark paid; Reports Profit tab KPIs/tables/presets; Inventory multi-select batch print) and as staff (role guard). All flows worked; 1 real business-logic bug and 2 minor issues found.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "PUT /api/repairs/{id}", "issue": "grand_total/parts_total are recalculated by _recalc_repair() only on the returned object and never persisted with the $set. After updating labor_charge, the DB keeps the stale grand_total. Reproduced: part 21.00 + labor 40.00 -> editor dialog shows 61.00 (response), but GET /api/repairs and the Job cards grid show 21.00, while the generated invoice subtotal is 61.00. Fix: include parts_total/grand_total in the $set inside update_repair (recompute after applying labor_charge).", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/reports/profit?start=not-a-date", "issue": "Invalid date string raises ValueError from datetime.fromisoformat -> 500 Internal Server Error. Should return 400/422 with a clear message."},
+      {"endpoint": "POST /api/repairs/{id}/parts, DELETE .../parts/{txn_id}, POST .../invoice", "issue": "Not atomic: transaction insert + inventory update + card update are separate awaits with no rollback; a mid-way failure leaves stock and card out of sync. Low likelihood, note for hardening."},
+      {"endpoint": "CORS / auth playbook", "issue": "CORS_ORIGINS='*' combined with allow_credentials=True (invalid combo for credentialed browser requests; works only because the app uses Bearer tokens in localStorage). Also no httpOnly cookie login, no brute-force lockout, and startup seed_admin does not update an existing admin's password. bcrypt hashes verified as $2b$12$. These are pre-existing design choices, not iteration-3 regressions."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Repairs.jsx job card grid", "issue": "Card delete button uses 'opacity-0 group-hover:opacity-100' but the parent <Card> has no 'group' class, so the trash icon is permanently invisible (still occupies/clicks at bottom-right, so a user can delete a card by accident without seeing the control). Add 'group' to the Card className or make the button always visible.", "selector": "[data-testid^=\"repair-card-\"] button", "priority": "MEDIUM"},
+      {"component": "Repairs.jsx job card grid", "issue": "Grid 'Total' shows the stale persisted grand_total (21,00 €) after labor is saved, while the dialog shows 61,00 € — user-visible symptom of the backend PUT /api/repairs bug.", "selector": "[data-testid^=\"repair-card-\"]", "priority": "HIGH"},
+      {"component": "Repairs.jsx grid delete button", "issue": "The per-card trash button has no data-testid, so card deletion cannot be automated.", "selector": "n/a", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Staff loading Job cards / Repairs page", "issue": "Repairs.jsx unconditionally calls GET /api/users which returns 403 for staff; the error is swallowed by .catch(() => []) but logs a console 403 on every staff visit. Gate the query on role to keep the console clean.", "affected_selectors": ["[data-testid=\"repairs-page\"]", "[data-testid=\"repair-mechanic-select\"]"]}
+    ],
+    "design_issues": [
+      {"screen": "Reports > Profit tab", "issues": ["FROM/TO use native <input type=date> browser date pickers (profit-start / profit-end) instead of the shadcn Calendar/Popover used elsewhere — inconsistent with the design system guideline."]},
+      {"screen": "Job card editor dialog", "issues": ["Radix warning: DialogContent missing Description/aria-describedby (accessibility) on both the new-card and editor dialogs."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration3.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/iteration3.xml"
+  ],
+  "action_items": [
+    "HIGH: Persist parts_total/grand_total in PUT /api/repairs/{id} so the card list total matches the dialog and the generated invoice.",
+    "MINOR: Validate start/end date params in GET /api/reports/profit and return 400 instead of 500.",
+    "MINOR: Add 'group' class to the job-card <Card> (or remove opacity-0) so the delete button is visible; add a data-testid to it.",
+    "MINOR: Skip the /api/users query for staff on the Repairs page to avoid the 403 console error.",
+    "OPTIONAL: Replace native date inputs on the Profit tab with the shadcn Calendar component."
+  ],
+  "critical_code_review_comments": [
+    "update_repair() calls _recalc_repair() after re-reading the doc but writes nothing back — response and DB diverge (root cause of the totals bug).",
+    "server.py is 1065 lines; POs, invoices, repairs and reports should be split into routers/modules.",
+    "Repair part add/remove and PO receive mutate three collections without transactions/rollback.",
+    "reports/profit does datetime.fromisoformat on untrusted query params without try/except."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration3.py", "/app/test_reports/iteration_3.json"],
+  "success_rate": {"backend": "89% (17/19 pytest cases)", "frontend": "95% (all 5 new flows functional; 1 stale-total display bug + hidden delete button)"},
+  "seed_data_creation": "Created and then deleted TEST_ inventory item, TEST_Customer QA, TEST_ OUT transactions, draft/sent/received POs, invoices, and job cards. UI-created QA-999 job card, PO-260820-1133 and invoices INV-260820-0554/5986 were deleted afterwards. 'UI Test Part' (SKU-8F38A8AE) quantity was restored to 4 (below reorder point 5) so low-stock/PO-suggest tests keep working. A few TEST_ OUT transactions remain in db.transactions (items deleted) and still contribute to profit-report totals.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "Owner admin@garage.com/admin123, Staff mike@garage.com/mike1234 (from /app/memory/test_credentials.md; both valid)",
+  "context_for_next_testing_agent": "Run: cd /app/backend && python -m pytest tests/test_iteration3.py -v. Two known failures: test_profit_report_bad_date_format (500 on bad date) and test_repair_full_lifecycle (asserts grand_total persisted after labor update). Both are real product bugs, not test bugs — re-run after the main agent fixes them. Frontend flows verified working: nav-repairs job card lifecycle incl. auto-opening editor, po-suggest/create/send/receive, invoice-create from OUT txns + mark paid, tab-profit KPIs + presets, inventory select-<sku>/select-all + batch-print-button (click executes, popup blocked in headless), and staff role guard (/purchase-orders redirects to /, no PO/Staff/Settings nav for staff).",
+  "rca_of_the_issue": "PUT /api/repairs/{id} builds an `updates` dict from the payload, writes it, re-reads the card and then calls _recalc_repair(card) which mutates only the in-memory dict returned to the client. parts_total/grand_total are therefore only persisted by the add-part/remove-part handlers, which do include them in their $set. Consequence: any labor_charge change leaves a stale grand_total in db.repairs, visible in GET /api/repairs and the job-card grid, and inconsistent with the invoice generated from the same card (invoice recomputes from parts_used + labor_charge). Fix: after applying updates, recompute parts_total/grand_total and include them in the $set."
+}

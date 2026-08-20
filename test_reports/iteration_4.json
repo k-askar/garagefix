@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration-4 targeted retest of the 4 fixes reported in iteration_3.json. Backend: re-ran /app/backend/tests/test_iteration3.py -> 19/19 PASSED (previously 17/19; both known failures now fixed) and added /app/backend/tests/test_iteration4.py (5 new regression cases, all PASSED) covering totals persistence across PUT/GET/list and profit-report date validation. Frontend: Playwright as owner (create card -> labor 40 -> save -> grid Total shows 40,00 EUR; hover reveals trash icon opacity 0 -> 1; data-testid repair-delete-<card_number> present; click + confirm deletes the card) and as staff (mike@garage.com: /repairs loads with ZERO 4xx responses and zero console errors; new-card mechanic dropdown shows only '— unassigned —'). Sanity: /purchase-orders, /invoices, /reports (Profit tab KPIs+tables render), /inventory all load clean; PO/invoice/repair lifecycles covered by the passing pytest suite. All 4 fixes verified. No new bugs; only 2 cosmetic nits remain.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/repairs/{id}", "issue": "FIXED & VERIFIED: parts_total/grand_total now recomputed from merged doc and persisted in $set. Verified 21.00 part + labor 40 -> 61.00 in PUT response, GET /repairs/{id} and GET /repairs; re-editing labor to 10 -> 31.00; unrelated field update keeps totals intact."},
+      {"endpoint": "GET /api/reports/profit", "issue": "FIXED & VERIFIED: start=not-a-date, end=13/45/2026 and start=2026-02-30 all return 400 with detail exactly 'Invalid date. Use YYYY-MM-DD.'; valid ranges still 200."},
+      {"endpoint": "POST /api/repairs/{id}/parts, .../invoice, PO receive", "issue": "STILL OPEN (pre-existing, low priority): multi-collection writes are not atomic / no rollback."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Repairs.jsx grid card delete button", "issue": "Trash icon is absolutely positioned at bottom-3 right-3 and visually overlaps/crowds the card's Total amount on hover (icon sits on top of the '€' glyph). Cosmetic only; suggest shifting the Total value left (pr-8) or moving the trash to the card header.", "selector": "[data-testid^=\"repair-delete-\"]", "priority": "LOW"},
+      {"component": "Repairs dialogs (new card + editor)", "issue": "STILL OPEN: Radix warning 'Missing Description or aria-describedby for DialogContent' on both dialogs (a11y).", "selector": "DialogContent", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Reports > Profit tab", "issues": ["STILL OPEN (optional): FROM/TO still use native <input type=date> pickers instead of the shadcn Calendar/Popover used elsewhere."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration3.py",
+    "/app/backend/tests/test_iteration4.py",
+    "/app/test_reports/pytest/iteration4.xml",
+    "/app/test_reports/pytest/iteration4b.xml"
+  ],
+  "action_items": [
+    "Nothing blocking. Optional polish: (1) keep the trash icon from overlapping the card Total, (2) add DialogDescription/aria-describedby to the two Repairs dialogs, (3) swap Profit-tab native date inputs for the shadcn Calendar.",
+    "Housekeeping: leftover test data still pollutes the app — job card JOB-260820-1F40 ('TEST_Customer QA', Toyota Corolla, TEST-123, in_progress, 1 part / 50,00 EUR) and orphaned TEST_ OUT transactions that still appear in the Profit report ('TEST_Brake Pad' under category General, since its inventory item was deleted). Consider cleaning db.repairs/db.transactions of TEST_ rows before delivery."
+  ],
+  "critical_code_review_comments": [
+    "update_repair() fix is correct (merge card+updates -> _recalc_repair -> persist both totals); no divergence between response and DB anymore.",
+    "report_profit() try/except only wraps fromisoformat — good; consider a shared date-parse dependency since other report endpoints may take date params.",
+    "server.py is still ~1065 lines; splitting repairs/POs/invoices/reports into routers remains advisable.",
+    "Profit report cost fallback uses current inventory cost_price when txn.item_cost is missing and silently uses 0 for deleted items — orphaned TEST_ txns therefore inflate profit/margin; consider excluding txns whose item no longer exists or persisting item_cost/category on every OUT txn."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration4.py",
+    "/app/frontend/src/pages/Repairs.jsx (added missing data-testid=\"new-repair-mechanic-select\" to the new-card mechanic SelectTrigger — testability only)",
+    "/app/test_reports/iteration_4.json"
+  ],
+  "success_rate": {"backend": "100% (24/24: 19 iteration-3 + 5 new iteration-4 cases)", "frontend": "100% of retested flows (labor total in grid, hover delete + testid + delete, staff no-403, staff mechanic dropdown, page sanity)"},
+  "seed_data_creation": "Created and deleted via UI: job cards QA_DEL_TEST (QA-DEL-1) and QA_LABOR_TEST (QA-LAB-1). Pytest created/deleted TEST_ inventory item, TEST_Customer QA, POs, invoices and repair cards. Pre-existing leftovers from iteration 3 remain: job card JOB-260820-1F40 and some TEST_ OUT transactions.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "Owner admin@garage.com/admin123, Staff mike@garage.com/mike1234 (both valid)",
+  "context_for_next_testing_agent": "Run `cd /app/backend && python -m pytest tests/test_iteration3.py tests/test_iteration4.py -v` — all 24 should pass. Iteration-3 bugs (repair totals persistence, profit-report 400, hidden delete button + missing testid, staff /api/users 403) are all confirmed fixed. Remaining known-open items are cosmetic: trash icon overlapping the card Total, DialogContent aria-describedby warnings, native date inputs on the Profit tab, and leftover TEST_ data in db.repairs/db.transactions.",
+  "rca_of_the_issue": "N/A — both previously reported backend defects are resolved at the root: update_repair now merges the payload into the stored card, recomputes parts_total/grand_total via _recalc_repair and includes them in the $set; report_profit wraps datetime.fromisoformat in try/except ValueError raising HTTP 400."
+}

@@ -10,10 +10,14 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, Pencil, Trash2, Printer, Upload, Car, Download } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Printer, Upload, Car, Download, Tags, FileDown } from "lucide-react";
 import { toast } from "sonner";
 import Barcode from "react-barcode";
 import { useAuth } from "@/context/AuthContext";
+import { useLang } from "@/i18n";
+import { Checkbox } from "@/components/ui/checkbox";
+import { printLabels } from "@/lib/barcode-batch";
+import { downloadListReportPdf, printListReport } from "@/lib/reports";
 
 const CATEGORIES = ["Engine", "Brakes", "Filters", "Lubricants", "Electrical", "Body", "Tyres", "Suspension", "Transmission", "General"];
 
@@ -115,6 +119,7 @@ function printBarcode(item) {
 export default function Inventory() {
   const qc = useQueryClient();
   const { user } = useAuth();
+  const { t, meta } = useLang();
   const isOwner = user?.role === "owner";
   const [q, setQ] = useState("");
   const [vehicle, setVehicle] = useState("");
@@ -123,6 +128,7 @@ export default function Inventory() {
   const [editing, setEditing] = useState(null);
   const [labelItem, setLabelItem] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [selected, setSelected] = useState([]);
 
   const { data: items = [] } = useQuery({ queryKey: ["inv"], queryFn: () => api.get("/inventory").then((r) => r.data) });
   const { data: suppliers = [] } = useQuery({ queryKey: ["sup"], queryFn: () => api.get("/suppliers").then((r) => r.data) });
@@ -184,32 +190,81 @@ export default function Inventory() {
     URL.revokeObjectURL(url);
   };
 
+  const toggleSel = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  const toggleAll = () => setSelected(s => s.length === filtered.length ? [] : filtered.map(i => i.id));
+  const printSelected = () => {
+    const sel = items.filter(i => selected.includes(i.id));
+    if (!sel.length) return toast.error("Select at least one part");
+    printLabels(sel);
+  };
+
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: () => api.get("/settings").then(r => r.data) });
+  const [exporting, setExporting] = useState(false);
+
+  const exportReport = async (mode) => {
+    const args = {
+      title: t("inventory"),
+      subtitle: `${filtered.length} ${t("items")}`,
+      headers: [t("part"), t("sku"), t("category"), t("costPrice"), t("sellingPrice"), t("qty"), t("value")],
+      rows: filtered.map(i => [
+        i.name,
+        i.sku,
+        i.category,
+        formatEUR(i.cost_price),
+        formatEUR(i.selling_price),
+        i.quantity,
+        formatEUR((i.cost_price || 0) * (i.quantity || 0)),
+      ]),
+      summary: [
+        { label: t("stockValueCost"), value: formatEUR(filtered.reduce((s, i) => s + (i.cost_price || 0) * (i.quantity || 0), 0)) },
+        { label: t("retailValue"), value: formatEUR(filtered.reduce((s, i) => s + (i.selling_price || 0) * (i.quantity || 0), 0)) },
+        { label: t("lowStock"), value: filtered.filter(i => i.quantity <= i.reorder_point).length },
+      ],
+      settings, dir: meta.dir, lang: meta.locale?.slice(0, 2),
+    };
+    if (mode === "pdf") {
+      setExporting(true);
+      try { await downloadListReportPdf(args); } finally { setExporting(false); }
+    } else printListReport(args);
+  };
+
   return (
     <div className="space-y-8" data-testid="inventory-page">
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
-          <div className="text-xs font-mono uppercase tracking-widest text-primary mb-2">Parts catalogue</div>
-          <h1 className="font-display text-4xl font-black tracking-tight">Inventory</h1>
-          <p className="text-muted-foreground mt-2">{items.length} unique parts on the shelves</p>
+          <div className="text-xs font-mono uppercase tracking-widest text-primary mb-2">{t("partsCatalogue")}</div>
+          <h1 className="font-display text-4xl font-black tracking-tight">{t("inventory")}</h1>
+          <p className="text-muted-foreground mt-2">{items.length} {t("partsOnShelves")}</p>
         </div>
         <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) setEditing(null); }}>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            {selected.length > 0 && (
+              <Button variant="outline" className="rounded-full" onClick={printSelected} data-testid="batch-print-button">
+                <Tags className="h-4 w-4 mr-2" /> {t("printNLabels", { n: selected.length })}
+              </Button>
+            )}
+            <Button variant="outline" className="rounded-full" onClick={() => exportReport("print")} data-testid="inventory-print-button">
+              <Printer className="h-4 w-4 mr-2" /> {t("print")}
+            </Button>
+            <Button variant="outline" className="rounded-full" onClick={() => exportReport("pdf")} disabled={exporting} data-testid="inventory-pdf-button">
+              <FileDown className="h-4 w-4 mr-2" /> {exporting ? t("loading") : t("pdf")}
+            </Button>
             {isOwner && (
               <>
                 <Button variant="outline" className="rounded-full" onClick={downloadTemplate} data-testid="template-button">
-                  <Download className="h-4 w-4 mr-2" /> Template
+                  <Download className="h-4 w-4 mr-2" /> {t("template")}
                 </Button>
                 <label>
                   <input type="file" accept=".csv" className="hidden" onChange={importCsv} data-testid="import-csv-input" />
                   <Button asChild variant="outline" className="rounded-full" disabled={importing} data-testid="import-csv-button">
-                    <span className="cursor-pointer"><Upload className="h-4 w-4 mr-2" /> {importing ? "Importing..." : "Import CSV"}</span>
+                    <span className="cursor-pointer"><Upload className="h-4 w-4 mr-2" /> {importing ? t("loading") : t("importCsv")}</span>
                   </Button>
                 </label>
               </>
             )}
             <DialogTrigger asChild>
               <Button className="rounded-full bg-primary hover:bg-primary/90" data-testid="add-item-button">
-                <Plus className="h-4 w-4 mr-2" /> New part
+                <Plus className="h-4 w-4 mr-2" /> {t("newPart")}
               </Button>
             </DialogTrigger>
           </div>
@@ -242,6 +297,9 @@ export default function Inventory() {
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
+                <TableHead className="w-10">
+                  <Checkbox checked={selected.length > 0 && selected.length === filtered.length} onCheckedChange={toggleAll} data-testid="select-all-checkbox" />
+                </TableHead>
                 <TableHead>Part</TableHead>
                 <TableHead>SKU</TableHead>
                 <TableHead>Category</TableHead>
@@ -257,6 +315,9 @@ export default function Inventory() {
                 const low = i.quantity <= i.reorder_point;
                 return (
                   <TableRow key={i.id} data-testid={`inventory-row-${i.sku}`}>
+                    <TableCell>
+                      <Checkbox checked={selected.includes(i.id)} onCheckedChange={() => toggleSel(i.id)} data-testid={`select-${i.sku}`} />
+                    </TableCell>
                     <TableCell>
                       <div className="font-medium">{i.name}</div>
                       <div className="text-[11px] font-mono text-muted-foreground">{i.barcode}</div>
@@ -281,7 +342,7 @@ export default function Inventory() {
                 );
               })}
               {filtered.length === 0 && (
-                <TableRow><TableCell colSpan={8} className="text-center py-16 text-muted-foreground">
+                <TableRow><TableCell colSpan={9} className="text-center py-16 text-muted-foreground">
                   <div className="space-y-2">
                     <div>No parts yet. Add your first part.</div>
                   </div>

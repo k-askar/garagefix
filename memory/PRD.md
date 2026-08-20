@@ -4,43 +4,56 @@
 "I own a car garage and I want to manage my inventory in terms of both incoming and outgoing stock, know the cost and selling price of each item, create barcodes for the items, track material balances, determine repurchase points, and manage all other inventory-related data."
 
 ## User Choices
-- Auth: Simple JWT login (owner + staff roles)
-- Barcodes: Auto-generated (Code128, 12 digits) + webcam scanning (html5-qrcode) + manual entry
-- Currency: EUR (€), Language: English
-- Design: Modern, simple, clear — dark industrial "Performance Pro" theme
+- Auth: JWT (owner + staff)
+- Barcodes: Auto-generated Code128 + webcam scanner + manual entry
+- Currency: EUR (€)
+- Languages: English (default), Nederlands, العربية with full RTL layout
+- Design: dark industrial "Performance Pro" theme
 
 ## Architecture
 - Backend: FastAPI + Motor + MongoDB, JWT (PyJWT), bcrypt
-- Frontend: React + React Router 7 + TanStack Query + Tailwind + Shadcn UI + recharts + react-barcode + html5-qrcode
-- Fonts: Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (data)
+- Frontend: React + React Router 7 + TanStack Query + Tailwind + Shadcn UI + recharts + react-barcode + html5-qrcode + jsPDF + html2canvas
+- Fonts: Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (data) + Cairo/Amiri (Arabic)
 
-## Personas
-- **Garage Owner** — full control, manages parts, suppliers, customers, reports
-- **Staff** — logs stock movements, looks up parts via scanner
-
-## Implemented (2026-02)
-- JWT auth with seeded admin (admin@garage.com / admin123) + owner-only role guards
-- Inventory CRUD with auto-SKU + auto-barcode + printable Code128 labels
-- **Auto-open barcode label dialog after creating a new part**
-- **Multilingual UI: English, Nederlands (Dutch), العربية (Arabic RTL) with persistent selection**
-- **CSV Import + Template download for bulk inventory ingestion (owner only)**
-- **Vehicle Search** filter on Inventory (matches compatible_vehicles)
-- **Receipt printing** on Stock OUT (via sonner action) + printer icon on OUT rows in Transactions ledger
-- **Staff Accounts** page — owner invites/removes users; staff role prevented from editing/deleting inventory or accessing settings/users
-- **Garage Settings** page (name, address, phone, tax_id, footer note) used on printed receipts
-- **CSV Export** of inventory + transactions from Reports page
-- Stock IN / OUT with supplier/customer selection, quantity validation, cost auto-update on IN
+## Implemented
+### Iteration 1 (MVP)
+- JWT auth, seeded admin (admin@garage.com / admin123)
+- Inventory CRUD + auto-SKU + auto-barcode + printable Code128 labels
+- Stock IN/OUT with supplier/customer, stock validation, cost auto-update on IN
 - Webcam barcode scanner + manual lookup
-- Suppliers & Customers directories, Transactions ledger with filters
-- Dashboard: KPIs + 14d movement + top movers + low-stock action panel
-- Reports: 30d movement bar + value-by-category donut
+- Suppliers & Customers directories
+- Transactions ledger
+- Dashboard: KPIs, 14d movement line chart, top movers, low-stock action panel
+- Basic reports: 30d movement + value-by-category donut
 
-## Backlog (P1)
-- Multi-user staff invites + role-based UI gates
-- CSV import/export of inventory
-- Purchase orders with pending IN receipts
-- Invoice/receipt generation for Stock OUT
-- Vehicle-specific parts filter with fuzzy matching
+### Iteration 2
+- CSV Import with downloadable template
+- Receipt Printing with garage settings page
+- Vehicle search filter
+- Staff Accounts with owner-only role guards + OwnerRoute
 
-## Next Tasks
-See finish summary.
+### Iteration 3
+- Purchase Orders (draft → sent → received; auto-suggestion from low-stock; IN txn on receive)
+- Customer Invoices bundling OUT transactions; per-customer running balance
+- Barcode Batch Print (multi-select on inventory + label grid)
+- Profit Report with date range presets (7d/30d/90d/YTD), revenue/cost/profit/margin, by category + by part
+
+### Iteration 4
+- Repair / Job Cards: one card per car with customer + vehicle + mechanic + complaint / diagnosis / work done + parts_used with auto stock deduction + labor + grand total
+- Card completion → Invoice generation
+
+### Iteration 5 — PDF reports & Arabic
+- **PDF export** for job cards, inventory, customers, suppliers, and repair list — via jsPDF + html2canvas (Arabic-safe via HTML snapshot)
+- **Print** button on every list & card (physical printer OR native Save-as-PDF)
+- **Full Arabic i18n** with RTL layout (Cairo/Amiri fonts), plus Dutch. Language switcher in header.
+
+## Admin Seed
+- **Owner**: admin@garage.com / admin123
+- **Staff**: mike@garage.com / mike1234
+
+## Files of note
+- `/app/backend/server.py`
+- `/app/frontend/src/i18n/index.jsx` (EN/NL/AR dictionaries)
+- `/app/frontend/src/lib/pdf.js` (html2canvas + jsPDF)
+- `/app/frontend/src/lib/reports.js` (list & repair-card report builders)
+- `/app/frontend/src/lib/barcode-batch.js` (label grid)
