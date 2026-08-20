@@ -21,6 +21,7 @@ import CashRegister from "@/pages/CashRegister";
 import Reminders from "@/pages/Reminders";
 import ScanPickup from "@/pages/ScanPickup";
 import Accounts from "@/pages/Accounts";
+import CalendarPage from "@/pages/Calendar";
 import "@/App.css";
 
 function ProtectedShell() {
@@ -62,6 +63,7 @@ function App() {
               <Route path="/reminders" element={<Reminders />} />
               <Route path="/cash-register" element={<CashRegister />} />
               <Route path="/accounts" element={<Accounts />} />
+              <Route path="/calendar" element={<CalendarPage />} />
               <Route path="/invoices" element={<Invoices />} />
               <Route path="/purchase-orders" element={<OwnerRoute><PurchaseOrders /></OwnerRoute>} />
               <Route path="/staff" element={<OwnerRoute><Staff /></OwnerRoute>} />

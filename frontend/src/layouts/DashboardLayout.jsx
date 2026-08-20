@@ -4,11 +4,12 @@ import { useAuth } from "@/context/AuthContext";
 import { useLang } from "@/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Package, ArrowLeftRight, ScrollText, Truck, Users, BarChart3, LogOut, Wrench, Menu, X, UserCog, Settings as SettingsIcon, ClipboardList, Receipt, ShoppingCart, Bell, Wallet, ScanLine, Banknote } from "lucide-react";
+import { LayoutDashboard, Package, ArrowLeftRight, ScrollText, Truck, Users, BarChart3, LogOut, Wrench, Menu, X, UserCog, Settings as SettingsIcon, ClipboardList, Receipt, ShoppingCart, Bell, Wallet, ScanLine, Banknote, Calendar } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV = [
   { to: "/", key: "dashboard", icon: LayoutDashboard, testId: "nav-dashboard" },
+  { to: "/calendar", key: "calendar", icon: Calendar, testId: "nav-calendar" },
   { to: "/scan", key: "scanPickup", icon: ScanLine, testId: "nav-scan" },
   { to: "/repairs", key: "jobCards", icon: ClipboardList, testId: "nav-repairs" },
   { to: "/inventory", key: "inventory", icon: Package, testId: "nav-inventory" },

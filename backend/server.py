@@ -322,6 +322,154 @@ async def delete_vehicle(vid: str, user: dict = Depends(get_current_user)):
     await db.vehicles.delete_one({"id": vid})
     return {"ok": True}
 
+# =========================
+# Appointments (calendar)
+# =========================
+class Appointment(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    customer_id: Optional[str] = None
+    customer_name: str = ""
+    vehicle_id: Optional[str] = None
+    vehicle_label: str = ""
+    car_plate: str = ""
+    mechanic_id: Optional[str] = None
+    mechanic_name: str = ""
+    scheduled_at: str  # ISO datetime
+    duration_min: int = 60
+    service_type: str = "General service"
+    notes: str = ""
+    status: Literal["scheduled", "confirmed", "in_service", "completed", "cancelled"] = "scheduled"
+    repair_id: Optional[str] = None
+    created_by: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+class AppointmentCreate(BaseModel):
+    customer_id: Optional[str] = None
+    vehicle_id: Optional[str] = None
+    mechanic_id: Optional[str] = None
+    scheduled_at: str
+    duration_min: int = 60
+    service_type: str = "General service"
+    notes: str = ""
+
+class AppointmentUpdate(BaseModel):
+    customer_id: Optional[str] = None
+    vehicle_id: Optional[str] = None
+    mechanic_id: Optional[str] = None
+    scheduled_at: Optional[str] = None
+    duration_min: Optional[int] = None
+    service_type: Optional[str] = None
+    notes: Optional[str] = None
+    status: Optional[Literal["scheduled", "confirmed", "in_service", "completed", "cancelled"]] = None
+
+async def _resolve_appointment_meta(customer_id, vehicle_id, mechanic_id):
+    cust = veh = mech = None
+    if customer_id:
+        cust = await db.customers.find_one({"id": customer_id}, {"_id": 0})
+    if vehicle_id:
+        veh = await db.vehicles.find_one({"id": vehicle_id}, {"_id": 0})
+    if mechanic_id:
+        mech = await db.users.find_one({"id": mechanic_id}, {"_id": 0})
+    return cust, veh, mech
+
+@api_router.get("/appointments", response_model=List[Appointment])
+async def list_appointments(start: Optional[str] = None, end: Optional[str] = None,
+                             user: dict = Depends(get_current_user)):
+    q = {}
+    if start or end:
+        rng = {}
+        if start: rng["$gte"] = start
+        if end: rng["$lte"] = end
+        q["scheduled_at"] = rng
+    return await db.appointments.find(q, {"_id": 0}).sort("scheduled_at", 1).to_list(2000)
+
+@api_router.post("/appointments", response_model=Appointment)
+async def create_appointment(payload: AppointmentCreate, user: dict = Depends(get_current_user)):
+    try:
+        datetime.fromisoformat(payload.scheduled_at.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid scheduled_at datetime")
+    cust, veh, mech = await _resolve_appointment_meta(payload.customer_id, payload.vehicle_id, payload.mechanic_id)
+    veh_label = ""
+    if veh:
+        veh_label = " ".join(str(x) for x in [veh.get("make"), veh.get("model"), veh.get("year")] if x).strip()
+    obj = Appointment(
+        customer_id=payload.customer_id,
+        customer_name=cust.get("name", "") if cust else "",
+        vehicle_id=payload.vehicle_id,
+        vehicle_label=veh_label,
+        car_plate=veh.get("plate", "") if veh else "",
+        mechanic_id=payload.mechanic_id,
+        mechanic_name=(mech.get("name") or mech.get("email", "")) if mech else "",
+        scheduled_at=payload.scheduled_at,
+        duration_min=payload.duration_min or 60,
+        service_type=payload.service_type or "General service",
+        notes=payload.notes or "",
+        created_by=user.get("email", ""),
+    )
+    await db.appointments.insert_one(obj.model_dump())
+    return obj
+
+@api_router.put("/appointments/{aid}", response_model=Appointment)
+async def update_appointment(aid: str, payload: AppointmentUpdate, user: dict = Depends(get_current_user)):
+    existing = await db.appointments.find_one({"id": aid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if any(k in updates for k in ("customer_id", "vehicle_id", "mechanic_id")):
+        cust, veh, mech = await _resolve_appointment_meta(
+            updates.get("customer_id", existing.get("customer_id")),
+            updates.get("vehicle_id", existing.get("vehicle_id")),
+            updates.get("mechanic_id", existing.get("mechanic_id")),
+        )
+        if "customer_id" in updates:
+            updates["customer_name"] = cust.get("name", "") if cust else ""
+        if "vehicle_id" in updates and veh:
+            updates["vehicle_label"] = " ".join(str(x) for x in [veh.get("make"), veh.get("model"), veh.get("year")] if x).strip()
+            updates["car_plate"] = veh.get("plate", "")
+        if "mechanic_id" in updates:
+            updates["mechanic_name"] = (mech.get("name") or mech.get("email", "")) if mech else ""
+    if updates:
+        await db.appointments.update_one({"id": aid}, {"$set": updates})
+    return await db.appointments.find_one({"id": aid}, {"_id": 0})
+
+@api_router.delete("/appointments/{aid}")
+async def delete_appointment(aid: str, user: dict = Depends(get_current_user)):
+    await db.appointments.delete_one({"id": aid})
+    return {"ok": True}
+
+@api_router.post("/appointments/{aid}/convert")
+async def convert_appointment_to_repair(aid: str, user: dict = Depends(get_current_user)):
+    appt = await db.appointments.find_one({"id": aid}, {"_id": 0})
+    if not appt:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    if appt.get("repair_id"):
+        existing = await db.repairs.find_one({"id": appt["repair_id"]}, {"_id": 0})
+        if existing:
+            return existing
+    veh = await db.vehicles.find_one({"id": appt["vehicle_id"]}, {"_id": 0}) if appt.get("vehicle_id") else None
+    cust = await db.customers.find_one({"id": appt["customer_id"]}, {"_id": 0}) if appt.get("customer_id") else None
+    card = RepairCard(
+        card_number=_next_number("JOB"),
+        customer_id=appt.get("customer_id"),
+        customer_name=cust.get("name", "") if cust else appt.get("customer_name", ""),
+        customer_phone=cust.get("phone", "") if cust else "",
+        vehicle_id=appt.get("vehicle_id"),
+        car_make=veh.get("make", "") if veh else "",
+        car_model=veh.get("model", "") if veh else "",
+        car_year=veh.get("year", "") if veh else "",
+        car_plate=veh.get("plate", "") if veh else appt.get("car_plate", ""),
+        car_color=veh.get("color", "") if veh else "",
+        car_km=veh.get("km", "") if veh else "",
+        mechanic_id=appt.get("mechanic_id"),
+        mechanic_name=appt.get("mechanic_name", ""),
+        complaint=f"{appt.get('service_type','')}{(' — ' + appt['notes']) if appt.get('notes') else ''}",
+        created_by=user.get("email", ""),
+    )
+    await db.repairs.insert_one(card.model_dump())
+    await db.appointments.update_one({"id": aid}, {"$set": {"repair_id": card.id, "status": "in_service"}})
+    return card.model_dump()
+
 # --- Inventory ---
 def _generate_sku() -> str:
     return "SKU-" + uuid.uuid4().hex[:8].upper()
