@@ -773,6 +773,37 @@ async def customer_balance(cid: str, user: dict = Depends(get_current_user)):
     paid = round(sum(i["total"] for i in invs if i["status"] == "paid"), 2)
     return {"customer_id": cid, "unpaid": unpaid, "paid": paid, "invoice_count": len(invs)}
 
+@api_router.get("/customers/{cid}/history")
+async def customer_history(cid: str, user: dict = Depends(get_current_user)):
+    customer = await db.customers.find_one({"id": cid}, {"_id": 0})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    repairs = await db.repairs.find({"customer_id": cid}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    invoices = await db.invoices.find({"customer_id": cid}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    txns = await db.transactions.find({"customer_id": cid, "type": "OUT"}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    total_parts = round(sum((r.get("parts_total") or 0) for r in repairs), 2)
+    total_labor = round(sum((r.get("labor_charge") or 0) for r in repairs), 2)
+    total_spent = round(sum((r.get("grand_total") or 0) for r in repairs), 2)
+    unpaid = round(sum(i["total"] for i in invoices if i["status"] != "paid"), 2)
+    paid = round(sum(i["total"] for i in invoices if i["status"] == "paid"), 2)
+    first_visit = repairs[-1]["created_at"] if repairs else None
+    last_visit = repairs[0]["created_at"] if repairs else None
+    return {
+        "customer": customer,
+        "repair_count": len(repairs),
+        "invoice_count": len(invoices),
+        "total_parts": total_parts,
+        "total_labor": total_labor,
+        "total_spent": total_spent,
+        "paid": paid,
+        "unpaid": unpaid,
+        "first_visit": first_visit,
+        "last_visit": last_visit,
+        "repairs": repairs,
+        "invoices": invoices,
+        "transactions": txns,
+    }
+
 # =========================
 # Repair Cards / Job Cards
 # =========================
