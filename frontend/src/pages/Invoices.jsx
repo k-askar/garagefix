@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { CheckCircle2, Printer, Trash2, Plus, MessageCircle, Archive, FileSpreadsheet, FileDown } from "lucide-react";
+import { CheckCircle2, Printer, Trash2, Plus, MessageCircle, Archive, FileSpreadsheet, FileDown, Bell, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { whatsappShare } from "@/lib/whatsapp";
 import { useLang } from "@/i18n";
@@ -74,6 +74,7 @@ function printInvoice(inv, settings) {
     </div>
     ${inv.note ? `<p class="muted" style="margin-top:24px">${showPlate ? noteWithPlate(inv.note) : inv.note}</p>` : ""}
     ${settings?.iban ? `<p class="muted" style="margin-top:8px">Payment to IBAN: <span style="font-family:monospace">${settings.iban}</span></p>` : ""}
+    <p class="muted" style="margin-top:4px">Payment due within ${settings?.payment_terms_days || 14} days${inv.due_date ? ` (by ${inv.due_date})` : ""}.</p>
     ${settings?.invoice_terms ? `<div class="terms">${settings.invoice_terms.replace(/</g, "&lt;")}</div>` : ""}
     <p class="muted" style="margin-top:24px;text-align:center">${settings?.footer_note || "Thank you!"}</p>
     </body></html>`);
@@ -93,6 +94,27 @@ export default function Invoices() {
   const [payMethodId, setPayMethodId] = useState("");
   const [selectedInvoices, setSelectedInvoices] = useState([]);
   const [zipping, setZipping] = useState(false);
+  const [sendingReminders, setSendingReminders] = useState(false);
+
+  const { data: overdue = [] } = useQuery({
+    queryKey: ["overdue-invoices"],
+    queryFn: () => api.get("/invoices/overdue").then(r => r.data),
+    refetchInterval: 60_000,
+  });
+  const overdueIds = new Set(overdue.map(i => i.id));
+  const todayISO = new Date().toISOString().slice(0, 10);
+
+  const sendOverdueReminders = async () => {
+    if (!window.confirm(`Send email reminders to customers on ${overdue.length} overdue invoice(s)?`)) return;
+    setSendingReminders(true);
+    try {
+      const res = await api.post("/invoices/overdue/send-reminders");
+      toast.success(`Sent ${res.data.sent} · ${res.data.skipped_no_email} skipped (no email)`);
+      qc.invalidateQueries({ queryKey: ["overdue-invoices"] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setSendingReminders(false); }
+  };
 
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => api.get("/invoices").then(r => r.data) });
   const { data: customers = [] } = useQuery({ queryKey: ["cus"], queryFn: () => api.get("/customers").then(r => r.data) });
@@ -158,6 +180,17 @@ export default function Invoices() {
           <p className="text-muted-foreground mt-2">{invoices.length} invoices · {formatEUR(invoices.filter(i => i.status !== "paid").reduce((s, i) => s + i.total, 0))} outstanding</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {overdue.length > 0 && (
+            <Button
+              variant="outline"
+              className="rounded-full border-rose-500/50 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10"
+              disabled={sendingReminders}
+              onClick={sendOverdueReminders}
+              data-testid="invoices-overdue-remind"
+            >
+              <Bell className="h-4 w-4 mr-2" /> {sendingReminders ? "..." : `Remind ${overdue.length} overdue`}
+            </Button>
+          )}
           <Button
             variant="outline"
             className="rounded-full"
@@ -255,9 +288,18 @@ export default function Invoices() {
                 <TableCell>
                   {inv.status === "paid"
                     ? <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">Paid</Badge>
-                    : <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/15">Due</Badge>}
+                    : overdueIds.has(inv.id)
+                      ? <Badge className="bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/40 hover:bg-rose-500/15" data-testid={`invoice-overdue-${inv.invoice_number}`}><AlertTriangle className="h-3 w-3 mr-1" />Overdue</Badge>
+                      : <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/15">Due</Badge>}
                 </TableCell>
-                <TableCell className="text-muted-foreground text-xs font-mono">{new Date(inv.created_at).toLocaleDateString("en-GB")}</TableCell>
+                <TableCell className="text-muted-foreground text-xs font-mono">
+                  {new Date(inv.created_at).toLocaleDateString("en-GB")}
+                  {inv.due_date && inv.status !== "paid" && (
+                    <div className={`text-[10px] mt-0.5 ${overdueIds.has(inv.id) ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground"}`}>
+                      due {inv.due_date}
+                    </div>
+                  )}
+                </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
                     <Button size="icon" variant="ghost" onClick={() => printInvoice(inv, settings)} data-testid={`invoice-print-${inv.invoice_number}`}><Printer className="h-4 w-4" /></Button>

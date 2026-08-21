@@ -5,6 +5,12 @@ crons:
     endpoint: "{{BASE_URL}}/api/cron/reminders"
     method: POST
     enabled: true
+  - name: overdue-invoices
+    description: "Emails customers whose unpaid invoices have passed the payment terms; skips ones reminded in the last 7 days"
+    cron: "30 9 * * *"
+    endpoint: "{{BASE_URL}}/api/cron/overdue-invoices"
+    method: POST
+    enabled: true
   - name: nightly-backup
     description: "Snapshots the full garage database to Emergent Object Storage every night; keeps the last 30"
     cron: "30 2 * * *"

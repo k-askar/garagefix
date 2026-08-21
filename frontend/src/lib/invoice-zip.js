@@ -80,6 +80,7 @@ export function invoiceToHtml(inv, settings) {
     </div>
     ${inv.note ? `<p class="muted" style="margin-top:24px">${showPlate ? noteWithPlate(inv.note) : escapeHtml(inv.note)}</p>` : ""}
     ${settings?.iban ? `<p class="muted" style="margin-top:8px">Payment to IBAN: <span style="font-family:monospace">${escapeHtml(settings.iban)}</span></p>` : ""}
+    <p class="muted" style="margin-top:4px">Payment due within ${settings?.payment_terms_days || 14} days${inv.due_date ? ` (by ${escapeHtml(inv.due_date)})` : ""}.</p>
     ${settings?.invoice_terms ? `<div class="terms">${escapeHtml(settings.invoice_terms)}</div>` : ""}
     <p class="muted" style="margin-top:24px;text-align:center">${escapeHtml(settings?.footer_note || "Thank you!")}</p>
     </body></html>`;

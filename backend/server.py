@@ -747,6 +747,7 @@ class GarageSettings(BaseModel):
     # --- Invoice branding ---
     invoice_accent_color: str = "#0EA5E9"       # hex used for header rule + "PAID" pill background
     invoice_prefix: str = "INV"                 # invoice number prefix, e.g. INV / FACT / 2026-
+    payment_terms_days: int = 14                # 14 / 21 / 30 / 45 — used to compute due_date + overdue reminders
     iban: str = ""                              # bank IBAN shown on invoice footer
     kvk_number: str = ""                        # Chamber-of-Commerce (KvK) number for NL businesses
     invoice_terms: str = ""                     # multi-line payment / warranty terms
@@ -1018,6 +1019,9 @@ class Invoice(BaseModel):
     repair_id: Optional[str] = None
     payment_method_id: Optional[str] = None
     payment_method_name: Optional[str] = ""
+    payment_terms_days: int = 14
+    due_date: Optional[str] = None              # YYYY-MM-DD — created_at + payment_terms_days
+    reminder_sent_at: Optional[str] = None
     created_by: str = ""
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     paid_at: Optional[str] = None
@@ -1031,6 +1035,97 @@ class InvoiceFromTxns(BaseModel):
 @api_router.get("/invoices", response_model=List[Invoice])
 async def list_invoices(user: dict = Depends(get_current_user)):
     return await db.invoices.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+@api_router.get("/invoices/overdue")
+async def list_overdue_invoices(user: dict = Depends(get_current_user)):
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    rows = await db.invoices.find({
+        "status": {"$ne": "paid"},
+        "due_date": {"$ne": None, "$lt": today},
+    }, {"_id": 0}).sort("due_date", 1).to_list(1000)
+    for r in rows:
+        try:
+            r["days_overdue"] = (datetime.now(timezone.utc).date() - datetime.strptime(r["due_date"], "%Y-%m-%d").date()).days
+        except Exception:
+            r["days_overdue"] = 0
+    return rows
+
+def _overdue_email_html(inv, garage_name, iban):
+    days = inv.get("days_overdue", 0)
+    return (f'<table role="presentation" width="100%"><tr><td style="padding:24px;'
+            f'font-family:Arial,sans-serif;color:#111;max-width:560px">'
+            f'<h2 style="margin:0 0 12px">Payment overdue — {escape(inv["invoice_number"])}</h2>'
+            f'<p>Hi {escape(inv.get("customer_name") or "there")},</p>'
+            f'<p>Our records show invoice <strong>{escape(inv["invoice_number"])}</strong> for '
+            f'<strong>{inv["total"]:.2f} €</strong> was due on <strong>{escape(inv.get("due_date") or "")}</strong> '
+            f'and is now <strong>{days} day{"s" if days != 1 else ""} overdue</strong>.</p>'
+            f'<p>Please settle at your earliest convenience'
+            f'{" — bank transfer to <strong>" + escape(iban) + "</strong>" if iban else ""}. '
+            f'If you have already paid, kindly ignore this reminder.</p>'
+            f'<p style="font-size:12px;color:#888;margin-top:24px">Sent by {escape(garage_name)}.</p>'
+            f'</td></tr></table>')
+
+async def _send_overdue_email(inv):
+    if not inv.get("customer_id"):
+        return False
+    c = await db.customers.find_one({"id": inv["customer_id"]}, {"_id": 0})
+    if not c or not c.get("email"):
+        return False
+    s = await db.settings.find_one({"_id": "garage"}, {"_id": 0}) or {}
+    garage_name = s.get("name") or "PitStock Garage"
+    iban = s.get("iban") or ""
+    html = _overdue_email_html(inv, garage_name, iban)
+    try:
+        await send_email(to=c["email"],
+                         subject=f"Payment overdue — invoice {inv['invoice_number']}",
+                         html=html)
+        await db.invoices.update_one({"id": inv["id"]}, {"$set": {"reminder_sent_at": datetime.now(timezone.utc).isoformat()}})
+        return True
+    except Exception as e:
+        logger.error(f"overdue email failed for {inv['invoice_number']}: {e}")
+        return False
+
+@api_router.post("/invoices/overdue/send-reminders")
+async def send_overdue_reminders(user: dict = Depends(get_current_user)):
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    rows = await db.invoices.find({
+        "status": {"$ne": "paid"},
+        "due_date": {"$ne": None, "$lt": today},
+    }, {"_id": 0}).to_list(1000)
+    sent = 0
+    for r in rows:
+        try:
+            r["days_overdue"] = (datetime.now(timezone.utc).date() - datetime.strptime(r["due_date"], "%Y-%m-%d").date()).days
+        except Exception:
+            r["days_overdue"] = 0
+        if await _send_overdue_email(r):
+            sent += 1
+    return {"checked": len(rows), "sent": sent, "skipped_no_email": len(rows) - sent}
+
+@api_router.post("/cron/overdue-invoices")
+async def cron_overdue_invoices(background: BackgroundTasks, authorization: Optional[str] = Header(default=None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer")
+    if not secrets.compare_digest(authorization[7:], WEBHOOK_CRON_SECRET or ""):
+        raise HTTPException(status_code=401, detail="Bad token")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    rows = await db.invoices.find({
+        "status": {"$ne": "paid"},
+        "due_date": {"$ne": None, "$lt": today},
+        "$or": [{"reminder_sent_at": None},
+                {"reminder_sent_at": {"$lt": (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()}}],
+    }, {"_id": 0}).to_list(1000)
+
+    async def _run():
+        for r in rows:
+            try:
+                r["days_overdue"] = (datetime.now(timezone.utc).date() - datetime.strptime(r["due_date"], "%Y-%m-%d").date()).days
+            except Exception:
+                r["days_overdue"] = 0
+            await _send_overdue_email(r)
+
+    background.add_task(_run)
+    return {"queued": len(rows)}
 
 @api_router.post("/invoices/from-transactions", response_model=Invoice)
 async def invoice_from_txns(payload: InvoiceFromTxns, user: dict = Depends(get_current_user)):
@@ -1046,6 +1141,8 @@ async def invoice_from_txns(payload: InvoiceFromTxns, user: dict = Depends(get_c
     if payload.customer_id:
         c = await db.customers.find_one({"id": payload.customer_id}, {"_id": 0})
         customer_name = c["name"] if c else ""
+    s = await db.settings.find_one({"_id": "garage"}, {"_id": 0}) or {}
+    terms = int(s.get("payment_terms_days") or 14)
     inv = Invoice(
         invoice_number=_next_number("INV"),
         customer_id=payload.customer_id,
@@ -1053,6 +1150,8 @@ async def invoice_from_txns(payload: InvoiceFromTxns, user: dict = Depends(get_c
         lines=lines, subtotal=subtotal, tax=tax, total=total,
         transaction_ids=payload.transaction_ids,
         note=payload.note or "",
+        payment_terms_days=terms,
+        due_date=(datetime.now(timezone.utc) + timedelta(days=terms)).strftime("%Y-%m-%d"),
         created_by=user.get("email", ""),
     )
     await db.invoices.insert_one(inv.model_dump())

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Save, Upload, Palette, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useLang } from "@/i18n";
@@ -18,6 +19,7 @@ const DEFAULT_FORM = {
   logo_url: "/logo-shawish.png",
   labor_rate: 45, default_tax_rate: 21,
   invoice_accent_color: "#0EA5E9", invoice_prefix: "INV",
+  payment_terms_days: 14,
   iban: "", kvk_number: "", invoice_terms: "",
   show_plate_badge: true,
 };
@@ -88,6 +90,7 @@ function InvoicePreview({ form }) {
         <div className="mt-4 text-[10px] text-gray-500 whitespace-pre-line border-t pt-2">{form.invoice_terms}</div>
       )}
       {form.iban && <div className="mt-2 text-[11px] text-gray-500">IBAN: <span className="font-mono">{form.iban}</span></div>}
+      <div className="mt-1 text-[11px] text-gray-500">Payment due within {form.payment_terms_days || 14} days.</div>
       <p className="text-center text-[11px] text-gray-500 mt-4">{form.footer_note}</p>
     </div>
   );
@@ -227,6 +230,19 @@ export default function Settings() {
               <div className="space-y-1.5">
                 <Label>IBAN (bank account)</Label>
                 <Input value={form.iban} onChange={(e) => set("iban", e.target.value)} placeholder="NL91 ABNA 0417 1643 00" className="font-mono" data-testid="settings-iban" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Payment term</Label>
+                <Select value={String(form.payment_terms_days || 14)} onValueChange={(v) => set("payment_terms_days", Number(v))}>
+                  <SelectTrigger data-testid="settings-payment-terms"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="14">14 days</SelectItem>
+                    <SelectItem value="21">21 days</SelectItem>
+                    <SelectItem value="30">30 days (1 month)</SelectItem>
+                    <SelectItem value="45">45 days</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">Invoices are due after this period. Overdue invoices are emailed automatically every morning.</p>
               </div>
               <div className="flex items-center justify-between rounded-md border border-border p-3">
                 <div>
