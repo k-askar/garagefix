@@ -1307,6 +1307,23 @@ class PartUsed(BaseModel):
     unit_price: float = Field(ge=0)
     total: float
 
+class SpecialPart(BaseModel):
+    """A part specifically ordered from a supplier for this repair — not stocked in inventory."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    quantity: float = 1
+    unit_price: float = 0.0    # selling price to customer
+    unit_cost: float = 0.0     # what we paid the supplier
+    total: float = 0.0
+    supplier_id: Optional[str] = None
+    supplier_name: str = ""
+    part_number: str = ""      # OEM / manufacturer part number
+    status: Literal["ordered", "arrived", "installed"] = "ordered"
+    expected_date: Optional[str] = None
+    note: str = ""
+    ordered_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    arrived_at: Optional[str] = None
+
 class TimeLog(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     mechanic_id: Optional[str] = None
@@ -1360,6 +1377,7 @@ class RepairCard(BaseModel):
     diagnosis: str = ""
     work_done: str = ""
     parts_used: List[PartUsed] = []
+    special_parts: List[SpecialPart] = []
     time_logs: List[TimeLog] = []
     photos: List[RepairPhoto] = []
     labor_minutes: float = 0.0
@@ -1418,12 +1436,13 @@ class AddPart(BaseModel):
 
 def _recalc_repair(card: dict) -> dict:
     parts_total = round(sum(p["total"] for p in card.get("parts_used", [])), 2)
+    special_total = round(sum(sp.get("total") or (sp.get("quantity", 0) * sp.get("unit_price", 0)) for sp in card.get("special_parts", [])), 2)
     minutes = round(sum(l.get("minutes") or 0 for l in card.get("time_logs", []) if l.get("stopped_at")), 2)
-    grand = round(parts_total + float(card.get("labor_charge") or 0), 2)
+    grand = round(parts_total + special_total + float(card.get("labor_charge") or 0), 2)
     tax_rate = float(card.get("tax_rate") or 0)
     tax_amount = round(grand * tax_rate / 100.0, 2)
     total_with_tax = round(grand + tax_amount, 2)
-    card["parts_total"] = parts_total
+    card["parts_total"] = round(parts_total + special_total, 2)
     card["labor_minutes"] = minutes
     card["grand_total"] = grand
     card["tax_amount"] = tax_amount
@@ -1452,6 +1471,95 @@ async def get_repair(rid: str, user: dict = Depends(get_current_user)):
     if not c:
         raise HTTPException(status_code=404, detail="Card not found")
     return c
+
+# ---------- Special-order parts (not stocked) ----------
+
+class SpecialPartCreate(BaseModel):
+    name: str
+    quantity: float = 1
+    unit_price: float = 0.0
+    unit_cost: float = 0.0
+    supplier_id: Optional[str] = None
+    part_number: str = ""
+    status: Literal["ordered", "arrived", "installed"] = "ordered"
+    expected_date: Optional[str] = None
+    note: str = ""
+
+class SpecialPartUpdate(BaseModel):
+    name: Optional[str] = None
+    quantity: Optional[float] = None
+    unit_price: Optional[float] = None
+    unit_cost: Optional[float] = None
+    supplier_id: Optional[str] = None
+    part_number: Optional[str] = None
+    status: Optional[Literal["ordered", "arrived", "installed"]] = None
+    expected_date: Optional[str] = None
+    note: Optional[str] = None
+
+@api_router.post("/repairs/{rid}/special-parts", response_model=RepairCard)
+async def add_special_part(rid: str, payload: SpecialPartCreate, user: dict = Depends(get_current_user)):
+    card = await db.repairs.find_one({"id": rid}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+    supplier_name = ""
+    if payload.supplier_id:
+        s = await db.suppliers.find_one({"id": payload.supplier_id}, {"_id": 0})
+        supplier_name = s["name"] if s else ""
+    sp = SpecialPart(
+        name=payload.name, quantity=payload.quantity, unit_price=payload.unit_price,
+        unit_cost=payload.unit_cost, total=round(payload.quantity * payload.unit_price, 2),
+        supplier_id=payload.supplier_id, supplier_name=supplier_name,
+        part_number=payload.part_number, status=payload.status,
+        expected_date=payload.expected_date, note=payload.note,
+    )
+    if payload.status == "arrived":
+        sp.arrived_at = datetime.now(timezone.utc).isoformat()
+    card["special_parts"] = (card.get("special_parts") or []) + [sp.model_dump()]
+    card = _recalc_repair(card)
+    card["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.repairs.update_one({"id": rid}, {"$set": {
+        "special_parts": card["special_parts"], **_recalc_fields(card), "updated_at": card["updated_at"],
+    }})
+    return await db.repairs.find_one({"id": rid}, {"_id": 0})
+
+@api_router.patch("/repairs/{rid}/special-parts/{sp_id}", response_model=RepairCard)
+async def update_special_part(rid: str, sp_id: str, payload: SpecialPartUpdate, user: dict = Depends(get_current_user)):
+    card = await db.repairs.find_one({"id": rid}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+    parts = card.get("special_parts") or []
+    idx = next((i for i, p in enumerate(parts) if p["id"] == sp_id), -1)
+    if idx == -1:
+        raise HTTPException(status_code=404, detail="Special part not found")
+    changes = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "supplier_id" in changes and changes["supplier_id"]:
+        s = await db.suppliers.find_one({"id": changes["supplier_id"]}, {"_id": 0})
+        changes["supplier_name"] = s["name"] if s else ""
+    parts[idx].update(changes)
+    parts[idx]["total"] = round(float(parts[idx].get("quantity") or 0) * float(parts[idx].get("unit_price") or 0), 2)
+    if changes.get("status") == "arrived" and not parts[idx].get("arrived_at"):
+        parts[idx]["arrived_at"] = datetime.now(timezone.utc).isoformat()
+    card["special_parts"] = parts
+    card = _recalc_repair(card)
+    card["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.repairs.update_one({"id": rid}, {"$set": {
+        "special_parts": parts, **_recalc_fields(card), "updated_at": card["updated_at"],
+    }})
+    return await db.repairs.find_one({"id": rid}, {"_id": 0})
+
+@api_router.delete("/repairs/{rid}/special-parts/{sp_id}", response_model=RepairCard)
+async def delete_special_part(rid: str, sp_id: str, user: dict = Depends(get_current_user)):
+    card = await db.repairs.find_one({"id": rid}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+    parts = [p for p in (card.get("special_parts") or []) if p["id"] != sp_id]
+    card["special_parts"] = parts
+    card = _recalc_repair(card)
+    card["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.repairs.update_one({"id": rid}, {"$set": {
+        "special_parts": parts, **_recalc_fields(card), "updated_at": card["updated_at"],
+    }})
+    return await db.repairs.find_one({"id": rid}, {"_id": 0})
 
 @api_router.post("/repairs", response_model=RepairCard)
 async def create_repair(payload: RepairCreate, user: dict = Depends(get_current_user)):
@@ -1730,6 +1838,14 @@ async def invoice_repair(rid: str, tax_rate: Optional[float] = None, user: dict 
     tax_rate = float(tax_rate or 0)
     lines = [InvoiceLine(item_id=p["item_id"], sku=p["sku"], name=p["name"],
                          quantity=p["quantity"], unit_price=p["unit_price"], total=p["total"]) for p in card.get("parts_used", [])]
+    for sp in card.get("special_parts", []):
+        lines.append(InvoiceLine(
+            sku=sp.get("part_number") or "SPECIAL",
+            name=f"{sp['name']}" + (f" · {sp['supplier_name']}" if sp.get("supplier_name") else ""),
+            quantity=sp.get("quantity") or 1,
+            unit_price=sp.get("unit_price") or 0,
+            total=sp.get("total") or 0,
+        ))
     if card.get("labor_charge", 0) > 0:
         lines.append(InvoiceLine(sku="LABOR", name=f"Labor · {card.get('work_done') or 'workshop time'}",
                                  quantity=1, unit_price=card["labor_charge"], total=card["labor_charge"]))

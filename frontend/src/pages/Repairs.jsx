@@ -19,6 +19,7 @@ import { whatsappShare } from "@/lib/whatsapp";
 import RepairPhotos from "@/components/RepairPhotos";
 import PlateBadge from "@/components/PlateBadge";
 import SearchableSelect from "@/components/SearchableSelect";
+import SpecialPartsPanel from "@/components/SpecialPartsPanel";
 
 const STATUS_STYLE = {
   open: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30",
@@ -376,13 +377,19 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
               <div className="font-mono text-sm">{(data.parts_used || []).length} lines · {formatEUR(data.parts_total)}</div>
             </div>
             <div className="grid grid-cols-[1fr_100px_auto] gap-2 mb-4">
-              <Select value={addItem || "none"} onValueChange={(v) => setAddItem(v === "none" ? "" : v)}>
-                <SelectTrigger data-testid="repair-part-select"><SelectValue placeholder="Pick a part from stock" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">— pick —</SelectItem>
-                  {items.map(i => <SelectItem key={i.id} value={i.id} disabled={i.quantity <= 0}>{i.name} · {i.sku} · in stock: {i.quantity} · {formatEUR(i.selling_price)}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={addItem}
+                onChange={setAddItem}
+                options={items.filter(i => i.quantity > 0).map(i => ({
+                  value: i.id,
+                  label: i.name,
+                  secondary: `${i.sku} · ${i.quantity} in stock · ${formatEUR(i.selling_price)}`,
+                }))}
+                emptyLabel="— pick from stock —"
+                searchPlaceholder="Search by name or SKU"
+                placeholder="Pick a part from stock"
+                testId="repair-part-select"
+              />
               <Input type="number" min="1" value={addQty} onChange={(e) => setAddQty(e.target.value)} data-testid="repair-part-qty" />
               <Button onClick={addPart} className="rounded-full bg-primary" data-testid="repair-part-add"><Plus className="h-4 w-4 mr-1" /> Add</Button>
             </div>
@@ -412,6 +419,9 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
           <Card className="p-5 border-border">
             <RepairPhotos repairId={data.id} photos={data.photos || []} onChange={(photos) => setData({ ...data, photos })} />
           </Card>
+
+          {/* Special-order parts (not from stock) */}
+          <SpecialPartsPanel card={data} setCard={setData} />
 
           {/* Totals with BTW / VAT breakdown */}
           <Card className="p-5 border-primary/30 bg-primary/5 space-y-4">
