@@ -17,6 +17,7 @@ import { useLang } from "@/i18n";
 import { downloadRepairCardPdf, printRepairCard, downloadListReportPdf, printListReport } from "@/lib/reports";
 import { whatsappShare } from "@/lib/whatsapp";
 import RepairPhotos from "@/components/RepairPhotos";
+import PlateBadge from "@/components/PlateBadge";
 
 const STATUS_STYLE = {
   open: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30",
@@ -578,7 +579,10 @@ export default function Repairs() {
             <div className="mt-8 flex items-start justify-between mb-4">
               <div>
                 <div className="font-display text-xl font-bold mt-1">{[c.car_make, c.car_model].filter(Boolean).join(" ") || "Vehicle TBD"}</div>
-                <div className="text-xs font-mono text-muted-foreground mt-0.5">{c.car_year} · {c.car_plate || "—"}</div>
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  {c.car_year && <span className="text-xs font-mono text-muted-foreground">{c.car_year}</span>}
+                  <PlateBadge plate={c.car_plate} size="xs" />
+                </div>
               </div>
               <Badge className={STATUS_STYLE[c.status] + " capitalize whitespace-nowrap"}>{STATUS_LABEL[c.status]}</Badge>
             </div>

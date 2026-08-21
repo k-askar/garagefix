@@ -8,6 +8,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { useLang } from "@/i18n";
+import PlateBadge from "@/components/PlateBadge";
 
 function KpiCard({ label, value, hint, icon: Icon, accent, testId }) {
   return (
@@ -111,8 +112,9 @@ export default function Dashboard() {
                     </Badge>
                   </div>
                   <div className="font-display font-bold truncate">{[c.car_make, c.car_model].filter(Boolean).join(" ") || t("vehicleTbd")}</div>
-                  <div className="text-[11px] font-mono text-muted-foreground truncate">
-                    {c.car_plate || "—"}{c.customer_name ? ` · ${c.customer_name}` : ""}
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    <PlateBadge plate={c.car_plate} size="xs" />
+                    {c.customer_name && <span className="text-[11px] font-mono text-muted-foreground truncate">{c.customer_name}</span>}
                   </div>
                   <div className="mt-1 flex items-center gap-3 text-[11px] font-mono">
                     <span className="inline-flex items-center gap-1 text-muted-foreground"><Clock className="h-3 w-3" />{c.hours_in_shop}h</span>
