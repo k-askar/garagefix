@@ -1,23 +1,107 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, formatApiError } from "@/lib/api";
+import { api, formatEUR, formatApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Save } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Save, Upload, Palette, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useLang } from "@/i18n";
 import BackupPanel from "@/components/BackupPanel";
 
+const DEFAULT_FORM = {
+  name: "", address: "", phone: "", email: "", tax_id: "",
+  footer_note: "Thank you for choosing us!",
+  logo_url: "/logo-shawish.png",
+  labor_rate: 45, default_tax_rate: 21,
+  invoice_accent_color: "#0EA5E9", invoice_prefix: "INV",
+  iban: "", kvk_number: "", invoice_terms: "",
+  show_plate_badge: true,
+};
+
+// Same yellow-plate mock used in printInvoice; here for the preview only.
+function InvoicePreview({ form }) {
+  const accent = form.invoice_accent_color || "#0EA5E9";
+  const logo = form.logo_url;
+  const token = localStorage.getItem("garage_token") || "";
+  const logoSrc = logo?.startsWith("/api/") ? `${process.env.REACT_APP_BACKEND_URL}${logo}&auth=${encodeURIComponent(token)}` : logo;
+  return (
+    <div className="p-6 bg-white text-black rounded-md border border-border shadow-sm text-sm" data-testid="invoice-preview">
+      <div className="flex items-start justify-between">
+        <div className="flex items-start gap-3">
+          {logoSrc && <img src={logoSrc} alt="logo" className="h-12 w-auto object-contain" />}
+          <div>
+            <div className="font-bold text-lg">{form.name || "Garage"}</div>
+            <div className="text-[11px] text-gray-500 whitespace-pre-line">{form.address}</div>
+            <div className="text-[11px] text-gray-500">{form.phone}{form.email ? " · " + form.email : ""}</div>
+            {form.tax_id && <div className="text-[11px] text-gray-500">VAT / BTW: {form.tax_id}</div>}
+            {form.kvk_number && <div className="text-[11px] text-gray-500">KvK: {form.kvk_number}</div>}
+          </div>
+        </div>
+        <div className="text-right">
+          <span
+            className="inline-block px-3 py-0.5 rounded-full text-[10px] tracking-widest text-white font-bold"
+            style={{ background: accent }}
+          >INVOICE</span>
+          <div className="font-mono font-bold mt-1">{form.invoice_prefix || "INV"}-260821-DEMO</div>
+          <div className="text-[11px] text-gray-500">21/08/2026</div>
+        </div>
+      </div>
+      <hr className="my-4" style={{ borderColor: accent, borderWidth: "0 0 2px 0" }} />
+      <div className="text-[10px] uppercase tracking-widest text-gray-500">Bill to</div>
+      <div className="font-semibold">Ahmed Al-Farsi</div>
+      <table className="w-full mt-3 border-collapse text-[12px]">
+        <thead>
+          <tr style={{ background: "#f5f5f5" }}>
+            <th className="text-left p-2 border-b">Item</th>
+            <th className="text-right p-2 border-b">Qty</th>
+            <th className="text-right p-2 border-b">Price</th>
+            <th className="text-right p-2 border-b">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td className="p-2 border-b">Brake pads front set</td><td className="text-right p-2 border-b">1</td><td className="text-right p-2 border-b">45,00 €</td><td className="text-right p-2 border-b">45,00 €</td></tr>
+          <tr><td className="p-2 border-b">Labor</td><td className="text-right p-2 border-b">1</td><td className="text-right p-2 border-b">55,00 €</td><td className="text-right p-2 border-b">55,00 €</td></tr>
+        </tbody>
+      </table>
+      <div className="text-right mt-2 text-[12px]">
+        <div className="text-gray-500">Subtotal: 100,00 €</div>
+        <div className="text-gray-500">BTW ({form.default_tax_rate || 21}%): {((100 * (form.default_tax_rate || 21)) / 100).toFixed(2)} €</div>
+        <div className="font-bold mt-1">Total: {(100 + (100 * (form.default_tax_rate || 21)) / 100).toFixed(2)} €</div>
+      </div>
+      {form.show_plate_badge && (
+        <div className="mt-4 text-[11px] text-gray-500">
+          Repair JOB-260821-DEMO ·{" "}
+          <span
+            className="inline-flex items-center gap-1 px-2 py-[3px] rounded font-mono font-bold border border-black/40"
+            style={{ background: "#FFC900", color: "#000", letterSpacing: "0.08em", fontSize: "11px" }}
+          >
+            <span style={{ background: "#003399", color: "#fff", fontSize: "7px", padding: "1px 4px", borderRadius: "2px" }}>NL</span>
+            NL-COR-02
+          </span>
+        </div>
+      )}
+      {form.invoice_terms && (
+        <div className="mt-4 text-[10px] text-gray-500 whitespace-pre-line border-t pt-2">{form.invoice_terms}</div>
+      )}
+      {form.iban && <div className="mt-2 text-[11px] text-gray-500">IBAN: <span className="font-mono">{form.iban}</span></div>}
+      <p className="text-center text-[11px] text-gray-500 mt-4">{form.footer_note}</p>
+    </div>
+  );
+}
+
 export default function Settings() {
   const { t } = useLang();
-  const { data } = useQuery({ queryKey: ["settings"], queryFn: () => api.get("/settings").then((r) => r.data) });
-  const [form, setForm] = useState({ name: "", address: "", phone: "", email: "", tax_id: "", footer_note: "" });
+  const { data, refetch } = useQuery({ queryKey: ["settings"], queryFn: () => api.get("/settings").then((r) => r.data) });
+  const [form, setForm] = useState(DEFAULT_FORM);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const logoRef = useRef(null);
 
-  useEffect(() => { if (data) setForm(data); }, [data]);
+  useEffect(() => { if (data) setForm({ ...DEFAULT_FORM, ...data }); }, [data]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -29,59 +113,149 @@ export default function Settings() {
     finally { setSaving(false); }
   };
 
+  const uploadLogo = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    e.target.value = "";
+    if (f.size > 3 * 1024 * 1024) return toast.error("Max 3 MB");
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", f);
+      const res = await api.post("/settings/logo", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      setForm(fr => ({ ...fr, logo_url: res.data.logo_url }));
+      refetch();
+      toast.success("Logo updated");
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setUploading(false); }
+  };
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const token = localStorage.getItem("garage_token") || "";
+  const logoSrc = form.logo_url?.startsWith("/api/") ? `${process.env.REACT_APP_BACKEND_URL}${form.logo_url}&auth=${encodeURIComponent(token)}` : form.logo_url;
+
   return (
-    <div className="space-y-8 max-w-3xl" data-testid="settings-page">
+    <div className="space-y-8 max-w-6xl" data-testid="settings-page">
       <div>
         <div className="text-xs font-mono uppercase tracking-widest text-primary mb-2">Business</div>
         <h1 className="font-display text-4xl font-black tracking-tight">Garage settings</h1>
-        <p className="text-muted-foreground mt-2">These details appear on every customer receipt.</p>
+        <p className="text-muted-foreground mt-2">Details on every receipt, and how your invoices look.</p>
       </div>
-      <Card className="p-8 border-border">
-        <form onSubmit={submit} className="space-y-5">
-          <div className="space-y-1.5">
-            <Label>{t("garageName")}</Label>
-            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="settings-name" />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Logo URL</Label>
-            <Input value={form.logo_url || ""} onChange={(e) => setForm({ ...form, logo_url: e.target.value })} placeholder="/logo-shawish.png or https://..." data-testid="settings-logo-url" />
-            {form.logo_url && (
-              <div className="mt-2 p-3 rounded-md bg-black/90 border border-border inline-block">
-                <img src={form.logo_url} alt="logo preview" className="h-12 w-auto object-contain" />
+
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_460px] gap-8">
+        <Card className="p-8 border-border">
+          <form onSubmit={submit} className="space-y-6">
+            {/* --- Business details --- */}
+            <section className="space-y-4">
+              <h3 className="font-display text-lg font-bold border-b border-border pb-2">Business</h3>
+              <div className="space-y-1.5">
+                <Label>{t("garageName")}</Label>
+                <Input value={form.name} onChange={(e) => set("name", e.target.value)} data-testid="settings-name" />
               </div>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <Label>Address</Label>
-            <Textarea rows={2} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} data-testid="settings-address" />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1.5"><Label>Phone</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="settings-phone" /></div>
-            <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Tax ID / VAT</Label>
-            <Input value={form.tax_id} onChange={(e) => setForm({ ...form, tax_id: e.target.value })} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Labor rate (€ / hour)</Label>
-            <Input type="number" step="0.5" min="0" value={form.labor_rate ?? 45} onChange={(e) => setForm({ ...form, labor_rate: Number(e.target.value) })} data-testid="settings-labor-rate" />
-            <p className="text-[11px] text-muted-foreground">Used by the labor time clock on repair cards to auto-fill the labor charge.</p>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Default BTW / VAT rate (%)</Label>
-            <Input type="number" step="0.1" min="0" max="100" value={form.default_tax_rate ?? 21} onChange={(e) => setForm({ ...form, default_tax_rate: Number(e.target.value) })} data-testid="settings-tax-rate" />
-            <p className="text-[11px] text-muted-foreground">Applied by default on repair cards and invoices. NL standard 21%, reduced 9%.</p>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Receipt footer note</Label>
-            <Input value={form.footer_note} onChange={(e) => setForm({ ...form, footer_note: e.target.value })} placeholder="Thank you for choosing us!" />
-          </div>
-          <Button type="submit" disabled={saving} className="rounded-full bg-primary hover:bg-primary/90" data-testid="settings-save">
-            <Save className="h-4 w-4 mr-2" /> {saving ? "Saving..." : "Save details"}
-          </Button>
-        </form>
-      </Card>
+
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2"><ImageIcon className="h-4 w-4" /> Logo</Label>
+                <div className="flex items-center gap-3">
+                  {form.logo_url && (
+                    <div className="p-3 rounded-md bg-black/90 border border-border">
+                      <img src={logoSrc} alt="logo preview" className="h-14 w-auto object-contain" />
+                    </div>
+                  )}
+                  <div className="flex flex-col gap-2 flex-1">
+                    <Button type="button" variant="outline" onClick={() => logoRef.current?.click()} disabled={uploading} className="rounded-full" data-testid="settings-logo-upload">
+                      <Upload className="h-4 w-4 mr-2" /> {uploading ? "Uploading..." : "Upload new logo"}
+                    </Button>
+                    <input ref={logoRef} hidden type="file" accept="image/*" onChange={uploadLogo} data-testid="settings-logo-file" />
+                    <Input value={form.logo_url || ""} onChange={(e) => set("logo_url", e.target.value)} placeholder="or paste URL / path" className="text-xs font-mono" data-testid="settings-logo-url" />
+                    <p className="text-[11px] text-muted-foreground">PNG, JPG, WebP or SVG · up to 3 MB.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Address</Label>
+                <Textarea rows={2} value={form.address} onChange={(e) => set("address", e.target.value)} data-testid="settings-address" />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5"><Label>Phone</Label><Input value={form.phone} onChange={(e) => set("phone", e.target.value)} data-testid="settings-phone" /></div>
+                <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} /></div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5"><Label>VAT / BTW nr</Label><Input value={form.tax_id} onChange={(e) => set("tax_id", e.target.value)} data-testid="settings-tax-id" /></div>
+                <div className="space-y-1.5"><Label>KvK nr</Label><Input value={form.kvk_number} onChange={(e) => set("kvk_number", e.target.value)} data-testid="settings-kvk" /></div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Labor rate (€ / h)</Label>
+                  <Input type="number" step="0.5" min="0" value={form.labor_rate} onChange={(e) => set("labor_rate", Number(e.target.value))} data-testid="settings-labor-rate" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Default BTW (%)</Label>
+                  <Input type="number" step="0.1" min="0" max="100" value={form.default_tax_rate} onChange={(e) => set("default_tax_rate", Number(e.target.value))} data-testid="settings-tax-rate" />
+                </div>
+              </div>
+            </section>
+
+            {/* --- Invoice customization --- */}
+            <section className="space-y-4 pt-2">
+              <h3 className="font-display text-lg font-bold border-b border-border pb-2 flex items-center gap-2">
+                <Palette className="h-4 w-4 text-primary" /> Invoice look & feel
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Accent color</Label>
+                  <div className="flex gap-2">
+                    <input
+                      type="color"
+                      value={form.invoice_accent_color || "#0EA5E9"}
+                      onChange={(e) => set("invoice_accent_color", e.target.value)}
+                      className="h-10 w-14 rounded-md border border-border cursor-pointer bg-transparent"
+                      data-testid="settings-accent-color"
+                    />
+                    <Input
+                      value={form.invoice_accent_color || ""}
+                      onChange={(e) => set("invoice_accent_color", e.target.value)}
+                      className="font-mono uppercase"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Invoice number prefix</Label>
+                  <Input value={form.invoice_prefix} onChange={(e) => set("invoice_prefix", e.target.value)} placeholder="INV" data-testid="settings-invoice-prefix" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>IBAN (bank account)</Label>
+                <Input value={form.iban} onChange={(e) => set("iban", e.target.value)} placeholder="NL91 ABNA 0417 1643 00" className="font-mono" data-testid="settings-iban" />
+              </div>
+              <div className="flex items-center justify-between rounded-md border border-border p-3">
+                <div>
+                  <Label className="cursor-pointer">Show yellow NL plate on invoice</Label>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">Highlight the linked vehicle plate as a Dutch registration plate.</p>
+                </div>
+                <Switch checked={!!form.show_plate_badge} onCheckedChange={(v) => set("show_plate_badge", v)} data-testid="settings-plate-badge" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Payment & warranty terms</Label>
+                <Textarea rows={3} value={form.invoice_terms} onChange={(e) => set("invoice_terms", e.target.value)} placeholder="Payment within 14 days.  6 months warranty on parts and labor.  Complaints must be filed within 7 days." data-testid="settings-terms" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Receipt footer</Label>
+                <Input value={form.footer_note} onChange={(e) => set("footer_note", e.target.value)} placeholder="Thank you for choosing us!" data-testid="settings-footer" />
+              </div>
+            </section>
+
+            <Button type="submit" disabled={saving} className="rounded-full bg-primary hover:bg-primary/90" data-testid="settings-save">
+              <Save className="h-4 w-4 mr-2" /> {saving ? "Saving..." : "Save details"}
+            </Button>
+          </form>
+        </Card>
+
+        <div className="space-y-3">
+          <div className="text-[11px] font-mono uppercase tracking-widest text-primary">Live preview</div>
+          <InvoicePreview form={form} />
+        </div>
+      </div>
 
       <BackupPanel />
     </div>

@@ -744,6 +744,13 @@ class GarageSettings(BaseModel):
     logo_url: str = "/logo-shawish.png"
     labor_rate: float = 45.0  # € per hour used to auto-fill labor charge from time logs
     default_tax_rate: float = 21.0  # BTW / VAT %  (NL standard 21, reduced 9)
+    # --- Invoice branding ---
+    invoice_accent_color: str = "#0EA5E9"       # hex used for header rule + "PAID" pill background
+    invoice_prefix: str = "INV"                 # invoice number prefix, e.g. INV / FACT / 2026-
+    iban: str = ""                              # bank IBAN shown on invoice footer
+    kvk_number: str = ""                        # Chamber-of-Commerce (KvK) number for NL businesses
+    invoice_terms: str = ""                     # multi-line payment / warranty terms
+    show_plate_badge: bool = True               # render yellow NL plate on the invoice
 
 @api_router.get("/settings")
 async def get_settings(user: dict = Depends(get_current_user)):
@@ -758,6 +765,43 @@ async def get_settings(user: dict = Depends(get_current_user)):
 async def update_settings(payload: GarageSettings, user: dict = Depends(require_owner)):
     await db.settings.update_one({"_id": "garage"}, {"$set": payload.model_dump()}, upsert=True)
     return payload.model_dump()
+
+from fastapi import UploadFile, File
+
+@api_router.post("/settings/logo")
+async def upload_settings_logo(file: UploadFile = File(...), user: dict = Depends(require_owner)):
+    """Upload a garage logo to Emergent Object Storage and save its public URL on settings."""
+    from backup import _put_object
+    if not (file.content_type or "").startswith("image/"):
+        raise HTTPException(status_code=400, detail="Only image files are supported")
+    data = await file.read()
+    if len(data) > 3 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Logo too large (max 3 MB)")
+    ext = (file.filename.rsplit(".", 1)[-1] if "." in (file.filename or "") else "png").lower()
+    pid = str(uuid.uuid4())
+    path = f"pitstock/logos/{pid}.{ext}"
+    try:
+        result = _put_object(path, data, file.content_type)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Storage error: {str(e)[:200]}")
+    # We save the storage path — the frontend reads it as /api/settings/logo/{storage_path}
+    logo_ref = f"/api/settings/logo-file?path={result['path']}"
+    await db.settings.update_one({"_id": "garage"}, {"$set": {"logo_url": logo_ref}}, upsert=True)
+    return {"logo_url": logo_ref}
+
+@api_router.get("/settings/logo-file")
+async def download_settings_logo(path: str, user: dict = Depends(get_current_user)):
+    from backup import _get_object
+    try:
+        data = _get_object(path)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Logo not found: {str(e)[:120]}")
+    # Best-effort content type from extension
+    ct = "image/png"
+    if path.lower().endswith((".jpg", ".jpeg")): ct = "image/jpeg"
+    elif path.lower().endswith(".webp"): ct = "image/webp"
+    elif path.lower().endswith(".svg"): ct = "image/svg+xml"
+    return Response(content=data, media_type=ct, headers={"Cache-Control": "public, max-age=3600"})
 
 # --- CSV Import ---
 from fastapi import UploadFile, File

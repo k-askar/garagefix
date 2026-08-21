@@ -11,35 +11,73 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { CheckCircle2, Printer, Trash2, Plus, MessageCircle, Archive, FileSpreadsheet } from "lucide-react";
+import { CheckCircle2, Printer, Trash2, Plus, MessageCircle, Archive, FileSpreadsheet, FileDown } from "lucide-react";
 import { toast } from "sonner";
 import { whatsappShare } from "@/lib/whatsapp";
 import { useLang } from "@/i18n";
-import { downloadInvoicesZip } from "@/lib/invoice-zip";
+import { downloadInvoicesZip, invoiceToHtml } from "@/lib/invoice-zip";
+import { downloadHtmlAsPdf } from "@/lib/pdf";
 import SearchableSelect from "@/components/SearchableSelect";
+
+// Extract a Dutch-style plate (letters/digits joined by hyphens) from a free-text note
+// e.g. "Repair JOB-260820-FE40 · Honda civc 29-JDH-1" -> "29-JDH-1"
+// We deliberately skip the JOB-... token by matching from the *end* of the note.
+function extractPlate(note) {
+  if (!note) return null;
+  const matches = String(note).match(/\b[A-Z0-9]+(?:-[A-Z0-9]+){1,3}\b/gi) || [];
+  // Drop the JOB card number if present
+  const candidates = matches.filter(m => !/^JOB-/i.test(m));
+  return candidates.length ? candidates[candidates.length - 1] : null;
+}
+
+function plateHtml(plate) {
+  if (!plate) return "";
+  return `<span style="display:inline-flex;align-items:center;gap:6px;background:#FFC900;color:#000;border:1px solid rgba(0,0,0,.35);padding:3px 9px;border-radius:4px;font-family:'IBM Plex Mono','Courier New',monospace;font-weight:700;font-size:12px;letter-spacing:.08em">
+    <span style="background:#003399;color:#fff;font-size:8px;padding:1px 4px;border-radius:2px;line-height:1">NL</span>
+    <span>${String(plate).toUpperCase()}</span>
+  </span>`;
+}
+
+function noteWithPlate(note) {
+  const plate = extractPlate(note);
+  if (!plate) return note ? `<span>${note}</span>` : "";
+  const before = note.slice(0, note.lastIndexOf(plate));
+  return `<span>${before}</span>${plateHtml(plate)}`;
+}
 
 function printInvoice(inv, settings) {
   const w = window.open("", "_blank", "width=720,height=900");
   if (!w) return;
+  const accent = settings?.invoice_accent_color || "#0EA5E9";
+  const showPlate = settings?.show_plate_badge !== false;
+  const token = localStorage.getItem("garage_token") || "";
+  const logoSrc = settings?.logo_url?.startsWith("/api/")
+    ? `${process.env.REACT_APP_BACKEND_URL}${settings.logo_url}&auth=${encodeURIComponent(token)}`
+    : settings?.logo_url;
   const rows = inv.lines.map((l) => `<tr><td>${l.name}<div style="font-size:10px;color:#888">${l.sku || ""}</div></td><td class="right">${l.quantity}</td><td class="right">${formatEUR(l.unit_price)}</td><td class="right">${formatEUR(l.total)}</td></tr>`).join("");
   w.document.write(`<!doctype html><html><head><title>${inv.invoice_number}</title>
-    <style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;padding:32px;color:#111;max-width:720px;margin:0 auto}h1{font-size:24px;margin:0}.muted{color:#666;font-size:12px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{padding:8px;border-bottom:1px solid #eee;text-align:left;font-size:13px}th{background:#f5f5f5}.right{text-align:right}.badge{display:inline-block;padding:2px 10px;border-radius:999px;background:#0ea5e9;color:#fff;font-size:10px;letter-spacing:.1em}.paid{background:#22c55e}.totrow{font-size:15px;font-weight:700}</style>
+    <style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;padding:32px;color:#111;max-width:720px;margin:0 auto}h1{font-size:22px;margin:0}.muted{color:#666;font-size:12px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{padding:8px;border-bottom:1px solid #eee;text-align:left;font-size:13px}th{background:#f5f5f5}.right{text-align:right}.badge{display:inline-block;padding:2px 10px;border-radius:999px;background:${accent};color:#fff;font-size:10px;letter-spacing:.1em}.paid{background:#22c55e}.totrow{font-size:15px;font-weight:700}hr.accent{border:none;border-top:2px solid ${accent};margin:16px 0}.terms{margin-top:20px;font-size:10px;color:#666;white-space:pre-line;border-top:1px solid #eee;padding-top:8px}</style>
     </head><body>
     <div style="display:flex;justify-content:space-between;align-items:start">
-      <div><h1>${settings?.name || "Garage"}</h1><div class="muted">${settings?.address || ""}</div><div class="muted">${settings?.phone || ""}${settings?.email ? " · " + settings.email : ""}</div>${settings?.tax_id ? `<div class="muted">VAT: ${settings.tax_id}</div>` : ""}</div>
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        ${logoSrc ? `<img src="${logoSrc}" style="height:56px;width:auto;object-fit:contain" crossorigin="anonymous"/>` : ""}
+        <div><h1>${settings?.name || "Garage"}</h1><div class="muted">${(settings?.address || "").replace(/\n/g, "<br/>")}</div><div class="muted">${settings?.phone || ""}${settings?.email ? " · " + settings.email : ""}</div>${settings?.tax_id ? `<div class="muted">BTW: ${settings.tax_id}</div>` : ""}${settings?.kvk_number ? `<div class="muted">KvK: ${settings.kvk_number}</div>` : ""}</div>
+      </div>
       <div style="text-align:right"><span class="badge ${inv.status === 'paid' ? 'paid' : ''}">${inv.status === 'paid' ? 'PAID' : 'INVOICE'}</span><div style="font-size:14px;margin-top:6px;font-weight:700">${inv.invoice_number}</div><div class="muted">${new Date(inv.created_at).toLocaleDateString("en-GB")}</div></div>
     </div>
-    <hr style="margin:20px 0;border:none;border-top:1px solid #eee" />
+    <hr class="accent" />
     <div class="muted" style="text-transform:uppercase;letter-spacing:.1em;font-size:10px">Bill to</div>
     <div style="font-size:15px;font-weight:600;margin-top:4px">${inv.customer_name || "Walk-in customer"}</div>
     <table><thead><tr><th>Item</th><th class="right">Qty</th><th class="right">Unit price</th><th class="right">Total</th></tr></thead>
     <tbody>${rows}</tbody></table>
     <div style="margin-top:16px;text-align:right">
       <div class="muted">Subtotal: ${formatEUR(inv.subtotal)}</div>
-      ${inv.tax ? `<div class="muted">Tax: ${formatEUR(inv.tax)}</div>` : ""}
+      ${inv.tax ? `<div class="muted">BTW: ${formatEUR(inv.tax)}</div>` : ""}
       <div class="totrow" style="margin-top:4px">Total: ${formatEUR(inv.total)}</div>
     </div>
-    ${inv.note ? `<p class="muted" style="margin-top:24px">${inv.note}</p>` : ""}
+    ${inv.note ? `<p class="muted" style="margin-top:24px">${showPlate ? noteWithPlate(inv.note) : inv.note}</p>` : ""}
+    ${settings?.iban ? `<p class="muted" style="margin-top:8px">Payment to IBAN: <span style="font-family:monospace">${settings.iban}</span></p>` : ""}
+    ${settings?.invoice_terms ? `<div class="terms">${settings.invoice_terms.replace(/</g, "&lt;")}</div>` : ""}
     <p class="muted" style="margin-top:24px;text-align:center">${settings?.footer_note || "Thank you!"}</p>
     </body></html>`);
   w.document.close();
@@ -226,6 +264,18 @@ export default function Invoices() {
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
                     <Button size="icon" variant="ghost" onClick={() => printInvoice(inv, settings)} data-testid={`invoice-print-${inv.invoice_number}`}><Printer className="h-4 w-4" /></Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      title="Download PDF"
+                      data-testid={`invoice-pdf-${inv.invoice_number}`}
+                      onClick={async () => {
+                        try {
+                          const html = invoiceToHtml(inv, settings);
+                          await downloadHtmlAsPdf(html, `${inv.invoice_number}.pdf`);
+                        } catch (e) { toast.error(formatApiError(e)); }
+                      }}
+                    ><FileDown className="h-4 w-4" /></Button>
                     <Button size="icon" variant="ghost" className="text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300" onClick={() => {
                       const cust = customers.find(c => c.id === inv.customer_id);
                       whatsappShare({
