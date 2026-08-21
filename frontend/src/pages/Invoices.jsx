@@ -32,10 +32,7 @@ function extractPlate(note) {
 
 function plateHtml(plate) {
   if (!plate) return "";
-  return `<span style="display:inline-flex;align-items:center;gap:6px;background:#FFC900;color:#000;border:1px solid rgba(0,0,0,.35);padding:3px 9px;border-radius:4px;font-family:'IBM Plex Mono','Courier New',monospace;font-weight:700;font-size:12px;letter-spacing:.08em">
-    <span style="background:#003399;color:#fff;font-size:8px;padding:1px 4px;border-radius:2px;line-height:1">NL</span>
-    <span>${String(plate).toUpperCase()}</span>
-  </span>`;
+  return `<span style="display:inline-block;border:1px solid #000;border-radius:4px;overflow:hidden;vertical-align:middle;line-height:0;-webkit-print-color-adjust:exact;print-color-adjust:exact"><span style="display:inline-block;background:#003399;color:#fff;padding:4px 5px;font-family:Arial,sans-serif;font-weight:900;font-size:9px;letter-spacing:.06em;line-height:1;vertical-align:middle">NL</span><span style="display:inline-block;background:#FFC900;color:#000;padding:4px 9px;font-family:'Courier New',ui-monospace,monospace;font-weight:900;font-size:14px;letter-spacing:.12em;line-height:1;vertical-align:middle">${String(plate).toUpperCase()}</span></span>`;
 }
 
 function noteWithPlate(note) {
@@ -56,7 +53,7 @@ function printInvoice(inv, settings) {
     : settings?.logo_url;
   const rows = inv.lines.map((l) => `<tr><td>${l.name}<div style="font-size:10px;color:#888">${l.sku || ""}</div></td><td class="right">${l.quantity}</td><td class="right">${formatEUR(l.unit_price)}</td><td class="right">${formatEUR(l.total)}</td></tr>`).join("");
   w.document.write(`<!doctype html><html><head><title>${inv.invoice_number}</title>
-    <style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;padding:32px;color:#111;max-width:720px;margin:0 auto}h1{font-size:22px;margin:0}.muted{color:#666;font-size:12px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{padding:8px;border-bottom:1px solid #eee;text-align:left;font-size:13px}th{background:#f5f5f5}.right{text-align:right}.badge{display:inline-block;padding:2px 10px;border-radius:999px;background:${accent};color:#fff;font-size:10px;letter-spacing:.1em}.paid{background:#22c55e}.totrow{font-size:15px;font-weight:700}hr.accent{border:none;border-top:2px solid ${accent};margin:16px 0}.terms{margin-top:20px;font-size:10px;color:#666;white-space:pre-line;border-top:1px solid #eee;padding-top:8px}</style>
+    <style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;padding:32px;color:#111;max-width:720px;margin:0 auto;-webkit-print-color-adjust:exact;print-color-adjust:exact}h1{font-size:22px;margin:0}.muted{color:#666;font-size:12px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{padding:8px;border-bottom:1px solid #eee;text-align:left;font-size:13px}th{background:#f5f5f5}.right{text-align:right}.badge{display:inline-block;padding:2px 10px;border-radius:999px;background:${accent};color:#fff;font-size:10px;letter-spacing:.1em;-webkit-print-color-adjust:exact;print-color-adjust:exact}.paid{background:#22c55e}.totrow{font-size:15px;font-weight:700}hr.accent{border:none;border-top:2px solid ${accent};margin:16px 0}.terms{margin-top:20px;font-size:10px;color:#666;white-space:pre-line;border-top:1px solid #eee;padding-top:8px}@media print{*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}}</style>
     </head><body>
     <div style="display:flex;justify-content:space-between;align-items:start">
       <div style="display:flex;gap:12px;align-items:flex-start">
