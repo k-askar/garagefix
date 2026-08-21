@@ -12,7 +12,7 @@ function extractPlate(note) {
 
 function plateHtml(plate) {
   if (!plate) return "";
-  return `<span style="display:inline-block;border:1px solid #000;border-radius:4px;overflow:hidden;vertical-align:middle;line-height:0;-webkit-print-color-adjust:exact;print-color-adjust:exact"><span style="display:inline-block;background:#003399;color:#fff;padding:4px 5px;font-family:Arial,sans-serif;font-weight:900;font-size:9px;letter-spacing:.06em;line-height:1;vertical-align:middle">NL</span><span style="display:inline-block;background:#FFC900;color:#000;padding:4px 9px;font-family:'Courier New',ui-monospace,monospace;font-weight:900;font-size:14px;letter-spacing:.12em;line-height:1;vertical-align:middle">${String(plate).toUpperCase()}</span></span>`;
+  return `<span style="display:inline-block;padding:6px 18px;background:#FFCB05;color:#000;border:2px solid #000;border-radius:6px;font-family:'Arial Black',Impact,'Helvetica Neue',sans-serif;font-weight:900;font-size:22px;letter-spacing:.15em;line-height:1;text-align:center;vertical-align:middle;-webkit-print-color-adjust:exact;print-color-adjust:exact;box-shadow:inset 0 -2px 0 rgba(0,0,0,0.08)">${String(plate).toUpperCase()}</span>`;
 }
 
 function noteWithPlate(note) {

@@ -8,25 +8,22 @@ import React from "react";
 export default function PlateBadge({ plate, size = "sm", className = "" }) {
   if (!plate) return <span className="text-muted-foreground">—</span>;
   const sizes = {
-    xs: "text-[10px] px-1.5 py-[1px] gap-1 rounded",
-    sm: "text-xs px-2 py-0.5 gap-1.5 rounded-[4px]",
-    md: "text-sm px-2.5 py-1 gap-2 rounded-md",
-    lg: "text-lg px-4 py-1.5 gap-2.5 rounded-md",
-  };
-  const flag = {
-    xs: "text-[6px] px-[3px] py-[1px]",
-    sm: "text-[7px] px-1 py-[1px]",
-    md: "text-[8px] px-1 py-[1px]",
-    lg: "text-[10px] px-1.5 py-0.5",
+    xs: "text-xs px-2 py-[3px]",
+    sm: "text-sm px-3 py-1",
+    md: "text-base px-4 py-1.5",
+    lg: "text-2xl px-5 py-2",
   };
   return (
     <span
-      className={`inline-flex items-center font-mono font-bold tracking-widest uppercase bg-[#FFC900] text-black border border-black/40 shadow-sm ${sizes[size]} ${className}`}
+      className={`inline-block bg-[#FFCB05] text-black border-2 border-black rounded-[6px] font-black text-center align-middle shadow-inner ${sizes[size]} ${className}`}
       data-testid="plate-badge"
-      style={{ letterSpacing: "0.08em" }}
+      style={{
+        letterSpacing: "0.15em",
+        fontFamily: "'Arial Black', Impact, 'Helvetica Neue', sans-serif",
+        lineHeight: 1.1,
+      }}
     >
-      <span className={`bg-[#003399] text-white font-bold leading-none rounded-[2px] ${flag[size]}`}>NL</span>
-      <span className="leading-none">{String(plate).toUpperCase()}</span>
+      {String(plate).toUpperCase()}
     </span>
   );
 }

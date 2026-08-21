@@ -1315,9 +1315,11 @@ class SpecialPart(BaseModel):
     unit_price: float = 0.0    # selling price to customer
     unit_cost: float = 0.0     # what we paid the supplier
     total: float = 0.0
+    tax_exempt: bool = False   # true = no BTW (e.g. used / second-hand part)
     supplier_id: Optional[str] = None
     supplier_name: str = ""
     part_number: str = ""      # OEM / manufacturer part number
+    catalog_id: Optional[str] = None  # link back to parts_catalog for future lookups
     status: Literal["ordered", "arrived", "installed"] = "ordered"
     expected_date: Optional[str] = None
     note: str = ""
@@ -1436,13 +1438,20 @@ class AddPart(BaseModel):
 
 def _recalc_repair(card: dict) -> dict:
     parts_total = round(sum(p["total"] for p in card.get("parts_used", [])), 2)
-    special_total = round(sum(sp.get("total") or (sp.get("quantity", 0) * sp.get("unit_price", 0)) for sp in card.get("special_parts", [])), 2)
+    # Special parts split between taxable and tax-exempt (e.g. used/2nd-hand)
+    special_taxable = round(sum(sp.get("total") or (sp.get("quantity", 0) * sp.get("unit_price", 0))
+                                for sp in card.get("special_parts", []) if not sp.get("tax_exempt")), 2)
+    special_exempt = round(sum(sp.get("total") or (sp.get("quantity", 0) * sp.get("unit_price", 0))
+                               for sp in card.get("special_parts", []) if sp.get("tax_exempt")), 2)
     minutes = round(sum(l.get("minutes") or 0 for l in card.get("time_logs", []) if l.get("stopped_at")), 2)
-    grand = round(parts_total + special_total + float(card.get("labor_charge") or 0), 2)
+    labor = float(card.get("labor_charge") or 0)
+    grand = round(parts_total + special_taxable + special_exempt + labor, 2)
     tax_rate = float(card.get("tax_rate") or 0)
-    tax_amount = round(grand * tax_rate / 100.0, 2)
+    # BTW applies only to inventory parts + taxable specials + labor
+    tax_base = round(parts_total + special_taxable + labor, 2)
+    tax_amount = round(tax_base * tax_rate / 100.0, 2)
     total_with_tax = round(grand + tax_amount, 2)
-    card["parts_total"] = round(parts_total + special_total, 2)
+    card["parts_total"] = round(parts_total + special_taxable + special_exempt, 2)
     card["labor_minutes"] = minutes
     card["grand_total"] = grand
     card["tax_amount"] = tax_amount
@@ -1479,8 +1488,10 @@ class SpecialPartCreate(BaseModel):
     quantity: float = 1
     unit_price: float = 0.0
     unit_cost: float = 0.0
+    tax_exempt: bool = False
     supplier_id: Optional[str] = None
     part_number: str = ""
+    catalog_id: Optional[str] = None
     status: Literal["ordered", "arrived", "installed"] = "ordered"
     expected_date: Optional[str] = None
     note: str = ""
@@ -1490,6 +1501,7 @@ class SpecialPartUpdate(BaseModel):
     quantity: Optional[float] = None
     unit_price: Optional[float] = None
     unit_cost: Optional[float] = None
+    tax_exempt: Optional[bool] = None
     supplier_id: Optional[str] = None
     part_number: Optional[str] = None
     status: Optional[Literal["ordered", "arrived", "installed"]] = None
@@ -1508,8 +1520,10 @@ async def add_special_part(rid: str, payload: SpecialPartCreate, user: dict = De
     sp = SpecialPart(
         name=payload.name, quantity=payload.quantity, unit_price=payload.unit_price,
         unit_cost=payload.unit_cost, total=round(payload.quantity * payload.unit_price, 2),
+        tax_exempt=payload.tax_exempt,
         supplier_id=payload.supplier_id, supplier_name=supplier_name,
-        part_number=payload.part_number, status=payload.status,
+        part_number=payload.part_number, catalog_id=payload.catalog_id,
+        status=payload.status,
         expected_date=payload.expected_date, note=payload.note,
     )
     if payload.status == "arrived":
@@ -1560,6 +1574,74 @@ async def delete_special_part(rid: str, sp_id: str, user: dict = Depends(get_cur
         "special_parts": parts, **_recalc_fields(card), "updated_at": card["updated_at"],
     }})
     return await db.repairs.find_one({"id": rid}, {"_id": 0})
+
+# ---------- Parts catalog (reusable part names / prices for special-order flow) ----------
+
+class CatalogPart(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    part_number: str = ""
+    unit_price: float = 0.0     # default selling price
+    unit_cost: float = 0.0      # default cost
+    tax_exempt: bool = False    # default BTW flag (e.g. always-used 2nd-hand item)
+    supplier_id: Optional[str] = None
+    supplier_name: str = ""
+    note: str = ""
+    times_used: int = 0
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+class CatalogPartCreate(BaseModel):
+    name: str
+    part_number: str = ""
+    unit_price: float = 0.0
+    unit_cost: float = 0.0
+    tax_exempt: bool = False
+    supplier_id: Optional[str] = None
+    note: str = ""
+
+class CatalogPartUpdate(BaseModel):
+    name: Optional[str] = None
+    part_number: Optional[str] = None
+    unit_price: Optional[float] = None
+    unit_cost: Optional[float] = None
+    tax_exempt: Optional[bool] = None
+    supplier_id: Optional[str] = None
+    note: Optional[str] = None
+
+@api_router.get("/parts-catalog", response_model=List[CatalogPart])
+async def list_catalog_parts(user: dict = Depends(get_current_user)):
+    return await db.parts_catalog.find({}, {"_id": 0}).sort([("times_used", -1), ("name", 1)]).to_list(2000)
+
+@api_router.post("/parts-catalog", response_model=CatalogPart)
+async def create_catalog_part(payload: CatalogPartCreate, user: dict = Depends(get_current_user)):
+    supplier_name = ""
+    if payload.supplier_id:
+        s = await db.suppliers.find_one({"id": payload.supplier_id}, {"_id": 0})
+        supplier_name = s["name"] if s else ""
+    part = CatalogPart(**payload.model_dump(), supplier_name=supplier_name)
+    await db.parts_catalog.insert_one(part.model_dump())
+    return part
+
+@api_router.patch("/parts-catalog/{cid}", response_model=CatalogPart)
+async def update_catalog_part(cid: str, payload: CatalogPartUpdate, user: dict = Depends(get_current_user)):
+    part = await db.parts_catalog.find_one({"id": cid}, {"_id": 0})
+    if not part:
+        raise HTTPException(status_code=404, detail="Catalog part not found")
+    changes = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "supplier_id" in changes and changes["supplier_id"]:
+        s = await db.suppliers.find_one({"id": changes["supplier_id"]}, {"_id": 0})
+        changes["supplier_name"] = s["name"] if s else ""
+    changes["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.parts_catalog.update_one({"id": cid}, {"$set": changes})
+    return await db.parts_catalog.find_one({"id": cid}, {"_id": 0})
+
+@api_router.delete("/parts-catalog/{cid}")
+async def delete_catalog_part(cid: str, user: dict = Depends(get_current_user)):
+    r = await db.parts_catalog.delete_one({"id": cid})
+    if not r.deleted_count:
+        raise HTTPException(status_code=404, detail="Catalog part not found")
+    return {"ok": True}
 
 @api_router.post("/repairs", response_model=RepairCard)
 async def create_repair(payload: RepairCreate, user: dict = Depends(get_current_user)):

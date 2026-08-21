@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 MANAGED_COLLECTIONS = [
     "users", "settings",
     "suppliers", "customers", "vehicles",
-    "inventory",
+    "inventory", "parts_catalog",
     "transactions", "purchase_orders",
     "repairs", "invoices",
     "appointments", "reminders",
