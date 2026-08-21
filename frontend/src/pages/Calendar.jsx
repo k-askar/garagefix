@@ -14,6 +14,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, Car, User, Wrench, Trash2, FileText, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import SearchableSelect from "@/components/SearchableSelect";
 
 const STATUS_STYLE = {
   scheduled: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30",
@@ -306,13 +307,15 @@ export default function CalendarPage() {
                     <Plus className="h-3 w-3" /> {t("newCustomer")}
                   </button>
                 </div>
-                <Select value={form.customer_id || "none"} onValueChange={(v) => setForm({ ...form, customer_id: v === "none" ? "" : v, vehicle_id: "" })}>
-                  <SelectTrigger data-testid="appt-customer-select"><SelectValue placeholder={t("walkIn")} /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">{t("walkIn")}</SelectItem>
-                    {customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name}{c.phone ? ` · ${c.phone}` : ""}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={form.customer_id}
+                  onChange={(v) => setForm({ ...form, customer_id: v, vehicle_id: "" })}
+                  options={customers.map(c => ({ value: c.id, label: c.name, secondary: c.phone }))}
+                  emptyLabel={t("walkIn")}
+                  searchPlaceholder={t("searchCustomer")}
+                  placeholder={t("walkIn")}
+                  testId="appt-customer-select"
+                />
               </div>
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">

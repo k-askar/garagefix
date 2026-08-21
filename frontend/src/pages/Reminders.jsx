@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatApiError } from "@/lib/api";
+import SearchableSelect from "@/components/SearchableSelect";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,13 +61,15 @@ export default function Reminders() {
             <form onSubmit={save} className="space-y-4">
               <div className="space-y-1.5">
                 <Label>Customer</Label>
-                <Select value={form.customer_id || "none"} onValueChange={(v) => setForm({ ...form, customer_id: v === "none" ? "" : v })}>
-                  <SelectTrigger data-testid="reminder-customer"><SelectValue placeholder="Pick customer" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">— pick —</SelectItem>
-                    {customers.map(c => <SelectItem key={c.id} value={c.id} disabled={!c.email}>{c.name}{!c.email ? " · (no email)" : ""}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={form.customer_id}
+                  onChange={(v) => setForm({ ...form, customer_id: v })}
+                  options={customers.map(c => ({ value: c.id, label: c.name, secondary: c.email || "no email", disabled: !c.email }))}
+                  emptyLabel="— pick —"
+                  searchPlaceholder="Search customer"
+                  placeholder="Pick customer"
+                  testId="reminder-customer"
+                />
                 <p className="text-[11px] text-muted-foreground">Only customers with an email address can be reminded.</p>
               </div>
               <div className="space-y-1.5"><Label>Reason</Label><Input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} data-testid="reminder-reason" /></div>

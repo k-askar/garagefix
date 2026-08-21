@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatEUR, formatApiError } from "@/lib/api";
+import SearchableSelect from "@/components/SearchableSelect";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -234,13 +235,15 @@ export default function ScanPickup() {
             <TabsContent value="walkin" className="space-y-3 mt-4">
               <div className="space-y-1.5">
                 <Label>Customer</Label>
-                <Select value={customerId || "none"} onValueChange={(v) => setCustomerId(v === "none" ? "" : v)}>
-                  <SelectTrigger data-testid="dest-customer-select"><SelectValue placeholder="Walk-in / choose customer" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">— walk-in —</SelectItem>
-                    {customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={customerId}
+                  onChange={setCustomerId}
+                  options={customers.map(c => ({ value: c.id, label: c.name }))}
+                  emptyLabel="— walk-in —"
+                  searchPlaceholder="Search customer"
+                  placeholder="Walk-in / choose customer"
+                  testId="dest-customer-select"
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5"><Label>Sale price (€)</Label><Input type="number" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} data-testid="dest-price" /></div>

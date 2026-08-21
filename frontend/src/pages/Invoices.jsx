@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { whatsappShare } from "@/lib/whatsapp";
 import { useLang } from "@/i18n";
 import { downloadInvoicesZip } from "@/lib/invoice-zip";
+import SearchableSelect from "@/components/SearchableSelect";
 
 function printInvoice(inv, settings) {
   const w = window.open("", "_blank", "width=720,height=900");
@@ -252,13 +253,15 @@ export default function Invoices() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Customer</Label>
-                <Select value={customerId || "none"} onValueChange={(v) => { setCustomerId(v === "none" ? "" : v); setSelectedTxns([]); }}>
-                  <SelectTrigger data-testid="invoice-customer-select"><SelectValue placeholder="Any / walk-in" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Walk-in / any</SelectItem>
-                    {customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={customerId}
+                  onChange={(v) => { setCustomerId(v); setSelectedTxns([]); }}
+                  options={customers.map(c => ({ value: c.id, label: c.name }))}
+                  emptyLabel="Walk-in / any"
+                  searchPlaceholder="Search customer"
+                  placeholder="Any / walk-in"
+                  testId="invoice-customer-select"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Tax rate (%)</Label>

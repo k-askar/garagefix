@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatEUR, formatApiError } from "@/lib/api";
+import SearchableSelect from "@/components/SearchableSelect";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -202,23 +203,27 @@ export default function PurchaseOrders() {
           <form onSubmit={submitDraft} className="space-y-4">
             <div className="space-y-1.5">
               <Label>Supplier</Label>
-              <Select value={draft.supplier_id || "none"} onValueChange={(v) => setDraft(d => ({ ...d, supplier_id: v === "none" ? "" : v }))}>
-                <SelectTrigger data-testid="po-supplier-select"><SelectValue placeholder="Pick supplier" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">— none —</SelectItem>
-                  {suppliers.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={draft.supplier_id}
+                onChange={(v) => setDraft(d => ({ ...d, supplier_id: v }))}
+                options={suppliers.map(s => ({ value: s.id, label: s.name }))}
+                emptyLabel="— none —"
+                searchPlaceholder="Search supplier"
+                placeholder="Pick supplier"
+                testId="po-supplier-select"
+              />
             </div>
             <div className="p-3 rounded-md border border-border space-y-3">
               <div className="grid grid-cols-[1fr_100px_auto] gap-2">
-                <Select value={selItemId || "none"} onValueChange={(v) => setSelItemId(v === "none" ? "" : v)}>
-                  <SelectTrigger data-testid="po-item-select"><SelectValue placeholder="Pick part" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">— pick —</SelectItem>
-                    {items.map((i) => <SelectItem key={i.id} value={i.id}>{i.name} · {i.sku}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={selItemId}
+                  onChange={setSelItemId}
+                  options={items.map(i => ({ value: i.id, label: i.name, secondary: i.sku }))}
+                  emptyLabel="— pick —"
+                  searchPlaceholder="Search part by name or SKU"
+                  placeholder="Pick part"
+                  testId="po-item-select"
+                />
                 <Input type="number" min="1" value={selQty} onChange={(e) => setSelQty(e.target.value)} data-testid="po-qty-input" />
                 <Button type="button" onClick={addLineToDraft} variant="outline" className="rounded-full" data-testid="po-add-line"><Plus className="h-4 w-4" /></Button>
               </div>

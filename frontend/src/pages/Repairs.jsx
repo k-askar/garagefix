@@ -18,6 +18,7 @@ import { downloadRepairCardPdf, printRepairCard, downloadListReportPdf, printLis
 import { whatsappShare } from "@/lib/whatsapp";
 import RepairPhotos from "@/components/RepairPhotos";
 import PlateBadge from "@/components/PlateBadge";
+import SearchableSelect from "@/components/SearchableSelect";
 
 const STATUS_STYLE = {
   open: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30",
@@ -637,13 +638,15 @@ export default function Repairs() {
           <form onSubmit={create} className="space-y-4">
             <div className="space-y-1.5">
               <Label>Customer (existing or new)</Label>
-              <Select value={form.customer_id || "none"} onValueChange={(v) => setForm({ ...form, customer_id: v === "none" ? "" : v })}>
-                <SelectTrigger data-testid="new-repair-customer-select"><SelectValue placeholder="Pick or leave blank" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">— walk-in / enter manually —</SelectItem>
-                  {customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name}{c.phone ? ` · ${c.phone}` : ""}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={form.customer_id}
+                onChange={(v) => setForm({ ...form, customer_id: v })}
+                options={customers.map(c => ({ value: c.id, label: c.name, secondary: c.phone }))}
+                emptyLabel="— walk-in / enter manually —"
+                searchPlaceholder="Search customer by name or phone"
+                placeholder="Pick or leave blank"
+                testId="new-repair-customer-select"
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5"><Label>Customer name</Label><Input value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} data-testid="new-repair-name" /></div>

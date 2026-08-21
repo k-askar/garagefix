@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatEUR, formatApiError } from "@/lib/api";
+import SearchableSelect from "@/components/SearchableSelect";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,13 +73,15 @@ function ItemForm({ initial, suppliers, onSubmit, onCancel }) {
         </div>
         <div className="space-y-1.5">
           <Label>Supplier</Label>
-          <Select value={data.supplier_id || "none"} onValueChange={(v) => set("supplier_id", v === "none" ? "" : v)}>
-            <SelectTrigger><SelectValue placeholder="Select supplier" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">None</SelectItem>
-              {suppliers.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            value={data.supplier_id}
+            onChange={(v) => set("supplier_id", v)}
+            options={suppliers.map(s => ({ value: s.id, label: s.name }))}
+            emptyLabel="None"
+            searchPlaceholder="Search supplier"
+            placeholder="Select supplier"
+            testId="item-supplier-select"
+          />
         </div>
         <div className="space-y-1.5">
           <Label>Location / Bin</Label>
