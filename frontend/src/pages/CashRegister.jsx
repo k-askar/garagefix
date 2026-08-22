@@ -11,7 +11,8 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLang } from "@/i18n";
 import CashMovementsPanel from "@/components/CashMovementsPanel";
-import { Wallet, Banknote, CreditCard, ArrowLeftRight, Search, ArrowDownRight, ArrowUpRight, X, FileText, Truck } from "lucide-react";
+import { Wallet, Banknote, CreditCard, ArrowLeftRight, Search, ArrowDownRight, ArrowUpRight, X, FileText, Truck, FileSpreadsheet } from "lucide-react";
+import * as XLSX from "xlsx";
 
 function todayISO(offset = 0) { const d = new Date(); d.setDate(d.getDate() + offset); return d.toISOString().slice(0, 10); }
 
@@ -70,6 +71,42 @@ export default function CashRegister() {
   }, [entries]);
 
   const clear = () => { setMethodType("all"); setDirection("all"); setRefType("all"); setQ(""); };
+
+  const exportExcel = () => {
+    if (!entries.length) return;
+    // Build header row using current locale
+    const header = [
+      t("when"), t("direction"), t("type"), t("reference"),
+      t("counterpart"), t("paymentMethod"), t("note"), t("amount"),
+    ];
+    const rowsForXlsx = entries.map((e) => [
+      (e.created_at || "").slice(0, 16).replace("T", " "),
+      e.direction === "in" ? "IN" : "OUT",
+      e.reference_type || "",
+      e.reference_no || "",
+      e.counterpart || "",
+      e.method_name || "",
+      e.note || "",
+      (e.direction === "in" ? 1 : -1) * Number(e.amount || 0),
+    ]);
+    // Totals row
+    rowsForXlsx.push([]);
+    rowsForXlsx.push([t("net"), "", "", "", "", "", "", (data?.net || 0)]);
+    const ws = XLSX.utils.aoa_to_sheet([header, ...rowsForXlsx]);
+    // Column widths
+    ws["!cols"] = [{ wch: 18 }, { wch: 8 }, { wch: 12 }, { wch: 14 }, { wch: 24 }, { wch: 16 }, { wch: 32 }, { wch: 12 }];
+    // Format amount column as currency (last col)
+    const lastCol = 7;
+    const range = XLSX.utils.decode_range(ws["!ref"]);
+    for (let R = 1; R <= range.e.r; R++) {
+      const cell = ws[XLSX.utils.encode_cell({ r: R, c: lastCol })];
+      if (cell && typeof cell.v === "number") cell.z = '#,##0.00 "€"';
+    }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Ledger");
+    const fname = `ledger-${dateFrom || "all"}_${dateTo || "all"}.xlsx`;
+    XLSX.writeFile(wb, fname);
+  };
 
   const onRowClick = (e) => {
     if (e.reference_type === "invoice" && e.reference_no) nav(`/invoices?open=${e.reference_no}`);
@@ -131,7 +168,10 @@ export default function CashRegister() {
                         : <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-mono text-xs"><ArrowUpRight className="h-3 w-3" />OUT</span>}
                     </TableCell>
                     <TableCell className="text-xs">
-                      <span className={`inline-flex items-center gap-1 ${R.cls}`}><R.icon className="h-3 w-3" /> {t("ref_" + e.reference_type) || e.reference_type}</span>
+                      <span className={`inline-flex items-center gap-1 ${R.cls}`}>
+                        <R.icon className="h-3 w-3" />
+                        {e.reference_type ? (t("ref_" + e.reference_type) !== ("ref_" + e.reference_type) ? t("ref_" + e.reference_type) : e.reference_type) : "—"}
+                      </span>
                     </TableCell>
                     <TableCell className="font-mono text-xs">{e.reference_no || "—"}</TableCell>
                     <TableCell className="text-xs">{e.counterpart || "—"}</TableCell>
@@ -245,9 +285,21 @@ export default function CashRegister() {
           <div className="text-[11px] font-mono text-muted-foreground">
             {isFetching ? "…" : `${data?.count || 0} ${t("entries")}`} · <span className="text-emerald-700 dark:text-emerald-400">+{formatEUR(data?.in_total || 0)}</span> · <span className="text-rose-600 dark:text-rose-400">−{formatEUR(data?.out_total || 0)}</span> · {t("net")} <strong>{formatEUR(data?.net || 0)}</strong>
           </div>
-          <Button variant="ghost" size="sm" onClick={clear} className="rounded-full" data-testid="ledger-clear-filters">
-            <X className="h-3.5 w-3.5 mr-1" /> {t("clearFilters")}
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportExcel}
+              disabled={!entries.length}
+              className="rounded-full border-emerald-500/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10"
+              data-testid="ledger-export-excel"
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5 mr-1" /> {t("exportExcel")}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={clear} className="rounded-full" data-testid="ledger-clear-filters">
+              <X className="h-3.5 w-3.5 mr-1" /> {t("clearFilters")}
+            </Button>
+          </div>
         </div>
       </Card>
 

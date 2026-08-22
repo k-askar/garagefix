@@ -815,6 +815,7 @@ async def dashboard_summary(user: dict = Depends(get_current_user)):
             "car_make": c.get("car_make", ""),
             "car_model": c.get("car_model", ""),
             "car_plate": c.get("car_plate", ""),
+            "car_country": c.get("car_country") or "NL",
             "car_year": c.get("car_year", ""),
             "mechanic_name": c.get("mechanic_name", ""),
             "status": c.get("status"),
@@ -1740,6 +1741,12 @@ class PartUsed(BaseModel):
     quantity: int = Field(gt=0)
     unit_price: float = Field(ge=0)
     total: float
+    # Return tracking — when a part is defective/wrong, it can be returned to the
+    # supplier and marked here. Returned parts stay on the card (shown in red on
+    # the UI + PDF) but are excluded from the grand-total.
+    returned: bool = False
+    returned_at: Optional[str] = None
+    return_reason: str = ""
 
 class SpecialPart(BaseModel):
     """A part specifically ordered from a supplier for this repair — not stocked in inventory."""
@@ -1759,6 +1766,10 @@ class SpecialPart(BaseModel):
     note: str = ""
     ordered_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     arrived_at: Optional[str] = None
+    # Return tracking — see PartUsed for equivalent behaviour on stocked parts.
+    returned: bool = False
+    returned_at: Optional[str] = None
+    return_reason: str = ""
 
 class TimeLog(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -1829,6 +1840,11 @@ class RepairCard(BaseModel):
     status: Literal["open", "in_progress", "completed"] = "open"
     notes: str = ""
     invoice_id: Optional[str] = None
+    # Optional per-card discount granted to the customer. Applied AFTER
+    # parts + labor and BEFORE tax so BTW is on the discounted amount.
+    discount_type: Literal["percent", "amount"] = "amount"
+    discount_value: float = 0.0
+    discount_amount: float = 0.0     # computed (persisted for reports)
     # Workboard planning fields
     estimated_hours: float = 0.0            # planned effort (1 / 2 / 4 / 8 or custom)
     scheduled_date: Optional[str] = None    # YYYY-MM-DD (day the card sits on the workboard)
@@ -1880,6 +1896,8 @@ class RepairUpdate(BaseModel):
     estimated_hours: Optional[float] = None
     scheduled_date: Optional[str] = None
     priority: Optional[Literal["low", "normal", "high"]] = None
+    discount_type: Optional[Literal["percent", "amount"]] = None
+    discount_value: Optional[float] = None
 
 class RepairAssign(BaseModel):
     """Workboard drag-and-drop payload. Any field is optional."""
@@ -1894,22 +1912,40 @@ class AddPart(BaseModel):
     unit_price: Optional[float] = None  # defaults to item selling_price
 
 def _recalc_repair(card: dict) -> dict:
-    parts_total = round(sum(p["total"] for p in card.get("parts_used", [])), 2)
+    # Excluded returned parts from totals — they stay on the card for reference
+    # but don't contribute to the invoice.
+    parts_total = round(sum(p["total"] for p in card.get("parts_used", []) if not p.get("returned")), 2)
     # Special parts split between taxable and tax-exempt (e.g. used/2nd-hand)
     special_taxable = round(sum(sp.get("total") or (sp.get("quantity", 0) * sp.get("unit_price", 0))
-                                for sp in card.get("special_parts", []) if not sp.get("tax_exempt")), 2)
+                                for sp in card.get("special_parts", []) if not sp.get("tax_exempt") and not sp.get("returned")), 2)
     special_exempt = round(sum(sp.get("total") or (sp.get("quantity", 0) * sp.get("unit_price", 0))
-                               for sp in card.get("special_parts", []) if sp.get("tax_exempt")), 2)
+                               for sp in card.get("special_parts", []) if sp.get("tax_exempt") and not sp.get("returned")), 2)
     minutes = round(sum(l.get("minutes") or 0 for l in card.get("time_logs", []) if l.get("stopped_at")), 2)
     labor = float(card.get("labor_charge") or 0)
-    grand = round(parts_total + special_taxable + special_exempt + labor, 2)
+    subtotal = round(parts_total + special_taxable + special_exempt + labor, 2)
+    # Compute discount (percent or fixed amount) on the pre-tax subtotal.
+    dtype = card.get("discount_type") or "amount"
+    dvalue = float(card.get("discount_value") or 0)
+    if dtype == "percent":
+        discount = round(subtotal * max(0.0, min(dvalue, 100.0)) / 100.0, 2)
+    else:
+        discount = round(max(0.0, min(dvalue, subtotal)), 2)
+    grand = round(subtotal - discount, 2)
     tax_rate = float(card.get("tax_rate") or 0)
-    # BTW applies only to inventory parts + taxable specials + labor
-    tax_base = round(parts_total + special_taxable + labor, 2)
+    # BTW applies to (inventory parts + taxable specials + labor) less the
+    # proportion of discount that hits those lines. We keep it simple: apply
+    # the discount pro-rata across the taxable base.
+    taxable_before = round(parts_total + special_taxable + labor, 2)
+    if subtotal > 0 and taxable_before > 0:
+        taxable_share = round(discount * taxable_before / subtotal, 2)
+    else:
+        taxable_share = 0.0
+    tax_base = round(taxable_before - taxable_share, 2)
     tax_amount = round(tax_base * tax_rate / 100.0, 2)
     total_with_tax = round(grand + tax_amount, 2)
     card["parts_total"] = round(parts_total + special_taxable + special_exempt, 2)
     card["labor_minutes"] = minutes
+    card["discount_amount"] = discount
     card["grand_total"] = grand
     card["tax_amount"] = tax_amount
     card["total_with_tax"] = total_with_tax
@@ -1921,6 +1957,7 @@ def _recalc_fields(card: dict) -> dict:
     return {
         "parts_total": card["parts_total"],
         "labor_minutes": card["labor_minutes"],
+        "discount_amount": card.get("discount_amount", 0.0),
         "grand_total": card["grand_total"],
         "tax_amount": card["tax_amount"],
         "total_with_tax": card["total_with_tax"],
@@ -1964,6 +2001,10 @@ class SpecialPartUpdate(BaseModel):
     status: Optional[Literal["ordered", "arrived", "installed"]] = None
     expected_date: Optional[str] = None
     note: Optional[str] = None
+
+
+class SpecialPartReturnPayload(BaseModel):
+    reason: str = ""
 
 @api_router.post("/repairs/{rid}/special-parts", response_model=RepairCard)
 async def add_special_part(rid: str, payload: SpecialPartCreate, user: dict = Depends(get_current_user)):
@@ -2024,6 +2065,54 @@ async def delete_special_part(rid: str, sp_id: str, user: dict = Depends(get_cur
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
     parts = [p for p in (card.get("special_parts") or []) if p["id"] != sp_id]
+    card["special_parts"] = parts
+    card = _recalc_repair(card)
+    card["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.repairs.update_one({"id": rid}, {"$set": {
+        "special_parts": parts, **_recalc_fields(card), "updated_at": card["updated_at"],
+    }})
+    return await db.repairs.find_one({"id": rid}, {"_id": 0})
+
+
+@api_router.post("/repairs/{rid}/special-parts/{sp_id}/return", response_model=RepairCard)
+async def return_special_part(rid: str, sp_id: str, payload: SpecialPartReturnPayload, user: dict = Depends(get_current_user)):
+    """Mark a special-order part as returned to the supplier. Excluded from
+    totals but kept on the card in RED for auditability."""
+    card = await db.repairs.find_one({"id": rid}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+    parts = card.get("special_parts") or []
+    idx = next((i for i, p in enumerate(parts) if p["id"] == sp_id), -1)
+    if idx == -1:
+        raise HTTPException(status_code=404, detail="Special part not found")
+    if parts[idx].get("returned"):
+        raise HTTPException(status_code=400, detail="Special part already returned")
+    parts[idx]["returned"] = True
+    parts[idx]["returned_at"] = datetime.now(timezone.utc).isoformat()
+    parts[idx]["return_reason"] = payload.reason or ""
+    card["special_parts"] = parts
+    card = _recalc_repair(card)
+    card["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.repairs.update_one({"id": rid}, {"$set": {
+        "special_parts": parts, **_recalc_fields(card), "updated_at": card["updated_at"],
+    }})
+    return await db.repairs.find_one({"id": rid}, {"_id": 0})
+
+
+@api_router.post("/repairs/{rid}/special-parts/{sp_id}/unreturn", response_model=RepairCard)
+async def unreturn_special_part(rid: str, sp_id: str, user: dict = Depends(get_current_user)):
+    card = await db.repairs.find_one({"id": rid}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+    parts = card.get("special_parts") or []
+    idx = next((i for i, p in enumerate(parts) if p["id"] == sp_id), -1)
+    if idx == -1:
+        raise HTTPException(status_code=404, detail="Special part not found")
+    if not parts[idx].get("returned"):
+        raise HTTPException(status_code=400, detail="Special part is not returned")
+    parts[idx]["returned"] = False
+    parts[idx]["returned_at"] = None
+    parts[idx]["return_reason"] = ""
     card["special_parts"] = parts
     card = _recalc_repair(card)
     card["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -2312,13 +2401,125 @@ async def remove_part_from_repair(rid: str, txn_id: str, user: dict = Depends(ge
     target = next((p for p in parts if p.get("txn_id") == txn_id), None)
     if not target:
         raise HTTPException(status_code=404, detail="Part not on card")
-    # restock
-    await db.inventory.update_one({"id": target["item_id"]}, {"$inc": {"quantity": target["quantity"]}})
+    # Only restock if the part hasn't ALREADY been returned (returning a part
+    # already put the stock back — restocking again would double-count).
+    if not target.get("returned"):
+        await db.inventory.update_one({"id": target["item_id"]}, {"$inc": {"quantity": target["quantity"]}})
+    # Delete the original OUT transaction + any compensating RETURN IN txn that
+    # was logged when the part was returned (avoids orphaned ledger rows).
     await db.transactions.delete_one({"id": txn_id})
+    await db.transactions.delete_many({"repair_id": rid, "item_id": target["item_id"], "note": {"$regex": "^RETURN "}})
     parts = [p for p in parts if p.get("txn_id") != txn_id]
     card["parts_used"] = parts
     card = _recalc_repair(card)
     card["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.repairs.update_one({"id": rid}, {"$set": {
+        "parts_used": parts,
+        **_recalc_fields(card),
+        "updated_at": card["updated_at"],
+    }})
+    return card
+
+
+class PartReturnPayload(BaseModel):
+    reason: str = ""
+
+
+@api_router.post("/repairs/{rid}/parts/{txn_id}/return", response_model=RepairCard)
+async def return_part_on_repair(rid: str, txn_id: str, payload: PartReturnPayload, user: dict = Depends(get_current_user)):
+    """Mark a fitted part as returned to the supplier (defective / wrong / etc.).
+
+    The part stays visible on the card (in red on the UI + PDF) but is excluded
+    from the totals. Inventory is restocked and the original OUT transaction is
+    flipped by inserting a compensating IN transaction (so cost of goods sold
+    stays accurate).
+    """
+    card = await db.repairs.find_one({"id": rid}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+    parts = card.get("parts_used", [])
+    target = next((p for p in parts if p.get("txn_id") == txn_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Part not on card")
+    if target.get("returned"):
+        raise HTTPException(status_code=400, detail="Part already returned")
+    # Restock the inventory
+    item = await db.inventory.find_one({"id": target["item_id"]}, {"_id": 0}) or {}
+    await db.inventory.update_one({"id": target["item_id"]}, {"$inc": {"quantity": target["quantity"]}})
+    now_iso = datetime.now(timezone.utc).isoformat()
+    # Log a compensating IN transaction so the ledger reflects the return
+    comp = Transaction(
+        type="IN",
+        item_id=target["item_id"], item_name=target["name"], item_sku=target["sku"],
+        quantity=target["quantity"],
+        unit_price=float(target.get("unit_price") or 0),
+        total=round(float(target.get("total") or 0), 2),
+        item_cost=float(item.get("cost_price") or 0),
+        customer_id=card.get("customer_id"),
+        customer_name=card.get("customer_name", ""),
+        note=f"RETURN · Repair {card['card_number']}" + (f" · {payload.reason}" if payload.reason else ""),
+        repair_id=rid,
+        created_by=user.get("email", ""),
+    )
+    await db.transactions.insert_one(comp.model_dump())
+    # Flag the part
+    for p in parts:
+        if p.get("txn_id") == txn_id:
+            p["returned"] = True
+            p["returned_at"] = now_iso
+            p["return_reason"] = payload.reason or ""
+    card["parts_used"] = parts
+    card = _recalc_repair(card)
+    card["updated_at"] = now_iso
+    await db.repairs.update_one({"id": rid}, {"$set": {
+        "parts_used": parts,
+        **_recalc_fields(card),
+        "updated_at": card["updated_at"],
+    }})
+    return card
+
+
+@api_router.post("/repairs/{rid}/parts/{txn_id}/unreturn", response_model=RepairCard)
+async def unreturn_part_on_repair(rid: str, txn_id: str, user: dict = Depends(get_current_user)):
+    """Undo a return — the part goes back to being billed on the card. Stock is
+    decreased again and a compensating OUT transaction is logged."""
+    card = await db.repairs.find_one({"id": rid}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+    parts = card.get("parts_used", [])
+    target = next((p for p in parts if p.get("txn_id") == txn_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Part not on card")
+    if not target.get("returned"):
+        raise HTTPException(status_code=400, detail="Part is not returned")
+    item = await db.inventory.find_one({"id": target["item_id"]}, {"_id": 0}) or {}
+    available = int(item.get("quantity", 0))
+    if available < target["quantity"]:
+        raise HTTPException(status_code=400, detail=f"Not enough stock to reinstall. Available: {available}")
+    await db.inventory.update_one({"id": target["item_id"]}, {"$inc": {"quantity": -target["quantity"]}})
+    now_iso = datetime.now(timezone.utc).isoformat()
+    comp = Transaction(
+        type="OUT",
+        item_id=target["item_id"], item_name=target["name"], item_sku=target["sku"],
+        quantity=target["quantity"],
+        unit_price=float(target.get("unit_price") or 0),
+        total=round(float(target.get("total") or 0), 2),
+        item_cost=float(item.get("cost_price") or 0),
+        customer_id=card.get("customer_id"),
+        customer_name=card.get("customer_name", ""),
+        note=f"UN-RETURN · Repair {card['card_number']}",
+        repair_id=rid,
+        created_by=user.get("email", ""),
+    )
+    await db.transactions.insert_one(comp.model_dump())
+    for p in parts:
+        if p.get("txn_id") == txn_id:
+            p["returned"] = False
+            p["returned_at"] = None
+            p["return_reason"] = ""
+    card["parts_used"] = parts
+    card = _recalc_repair(card)
+    card["updated_at"] = now_iso
     await db.repairs.update_one({"id": rid}, {"$set": {
         "parts_used": parts,
         **_recalc_fields(card),

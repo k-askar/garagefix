@@ -1,0 +1,96 @@
+{
+  "summary": "Iteration 14 — tested the 4 new features: (1) country-aware plate badges, (2) Cash Register Excel export, (3) part return/un-return flow (backend + UI + PDF), (4) redesigned Job Card PDF. Backend: 17 pytest cases in /app/backend/tests/test_iteration14.py + test_iteration14b.py -> 15 passed, 2 failed, 1 skipped. Frontend: 4 Playwright runs covering /repairs plate badges, repair modal return/undo flow, /cash-register Excel export, PDF/print regression + visual PDF inspection, and /dashboard plate badges. Core return flow works end-to-end (flags, totals, inventory, compensating IN/OUT txns, 400 guards, red strike-through UI + red PDF rendering). Two real defects found: a double-restock inventory bug when deleting an already-returned part, and Dashboard plates still forced to NL because /api/dashboard/summary drops car_country.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "DELETE /api/repairs/{rid}/parts/{txn_id}",
+        "issue": "INVENTORY CORRUPTION — deleting a part that is already marked returned=true restocks the inventory a SECOND time. Reproduced: qty 59 -> 61 after deleting a returned part of qty 2 (expected to stay 59, since the /return call already restocked it). server.py:2324 unconditionally does $inc quantity. It must skip the restock when target.get('returned') is True. Also the compensating 'RETURN' IN transaction is left orphaned in the ledger — line 2325 only deletes the original OUT txn (db.transactions.delete_one({'id': txn_id})), so the RETURN IN row survives after the part is gone.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "GET /api/dashboard/summary",
+        "issue": "car_country is NOT included in the open_cars projection (server.py:811-825 builds an explicit dict without car_country). Dashboard.jsx:116 therefore always falls back to 'NL' and the Mercedes with car_country='DE' (plate B-DE-9022) renders as a Dutch yellow NL plate on the Dashboard. Verified live: data-country=\"NL\" for B-DE-9022. Feature request (1) 'fix everywhere' is not satisfied. Add \"car_country\": c.get(\"car_country\") or \"NL\" to the open_cars dict.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/repairs/{rid}/parts/{txn_id}/return",
+        "issue": "The compensating IN transaction is logged with total = SELLING price (target.total) rather than cost price. For a supplier return the money movement is a purchase credit at cost, so any report that sums transaction totals by type will mis-state the value of the return. Cash Register/ledger is unaffected (it reads payment_entries), but /api/transactions and any stock-value report will be skewed. Confirm this is intentional."
+      },
+      {
+        "endpoint": "POST /api/repairs/{rid}/parts/{txn_id}/return",
+        "issue": "No owner/role restriction — a staff user can return parts and thereby silently reduce a job card's grand_total and mutate stock. Consider require_owner or at least an audit trail beyond the txn note."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Dashboard - open job card tiles",
+        "issue": "Non-Dutch plates render as Dutch (yellow NL strip). Root cause is backend (/api/dashboard/summary omits car_country) — the JSX itself is correct. Verified data-country=\"NL\" on plate B-DE-9022.",
+        "selector": "[data-testid=\"plate-badge\"]",
+        "priority": "HIGH"
+      },
+      {
+        "component": "CashRegister - ledger table Type column",
+        "issue": "Raw i18n key 'ref_undefined' is displayed for entries whose reference_type is undefined (2 rows visible in the current data). CashRegister.jsx:171 uses `t(\"ref_\" + e.reference_type) || e.reference_type` — t() returns the key string which is always truthy, so the fallback never fires. Guard on e.reference_type before building the key.",
+        "selector": "ledger table Type cell",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "Repairs modal - totals block",
+        "issue": "No data-testid on the grand total / parts total values, so the 'totals must drop after return' assertion cannot be machine-verified from the UI (validated via the backend instead). Suggest data-testid=\"repair-grand-total\" and \"repair-parts-total\".",
+        "selector": "n/a",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Cash Register filter card",
+        "issues": [
+          "FROM / TO use the native browser date input (input[type=date]) instead of the shadcn Calendar/Popover used elsewhere — inconsistent look and no RTL/locale control for the Arabic UI."
+        ]
+      },
+      {
+        "screen": "Job Card PDF (buildRepairCardHtml)",
+        "issues": [
+          "Parts table section heading uses the singular label l.part ('PART') as the section title above the table, duplicating the 'PART' column header right underneath it. Should be a plural/section label (e.g. 'PARTS').",
+          "The customer / mechanic / km rows use small icon glyphs that rasterise as unreadable dark blobs in the html2canvas PDF output.",
+          "The uploaded garage logo (dark gold artwork) sits on the new light-blue header band with very low contrast and is effectively illegible; also appears as a smudge in the job-card list tile headers."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration14.py",
+    "/app/backend/tests/test_iteration14b.py",
+    "/app/test_reports/pytest/iter14.xml"
+  ],
+  "action_items": [
+    "CRITICAL: In DELETE /api/repairs/{rid}/parts/{txn_id} (server.py:2314-2335) skip the inventory $inc when the part has returned=True, and also delete/void the compensating 'RETURN'/'UN-RETURN' transactions for that txn so the ledger does not keep orphaned rows.",
+    "HIGH: Add car_country to the open_cars payload in GET /api/dashboard/summary (server.py:~811) so Dashboard plates honour the vehicle country.",
+    "MEDIUM: Fix the 'ref_undefined' raw i18n key in CashRegister.jsx:171 (guard on e.reference_type).",
+    "LOW: Add data-testid to the repair modal totals; rename the PDF parts section heading from 'PART' to a plural label; replace the PDF icon glyphs with text or inline SVG.",
+    "REVIEW: decide whether the compensating return transaction should carry cost price instead of selling price, and whether return/unreturn should be owner-only."
+  ],
+  "critical_code_review_comments": [
+    "remove_part_from_repair() is not return-aware — it blindly restocks and blindly deletes only the original OUT txn. Any endpoint that mutates parts_used now needs to branch on the new `returned` flag.",
+    "The return/unreturn endpoints do inventory $inc and transaction insert as separate non-atomic awaits; a failure between them leaves stock and ledger inconsistent. Consider ordering the writes so the card flag is last, or use a single audit doc.",
+    "/api/dashboard/summary hand-builds a whitelist dict for open_cars — every new vehicle field must be added twice. Prefer projecting the needed keys from the document to avoid this class of 'field silently missing' bug (this is exactly what broke the Dashboard plate).",
+    "server.py is ~3761 lines — well past the 700-line guideline; the repairs domain (models, recalc helpers, ~20 endpoints) is a natural router module to extract.",
+    "_recalc_repair filters `if not p.get('returned')`, which correctly treats legacy docs missing the key as billable (verified by test_legacy_part_without_returned_field_counts_in_total)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration14.py",
+    "/app/backend/tests/test_iteration14b.py"
+  ],
+  "success_rate": {"backend": "88% (15/17 passed, 1 skipped)", "frontend": "85%"},
+  "seed_data_creation": "Test repairs (customer_name prefixed TEST_) were created per-test and deleted in module teardown; verified 0 leftover TEST_ repairs. Fixture card JOB-260822-D9A1 was returned/un-returned during UI tests and left in its original state (part returned=false, grand_total 270.00). Inventory quantities on the first stocked item fluctuated during tests but net out.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@garage.com / admin123 (owner) — from /app/memory/test_credentials.md, login works",
+  "context_for_next_testing_agent": "Run `pytest tests/test_iteration14.py tests/test_iteration14b.py -o addopts=\"\" -p no:xdist` from /app/backend — MUST be serial; the xdist config in pytest.ini makes two workers fight over the same inventory item and produces a false failure in test_return_marks_part_and_excludes_from_total. VERIFIED WORKING and needs no re-test: return endpoint (flags/returned_at/reason, grand_total exclusion, restock, RETURN IN txn, 400 on double return, 404 unknown txn/rid, 401 unauth), unreturn endpoint (flag clear, total restore, decrement, UN-RETURN OUT txn, 400 when not returned, 400 on short stock), legacy PartUsed backwards compat, /api/repairs car_country, repair-modal return UI (rose row, line-through, RETURNED badge, reason text, Undo button), Cash Register Export Excel (downloads ledger-<from>_<to>.xlsx, disabled at 0 entries), repairs-pdf-button + repair-pdf-button + repair-print-button (no crash), new PDF design (light-blue band, inline plate badge, status badge, parts-count-left/total-right, returned part rendered rgb(185,28,28) with line-through). RE-TEST AFTER FIX: test_remove_returned_part_does_not_double_restock and test_dashboard_summary_open_cars_include_car_country, plus the Dashboard plate data-country attribute for plate B-DE-9022 (expect 'DE').",
+  "rca_of_the_issue": "Bug 1 (double restock): the new /return endpoint restocks inventory (server.py:2362) but leaves the part on parts_used. remove_part_from_repair (server.py:2324) was written pre-feature and unconditionally restocks again on delete, so a return-then-delete sequence credits stock twice; it also deletes only the original OUT txn, orphaning the compensating RETURN IN row. Fix: branch on target.get('returned'). Bug 2 (Dashboard NL plate): GET /api/dashboard/summary constructs open_cars from an explicit field whitelist that never included car_country, so the field is absent from the response; Dashboard.jsx's `c.car_country || \"NL\"` fallback then forces NL for every car. Fix: add car_country to that dict."
+}

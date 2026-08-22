@@ -73,6 +73,48 @@ export function printListReport(args) {
 }
 
 /**
+ * Renders a small inline license-plate badge for use inside PDF/print HTML.
+ * Mirrors the PlateBadge React component but as static HTML for html2pdf.
+ */
+function plateHtml(plate, country = "NL", size = "sm") {
+  if (!plate) return "—";
+  const NL_YELLOW = "#FFCB05";
+  const STRIP = {
+    NL: { bg: "#003399", label: "NL" }, DE: { bg: "#003399", label: "D" },
+    FR: { bg: "#003399", label: "F" }, BE: { bg: "#003399", label: "B" },
+    IT: { bg: "#003399", label: "I" }, ES: { bg: "#003399", label: "E" },
+    PL: { bg: "#003399", label: "PL" }, GB: { bg: "#012169", label: "GB" },
+    TR: { bg: "#e30a17", label: "TR" }, MA: { bg: "#c1272d", label: "MA" },
+    DZ: { bg: "#006233", label: "DZ" }, SA: { bg: "#006c35", label: "KSA" },
+    AE: { bg: "#00732f", label: "UAE" }, EG: { bg: "#ce1126", label: "ET" },
+    SY: { bg: "#000000", label: "SYR" }, LB: { bg: "#ed1c24", label: "RL" },
+    JO: { bg: "#000000", label: "JOR" }, IQ: { bg: "#ce1126", label: "IRQ" },
+    US: { bg: "#3c3b6e", label: "US" },
+  };
+  const code = String(country || "NL").toUpperCase();
+  const strip = STRIP[code] || { bg: "#111", label: code.slice(0, 3) };
+  const isNL = code === "NL";
+  const D = size === "lg"
+    ? { text: 20, stripSize: 11, padPill: "6px 14px 6px 44px", stripW: 34, radius: 6 }
+    : { text: 14, stripSize: 9,  padPill: "4px 10px 4px 34px", stripW: 28, radius: 5 };
+  return `<span style="
+      display:inline-block;position:relative;vertical-align:middle;
+      background:${isNL ? NL_YELLOW : "#ffffff"};color:#000;border:2px solid #000;
+      border-radius:${D.radius}px;padding:${D.padPill};
+      font-family:'Arial Black',Impact,Helvetica,sans-serif;font-weight:900;
+      font-size:${D.text}px;letter-spacing:.14em;line-height:1.15;text-align:center;
+      -webkit-print-color-adjust:exact;print-color-adjust:exact;white-space:nowrap;direction:ltr;">
+    <span style="position:absolute;left:0;top:0;bottom:0;width:${D.stripW}px;
+        background:${strip.bg};color:#fff;font-size:${D.stripSize}px;letter-spacing:.06em;
+        display:flex;align-items:center;justify-content:center;font-weight:900;
+        border-top-left-radius:${D.radius - 2}px;border-bottom-left-radius:${D.radius - 2}px;
+        border-right:1px solid rgba(0,0,0,.15);
+        -webkit-print-color-adjust:exact;print-color-adjust:exact;">${strip.label}</span>
+    ${String(plate).toUpperCase()}
+  </span>`;
+}
+
+/**
  * Repair card single-page report.
  */
 export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels = {} }) {
@@ -84,10 +126,26 @@ export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels =
     partsTotal: "Parts total", labor: "Labor", grandTotal: "Grand total",
     plate: "Plate", km: "km",
     timeClock: "Labor time clock", startedAt: "Started", stopped: "Stopped", duration: "Duration",
+    returned: "RETURNED",
     ...labels,
   };
-  const stockRows = (card.parts_used || []).map(p =>
-    `<tr><td>${p.name}<div style="font-size:10px;color:#888;direction:ltr">${p.sku || ""}</div></td><td class="right">${p.quantity}</td><td class="right">${formatEUR(p.unit_price)}</td><td class="right">${formatEUR(p.total)}</td></tr>`).join("");
+  const stockRows = (card.parts_used || []).map(p => {
+    const isRet = !!p.returned;
+    const rowStyle = isRet ? "background:#fef2f2;color:#b91c1c;" : "";
+    const tdBase = `padding:8px;border-bottom:1px solid #eee;font-size:13px;text-align:${dir === 'rtl' ? 'right' : 'left'};${rowStyle}`;
+    const strike = isRet ? "text-decoration:line-through;" : "";
+    const badge = isRet
+      ? `<span style="display:inline-block;background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;padding:1px 6px;border-radius:6px;font-size:9px;letter-spacing:.1em;font-weight:800;margin-inline-start:6px;text-decoration:none;-webkit-print-color-adjust:exact;print-color-adjust:exact;">${l.returned}</span>`
+      : "";
+    const reason = isRet && p.return_reason
+      ? `<div style="font-size:10px;color:#b91c1c;margin-top:2px;text-decoration:none">· ${p.return_reason}</div>` : "";
+    return `<tr style="${rowStyle}">
+      <td style="${tdBase}"><span style="${strike}">${p.name}</span>${badge}<div style="font-size:10px;color:#888;direction:ltr;text-decoration:none">${p.sku || ""}</div>${reason}</td>
+      <td style="${tdBase};text-align:${dir === 'rtl' ? 'left' : 'right'};${strike}">${p.quantity}</td>
+      <td style="${tdBase};text-align:${dir === 'rtl' ? 'left' : 'right'};${strike}">${formatEUR(p.unit_price)}</td>
+      <td style="${tdBase};text-align:${dir === 'rtl' ? 'left' : 'right'};${strike}">${formatEUR(p.total)}</td>
+    </tr>`;
+  }).join("");
   const specialRows = (card.special_parts || []).map(p =>
     `<tr><td>${p.name} <span style="font-size:9px;background:#f5e7c5;color:#8a6d1a;padding:1px 6px;border-radius:6px;margin-inline-start:4px">${l.special || 'SPECIAL'}</span><div style="font-size:10px;color:#888;direction:ltr">${p.part_number || ""}${p.supplier_name ? " · " + p.supplier_name : ""}</div></td><td class="right">${p.quantity}</td><td class="right">${formatEUR(p.unit_price)}</td><td class="right">${formatEUR(p.total)}</td></tr>`).join("");
   const rows = stockRows + specialRows;
@@ -95,59 +153,93 @@ export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels =
   const alignEnd = dir === "rtl" ? "left" : "right";
   const logo = settings.logo_url || "/logo-shawish.png";
   const logoAbs = logo.startsWith("http") ? logo : (window.location.origin + logo);
-  return `<div style="font-family:${bodyFont};color:#111;background:#fff;padding:8px;direction:${dir}">
+  const statusColors = {
+    open: { bg: "#dbeafe", fg: "#1d4ed8" },
+    in_progress: { bg: "#fef3c7", fg: "#92400e" },
+    completed: { bg: "#d1fae5", fg: "#065f46" },
+  }[card.status] || { bg: "#e5e7eb", fg: "#374151" };
+  const partsUsedCount = (card.parts_used || []).filter(p => !p.returned).length + (card.special_parts || []).length;
+  const returnedCount = (card.parts_used || []).filter(p => p.returned).length;
+  return `<div style="font-family:${bodyFont};color:#0f172a;background:#fff;padding:8px;direction:${dir}">
     <style>
-      .jc { max-width: 720px; }
-      .jc h1 { font-size: 22px; margin: 0; }
-      .jc .muted { color: #666; font-size: 12px; }
-      .jc .logo-band { background:#0a0a0a; border-radius:10px; padding:14px 18px; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
-      .jc .logo-band img { max-height: 64px; width: auto; object-fit: contain; }
-      .jc .logo-band .badge { background:#d4af37; color:#0a0a0a; padding:3px 12px; border-radius:999px; font-size:10px; letter-spacing:.15em; font-weight:700; }
-      .jc .logo-band .num { color:#d4af37; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size:12px; margin-top:4px; direction:ltr; }
-      .jc .logo-band .date { color:#999; font-size:11px; }
-      .jc .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
-      .jc .box { border: 1px solid #eee; border-radius: 8px; padding: 12px; background: #fafafa; }
-      .jc .lbl { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: #666; }
-      .jc .val { font-size: 14px; font-weight: 600; margin-top: 2px; }
-      .jc table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-      .jc th, .jc td { padding: 8px; border-bottom: 1px solid #eee; font-size: 13px; text-align:${dir === 'rtl' ? 'right' : 'left'}; }
-      .jc th { background: #f5f5f5; }
+      .jc { max-width: 760px; }
+      .jc h1 { font-size: 26px; margin: 0; color:#0f172a; font-weight: 800; letter-spacing:-.01em; }
+      .jc .muted { color: #64748b; font-size: 12px; }
+      .jc .top { background:#eff6ff; border:1px solid #dbeafe; border-radius:14px; padding:14px 18px; margin-bottom:18px; display:flex; align-items:center; justify-content:space-between; gap:16px; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+      .jc .top img { max-height: 40px; width: auto; object-fit: contain; }
+      .jc .top .num { color:#1d4ed8; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size:13px; font-weight:700; direction:ltr; letter-spacing:.08em; }
+      .jc .status { display:inline-block; background:${statusColors.bg}; color:${statusColors.fg}; padding:4px 12px; border-radius:999px; font-size:11px; letter-spacing:.06em; font-weight:700; text-transform:capitalize; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+      .jc .head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:16px; }
+      .jc .plate-row { display:flex; align-items:center; gap:10px; margin-top:6px; }
+      .jc .meta-list { list-style:none; margin:0; padding:0; }
+      .jc .meta-list li { display:flex; align-items:center; gap:8px; font-size:13px; color:#475569; padding:4px 0; }
+      .jc .meta-list li .ico { width:14px; height:14px; opacity:.7; }
+      .jc .quote { border-inline-start:3px solid #dbeafe; padding: 6px 12px; color:#334155; font-size:12.5px; font-style:italic; background:#f8fafc; border-radius:0 6px 6px 0; margin-top:14px; }
+      .jc h3 { font-size:11px; text-transform:uppercase; letter-spacing:.14em; color:#94a3b8; font-weight:700; margin: 18px 0 6px; }
+      .jc table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+      .jc th, .jc td { padding: 8px; border-bottom: 1px solid #eef2f7; font-size: 13px; text-align:${dir === 'rtl' ? 'right' : 'left'}; }
+      .jc th { background: #f8fafc; color:#475569; font-size:10px; text-transform:uppercase; letter-spacing:.1em; }
       .jc .right { text-align: ${alignEnd}; }
+      .jc .totals { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-top:20px; padding-top:14px; border-top:1px solid #e2e8f0; }
+      .jc .totals .lbl { font-size:10px; text-transform:uppercase; letter-spacing:.14em; color:#94a3b8; font-weight:700; }
+      .jc .totals .parts-count { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size:14px; color:#0f172a; font-weight:600; margin-top:2px; }
+      .jc .totals .ret-note { font-size:10px; color:#b91c1c; margin-top:2px; }
+      .jc .totals .total-big { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size:26px; color:#1d4ed8; font-weight:800; tabular-nums:1; margin-top:2px; }
+      .jc .foot { text-align:center; color:#94a3b8; font-size:11px; margin-top:24px; padding-top:12px; border-top:1px dashed #e2e8f0; }
     </style>
     <div class="jc">
-      <div class="logo-band">
+      <div class="top">
         <img src="${logoAbs}" alt="logo" crossorigin="anonymous" />
         <div style="text-align:${alignEnd}">
-          <span class="badge">${l.jobCard}</span>
           <div class="num">${card.card_number}</div>
-          <div class="date">${new Date(card.created_at).toLocaleDateString(dir === 'rtl' ? 'ar-EG' : 'en-GB')}</div>
+          <div class="muted" style="font-size:10px;margin-top:2px">${new Date(card.created_at).toLocaleDateString(dir === 'rtl' ? 'ar-EG' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
         </div>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px">
-        <div><h1>${settings.name || "Garage"}</h1><div class="muted">${settings.address || ""}</div><div class="muted">${settings.phone || ""}${settings.email ? " · " + settings.email : ""}</div></div>
+
+      <div class="head">
+        <div>
+          <h1>${[card.car_make, card.car_model].filter(Boolean).join(" ") || "Vehicle"}</h1>
+          <div class="plate-row">
+            ${card.car_year ? `<span class="muted" style="font-size:13px;font-family:'IBM Plex Mono',monospace">${card.car_year}</span>` : ""}
+            ${plateHtml(card.car_plate, card.car_country || "NL", "sm")}
+          </div>
+        </div>
+        <span class="status">${l["status_" + card.status] || card.status}</span>
       </div>
-      <div class="grid">
-        <div class="box"><div class="lbl">${l.customer}</div><div class="val">${card.customer_name || "—"}</div><div class="muted" style="direction:ltr">${card.customer_phone || ""}</div></div>
-        <div class="box"><div class="lbl">${l.vehicle}</div><div class="val">${[card.car_make, card.car_model, card.car_year].filter(Boolean).join(" ")}</div><div class="muted">${l.plate}: ${card.car_plate || "—"} · ${card.car_color || ""} · ${card.car_km ? card.car_km + " " + l.km : ""}</div></div>
-        <div class="box"><div class="lbl">${l.mechanic}</div><div class="val">${card.mechanic_name || "—"}</div></div>
-        <div class="box"><div class="lbl">${l.status}</div><div class="val">${card.status}</div></div>
-      </div>
-      ${card.complaint ? `<div style="margin-top:16px"><div class="lbl">${l.complaint}</div><p>${card.complaint}</p></div>` : ""}
-      ${card.diagnosis ? `<div style="margin-top:8px"><div class="lbl">${l.diagnosis}</div><p>${card.diagnosis}</p></div>` : ""}
-      ${card.work_done ? `<div style="margin-top:8px"><div class="lbl">${l.workDone}</div><p>${card.work_done}</p></div>` : ""}
-      ${(card.time_logs && card.time_logs.length) ? `<div style="margin-top:12px"><div class="lbl">${l.timeClock || 'Labor time clock'}</div>
-        <table style="margin-top:6px"><thead><tr><th>${l.mechanic}</th><th>${l.startedAt || 'Start'}</th><th>${l.stopped || 'Stop'}</th><th class="right">${l.duration || 'Duration'}</th></tr></thead><tbody>
+
+      <ul class="meta-list">
+        <li><span class="ico">◉</span><span>${card.customer_name || "—"}${card.customer_phone ? " · " + card.customer_phone : ""}</span></li>
+        ${card.mechanic_name ? `<li><span class="ico">◈</span><span>${card.mechanic_name}</span></li>` : ""}
+        ${card.car_km ? `<li><span class="ico">◐</span><span>${card.car_km} ${l.km}</span></li>` : ""}
+      </ul>
+
+      ${card.complaint ? `<div class="quote">"${card.complaint}"</div>` : ""}
+      ${card.diagnosis ? `<h3>${l.diagnosis}</h3><p style="margin:2px 0;font-size:12.5px;color:#334155">${card.diagnosis}</p>` : ""}
+      ${card.work_done ? `<h3>${l.workDone}</h3><p style="margin:2px 0;font-size:12.5px;color:#334155">${card.work_done}</p>` : ""}
+
+      ${(card.time_logs && card.time_logs.length) ? `<h3>${l.timeClock || 'Labor time clock'}</h3>
+        <table><thead><tr><th>${l.mechanic}</th><th>${l.startedAt || 'Start'}</th><th>${l.stopped || 'Stop'}</th><th class="right">${l.duration || 'Duration'}</th></tr></thead><tbody>
         ${card.time_logs.map(tl => `<tr><td>${tl.mechanic_name || '—'}</td><td>${new Date(tl.started_at).toLocaleString(dir === 'rtl' ? 'ar-EG' : 'en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td><td>${tl.stopped_at ? new Date(tl.stopped_at).toLocaleString(dir === 'rtl' ? 'ar-EG' : 'en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}</td><td class="right">${Math.round(Number(tl.minutes) || 0)} min</td></tr>`).join('')}
-        </tbody></table>
-        <div class="muted" style="margin-top:6px;text-align:${alignEnd}">${l.duration || 'Duration'}: ${Math.round(Number(card.labor_minutes) || 0)} min</div>
-      </div>` : ""}
+        </tbody></table>` : ""}
+
+      ${(card.parts_used || []).length || (card.special_parts || []).length ? `
+      <h3>${l.part}</h3>
       <table><thead><tr><th>${l.part}</th><th class="right">${l.qty}</th><th class="right">${l.unitPrice}</th><th class="right">${l.total}</th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="4" style="text-align:center;color:#888;padding:16px">${l.noParts}</td></tr>`}</tbody></table>
-      <div style="margin-top:16px;text-align:${alignEnd}">
-        <div class="muted">${l.partsTotal}: ${formatEUR(card.parts_total)}</div>
-        <div class="muted">${l.labor}: ${formatEUR(card.labor_charge)}</div>
-        <div style="font-size:16px;font-weight:700;margin-top:4px">${l.grandTotal}: ${formatEUR(card.grand_total)}</div>
+      <tbody>${rows}</tbody></table>` : ""}
+
+      <div class="totals">
+        <div>
+          <div class="lbl">${l.partsTotal}</div>
+          <div class="parts-count">${partsUsedCount}</div>
+          ${returnedCount ? `<div class="ret-note">· ${returnedCount} ${l.returned.toLowerCase()}</div>` : ""}
+        </div>
+        <div style="text-align:${alignEnd}">
+          <div class="lbl">${l.grandTotal}</div>
+          <div class="total-big">${formatEUR(card.total_with_tax || card.grand_total)}</div>
+        </div>
       </div>
+
+      ${settings.name ? `<p class="foot">${settings.name}${settings.phone ? " · " + settings.phone : ""}${settings.email ? " · " + settings.email : ""}</p>` : ""}
     </div>
   </div>`;
 }

@@ -9,7 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Camera, CameraOff, Truck, Search, Plus, ArrowRight, ScanText, Loader2, Sparkles, Upload } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Camera, CameraOff, Truck, Search, Plus, ArrowRight, ScanText, Loader2, Sparkles, Upload, X, Aperture } from "lucide-react";
 import { toast } from "sonner";
 import SearchableSelect from "@/components/SearchableSelect";
 import PlateBadge from "@/components/PlateBadge";
@@ -61,6 +62,11 @@ export default function DeliveryScan() {
   const [ocrBusy, setOcrBusy] = useState(false);
   const [ocrPreview, setOcrPreview] = useState(null);
   const [ocrResult, setOcrResult] = useState(null);
+  // Live A4 camera modal state
+  const [a4CamOpen, setA4CamOpen] = useState(false);
+  const [a4CamErr, setA4CamErr] = useState("");
+  const a4VideoRef = useRef(null);
+  const a4StreamRef = useRef(null);
 
   const { data: suppliers = [] } = useQuery({ queryKey: ["suppliers"], queryFn: () => api.get("/suppliers").then(r => r.data) });
 
@@ -96,6 +102,71 @@ export default function DeliveryScan() {
 
   const pickA4 = () => fileInputRef.current?.click();
   const pickGallery = () => galleryInputRef.current?.click();
+
+  // ── Live camera capture for the A4 delivery note ──────────────────────────
+  // Requests the rear camera at high resolution, streams it into a <video>,
+  // then draws the current frame to a canvas → blob → File and hands it off
+  // to the existing OCR pipeline (onA4Chosen).  Falls back to the hidden
+  // file input when getUserMedia is unavailable or denied.
+  const openA4Camera = async () => {
+    setA4CamErr("");
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      // Legacy browser or insecure context → fall back to the file picker.
+      return pickA4();
+    }
+    setA4CamOpen(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+          width:  { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      });
+      a4StreamRef.current = stream;
+      // Wait for the <video> element to mount, then attach.
+      requestAnimationFrame(() => {
+        if (a4VideoRef.current) {
+          a4VideoRef.current.srcObject = stream;
+          a4VideoRef.current.play().catch(() => {});
+        }
+      });
+    } catch (err) {
+      setA4CamErr(String(err?.message || err));
+    }
+  };
+
+  const closeA4Camera = () => {
+    const s = a4StreamRef.current;
+    if (s) {
+      s.getTracks().forEach((t) => { try { t.stop(); } catch (_) {} });
+      a4StreamRef.current = null;
+    }
+    setA4CamOpen(false);
+    setA4CamErr("");
+  };
+
+  const captureA4 = async () => {
+    const v = a4VideoRef.current;
+    if (!v || !v.videoWidth) return;
+    const canvas = document.createElement("canvas");
+    canvas.width  = v.videoWidth;
+    canvas.height = v.videoHeight;
+    canvas.getContext("2d").drawImage(v, 0, 0);
+    const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.9));
+    if (!blob) { setA4CamErr("Capture failed"); return; }
+    const file = new File([blob], `a4-${Date.now()}.jpg`, { type: "image/jpeg" });
+    closeA4Camera();
+    // Reuse the existing onA4Chosen pipeline with a synthetic event
+    await onA4Chosen({ target: { files: [file], value: "" } });
+  };
+
+  // Stop the stream if the component unmounts while the modal is open.
+  useEffect(() => () => {
+    const s = a4StreamRef.current;
+    if (s) s.getTracks().forEach((t) => { try { t.stop(); } catch (_) {} });
+  }, []);
 
   const onA4Chosen = async (e) => {
     const file = e.target.files?.[0];
@@ -197,13 +268,13 @@ export default function DeliveryScan() {
         <div className="flex flex-wrap gap-2">
           <Button
             className="rounded-full bg-primary hover:bg-primary/90"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={openA4Camera}
             disabled={ocrBusy}
             data-testid="delivery-scan-a4"
           >
             {ocrBusy
               ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {t("ocrReading")}</>)
-              : (<><ScanText className="h-4 w-4 mr-2" /> {t("scanA4Btn")}</>)}
+              : (<><Camera className="h-4 w-4 mr-2" /> {t("scanA4Btn")}</>)}
           </Button>
           <Button variant="outline" className="rounded-full" onClick={() => galleryInputRef.current?.click()} disabled={ocrBusy} data-testid="delivery-gallery">
             <Upload className="h-4 w-4 mr-2" /> {t("uploadFromGallery")}
@@ -370,6 +441,82 @@ export default function DeliveryScan() {
           </div>
         </Card>
       )}
+
+      {/* ── Live A4 camera dialog ─────────────────────────────────────────── */}
+      <Dialog open={a4CamOpen} onOpenChange={(o) => { if (!o) closeA4Camera(); }}>
+        <DialogContent className="max-w-3xl p-0 overflow-hidden bg-black text-white border-black" data-testid="a4-camera-dialog">
+          <DialogHeader className="px-4 py-3 bg-black/80 border-b border-white/10">
+            <DialogTitle className="flex items-center gap-2 text-white text-sm font-mono uppercase tracking-widest">
+              <Camera className="h-4 w-4" /> {t("scanA4Title")}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="relative bg-black">
+            {a4CamErr ? (
+              <div className="p-10 text-center space-y-4">
+                <CameraOff className="h-10 w-10 text-rose-400 mx-auto" />
+                <div className="text-sm text-rose-300 font-mono break-all" data-testid="a4-camera-error">{a4CamErr}</div>
+                <div className="flex justify-center gap-2 flex-wrap">
+                  <Button variant="outline" className="rounded-full border-white/40 text-white hover:bg-white/10" onClick={() => { closeA4Camera(); pickA4(); }}>
+                    <Upload className="h-4 w-4 mr-2" /> {t("uploadFromGallery")}
+                  </Button>
+                  <Button variant="ghost" className="rounded-full text-white hover:bg-white/10" onClick={closeA4Camera}>
+                    {t("close")}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <video
+                  ref={a4VideoRef}
+                  playsInline
+                  muted
+                  autoPlay
+                  className="w-full h-[60vh] object-contain bg-black"
+                  data-testid="a4-camera-video"
+                />
+                {/* A4 framing guide overlay */}
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="border-2 border-white/60 rounded-md" style={{ width: "62%", height: "84%", aspectRatio: "1 / 1.414" }}>
+                    <div className="w-full h-full flex items-end justify-center pb-2">
+                      <span className="text-[10px] font-mono uppercase tracking-widest text-white/80 bg-black/40 px-2 py-0.5 rounded">
+                        {t("a4CamGuide")}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-2 px-4 py-3 bg-black/80 border-t border-white/10">
+            <Button
+              variant="outline"
+              className="rounded-full border-white/40 text-white hover:bg-white/10"
+              onClick={() => { closeA4Camera(); pickGallery(); }}
+              data-testid="a4-camera-gallery"
+            >
+              <Upload className="h-4 w-4 mr-2" /> {t("uploadFromGallery")}
+            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                className="rounded-full text-white hover:bg-white/10"
+                onClick={closeA4Camera}
+                data-testid="a4-camera-close"
+              >
+                <X className="h-4 w-4 mr-1" /> {t("close")}
+              </Button>
+              <Button
+                className="rounded-full bg-primary hover:bg-primary/90 min-w-[140px]"
+                onClick={captureA4}
+                disabled={!!a4CamErr}
+                data-testid="a4-camera-capture"
+              >
+                <Aperture className="h-4 w-4 mr-2" /> {t("captureNow")}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

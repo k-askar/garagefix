@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Car, Wrench, Plus, Trash2, CheckCircle2, FileText, Printer, User, Gauge, X, ClipboardList, FileDown, MessageCircle, Play, Square, Timer, Lock, Unlock, RefreshCw } from "lucide-react";
+import { Car, Wrench, Plus, Trash2, CheckCircle2, FileText, Printer, User, Gauge, X, ClipboardList, FileDown, MessageCircle, Play, Square, Timer, Lock, Unlock, RefreshCw, Undo2, PercentCircle } from "lucide-react";
 import NewJobCardDialog from "@/components/NewJobCardDialog";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
@@ -40,6 +40,10 @@ function repairLabels(t) {
     partsTotal: t("parts"), labor: t("labor"), grandTotal: t("grandTotal"),
     plate: t("plate"), km: t("km"),
     timeClock: t("timeClock"), startedAt: t("startedAt"), stopped: t("stopped"), duration: t("duration"),
+    returned: t("returned"),
+    status_open: t("statusOpen") || "Open",
+    status_in_progress: t("inProgress") || "In progress",
+    status_completed: t("completed") || "Completed",
   };
 }
 
@@ -224,8 +228,14 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
         customer_name: data.customer_name, customer_phone: data.customer_phone,
         car_make: data.car_make, car_model: data.car_model, car_year: data.car_year,
         car_plate: data.car_plate, car_color: data.car_color, car_km: data.car_km,
+        car_country: data.car_country,
+        car_apk_expiry: data.car_apk_expiry || null,
+        car_next_oil_change_km: data.car_next_oil_change_km === "" ? null : data.car_next_oil_change_km,
         mechanic_id: data.mechanic_id, complaint: data.complaint, diagnosis: data.diagnosis,
         work_done: data.work_done, labor_charge: Number(data.labor_charge || 0),
+        tax_rate: Number(data.tax_rate || 21),
+        discount_type: data.discount_type || "amount",
+        discount_value: Number(data.discount_value || 0),
         notes: data.notes, status: data.status,
       });
       setData(updated);
@@ -252,6 +262,22 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
     } catch (e) { toast.error(formatApiError(e)); }
   };
 
+  const returnPart = async (txnId) => {
+    const reason = window.prompt(t("returnReasonPrompt"), "");
+    if (reason === null) return; // cancelled
+    try {
+      const { data: updated } = await api.post(`/repairs/${card.id}/parts/${txnId}/return`, { reason });
+      setData(updated); toast.success(t("partReturned")); refetch();
+    } catch (e) { toast.error(formatApiError(e)); }
+  };
+
+  const unreturnPart = async (txnId) => {
+    try {
+      const { data: updated } = await api.post(`/repairs/${card.id}/parts/${txnId}/unreturn`);
+      setData(updated); toast.success(t("partUnreturned")); refetch();
+    } catch (e) { toast.error(formatApiError(e)); }
+  };
+
   const invoice = async () => {
     try {
       const { data: inv } = await api.post(`/repairs/${card.id}/invoice`);
@@ -263,20 +289,29 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
-        <div className="rounded-lg bg-secondary border border-primary/20 p-4 flex items-center justify-between gap-4 mb-4">
-          <img src={logoSrc} alt="logo" className="h-14 w-auto object-contain" data-testid="repair-editor-logo" onError={(e) => { e.currentTarget.src = "/logo-shawish.png"; }} />
-          <div className="text-right">
-            <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-primary">{t("jobCards")}</div>
-            <div className="font-mono text-primary text-sm">{data.card_number}</div>
-            <div className="text-[10px] font-mono text-muted-foreground">{new Date(data.created_at).toLocaleDateString(meta.dir === 'rtl' ? 'ar-EG' : 'en-GB')}</div>
+      <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto p-0">
+        {/* Compact modern header band — no logo, just card number + status */}
+        <div className="rounded-t-lg bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border-b border-primary/20 px-6 py-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-3">
+              <div className="inline-flex items-center justify-center h-9 w-9 rounded-lg bg-primary/15 text-primary">
+                <ClipboardList className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-primary/80">{t("jobCards")}</div>
+                <div className="font-mono text-primary text-base font-bold" data-testid="repair-modal-card-number">{data.card_number}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <Badge className={STATUS_STYLE[data.status] + " capitalize text-[11px]"}>{t("status_" + data.status) || STATUS_LABEL[data.status]}</Badge>
+              <div className="text-[10px] font-mono text-muted-foreground">{new Date(data.created_at).toLocaleDateString(meta.dir === 'rtl' ? 'ar-EG' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+            </div>
           </div>
         </div>
-        <DialogHeader>
-          <DialogTitle className="font-display flex items-center gap-3">
-            <span>{t("jobCards")} {data.card_number}</span>
-            <Badge className={STATUS_STYLE[data.status] + " capitalize"}>{t("status_" + data.status) || STATUS_LABEL[data.status]}</Badge>
-          </DialogTitle>
+
+        <div className="px-6 pb-6 pt-4">
+        <DialogHeader className="sr-only">
+          <DialogTitle>{t("jobCards")} {data.card_number}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6">
@@ -315,58 +350,90 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
             </div>
           </div>
 
-          {/* ── STEP 1 ─ Customer + Vehicle */}
+          {/* ── STEP 1 ─ Customer + Vehicle (redesigned) */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Card className={`p-5 border-border card-hover ${locked ? "bg-muted/10" : ""}`}>
-              <div className="flex items-center gap-2 mb-3">
-                <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/15 text-primary text-[10px] font-bold font-mono">1</span>
+            <Card className={`p-5 border-border card-hover overflow-hidden relative ${locked ? "bg-muted/10" : ""}`}>
+              <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-primary/60 via-primary/30 to-transparent" />
+              <div className="flex items-center gap-2 mb-4">
+                <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-primary/15 text-primary text-[11px] font-bold font-mono">1</span>
                 <User className="h-4 w-4 text-primary" />
                 <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">{t("customer")}</div>
                 {locked && <Lock className="h-3 w-3 ms-auto text-muted-foreground/70" />}
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5 col-span-2"><Label className="text-xs">{t("name")}</Label><Input value={data.customer_name || ""} readOnly={locked} disabled={locked} onChange={(e) => set("customer_name", e.target.value)} data-testid="repair-customer-name" /></div>
-                <div className="space-y-1.5 col-span-2"><Label className="text-xs">{t("phone")}</Label><Input value={data.customer_phone || ""} readOnly={locked} disabled={locked} onChange={(e) => set("customer_phone", e.target.value)} data-testid="repair-customer-phone" /></div>
+              <div className="space-y-3">
+                <div className="space-y-1.5"><Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("name")}</Label><Input value={data.customer_name || ""} readOnly={locked} disabled={locked} onChange={(e) => set("customer_name", e.target.value)} data-testid="repair-customer-name" /></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5"><Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("phone")}</Label><Input value={data.customer_phone || ""} readOnly={locked} disabled={locked} onChange={(e) => set("customer_phone", e.target.value)} data-testid="repair-customer-phone" /></div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("email")}</Label>
+                    <Input
+                      value={linkedCustomer?.email || "—"}
+                      readOnly disabled
+                      className="bg-muted/40 text-muted-foreground"
+                      data-testid="repair-customer-email"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("address")}</Label>
+                  <Input
+                    value={linkedCustomer?.address || "—"}
+                    readOnly disabled
+                    className="bg-muted/40 text-muted-foreground"
+                    data-testid="repair-customer-address"
+                  />
+                </div>
               </div>
             </Card>
-            <Card className={`p-5 border-border card-hover ${locked ? "bg-muted/10" : ""}`}>
-              <div className="flex items-center gap-2 mb-3">
-                <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/15 text-primary text-[10px] font-bold font-mono">1</span>
-                <Car className="h-4 w-4 text-primary" />
+            <Card className={`p-5 border-border card-hover overflow-hidden relative ${locked ? "bg-muted/10" : ""}`}>
+              <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-blue-500/60 via-blue-500/30 to-transparent" />
+              <div className="flex items-center gap-2 mb-4">
+                <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-blue-500/15 text-blue-600 dark:text-blue-400 text-[11px] font-bold font-mono">1</span>
+                <Car className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                 <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">{t("vehicle")}</div>
-                {locked && <Lock className="h-3 w-3 ms-auto text-muted-foreground/70" />}
+                {data.car_plate && <div className="ms-auto"><PlateBadge plate={data.car_plate} country={data.car_country || "NL"} size="xs" /></div>}
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5"><Label className="text-xs">{t("make")}</Label><Input value={data.car_make || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_make", e.target.value)} data-testid="repair-car-make" /></div>
-                <div className="space-y-1.5"><Label className="text-xs">{t("model")}</Label><Input value={data.car_model || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_model", e.target.value)} data-testid="repair-car-model" /></div>
-                <div className="space-y-1.5"><Label className="text-xs">{t("year")}</Label><Input value={data.car_year || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_year", e.target.value)} data-testid="repair-car-year" /></div>
-                <div className="space-y-1.5"><Label className="text-xs">{t("plateNumber")}</Label><Input value={data.car_plate || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_plate", e.target.value)} data-testid="repair-car-plate" /></div>
-                <div className="space-y-1.5"><Label className="text-xs">{t("color")}</Label><Input value={data.car_color || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_color", e.target.value)} /></div>
-                <div className="space-y-1.5"><Label className="text-xs">{t("odometer")}</Label><Input value={data.car_km || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_km", e.target.value)} /></div>
+                <div className="space-y-1.5"><Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("make")}</Label><Input value={data.car_make || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_make", e.target.value)} data-testid="repair-car-make" /></div>
+                <div className="space-y-1.5"><Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("model")}</Label><Input value={data.car_model || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_model", e.target.value)} data-testid="repair-car-model" /></div>
+                <div className="space-y-1.5"><Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("year")}</Label><Input value={data.car_year || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_year", e.target.value)} data-testid="repair-car-year" /></div>
+                <div className="space-y-1.5"><Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("plateNumber")}</Label><Input value={data.car_plate || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_plate", e.target.value.toUpperCase())} data-testid="repair-car-plate" /></div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("country")}</Label>
+                  <Select value={data.car_country || "NL"} disabled={locked} onValueChange={(v) => set("car_country", v)}>
+                    <SelectTrigger data-testid="repair-car-country"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {["NL","DE","BE","FR","IT","ES","PL","GB","TR","MA","DZ","SA","AE","EG","SY","LB","JO","IQ","US"].map(c => (
+                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5"><Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("color")}</Label><Input value={data.car_color || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_color", e.target.value)} /></div>
               </div>
             </Card>
           </div>
 
-          {/* ── STEP 2 ─ Service data */}
+          {/* ── STEP 2 ─ Service data (adds country too so it's editable outside the lock) */}
           <Card className="p-5 border-border" data-testid="repair-service-info">
             <div className="flex items-center gap-2 mb-3">
-              <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/15 text-primary text-[10px] font-bold font-mono">2</span>
+              <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-primary/15 text-primary text-[11px] font-bold font-mono">2</span>
               <Gauge className="h-4 w-4 text-primary" />
               <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">{t("serviceInfoAutoSync")}</div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs">{t("currentOdometerKm")}</Label>
+                <Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("currentOdometerKm")}</Label>
                 <Input type="number" value={data.car_km || ""} onChange={(e) => set("car_km", e.target.value)} placeholder="e.g. 145200" data-testid="repair-current-km" />
                 <p className="text-[10px] text-muted-foreground">{t("updateOnReceive")}</p>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs">{t("apkExpiry")}</Label>
+                <Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("apkExpiry")}</Label>
                 <Input type="date" value={data.car_apk_expiry || ""} onChange={(e) => set("car_apk_expiry", e.target.value)} data-testid="repair-apk-expiry" />
                 <p className="text-[10px] text-muted-foreground">{t("renewAfterAPK")}</p>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs">{t("nextOilChangeKm")}</Label>
+                <Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("nextOilChangeKm")}</Label>
                 <Input type="number" value={data.car_next_oil_change_km || ""} onChange={(e) => set("car_next_oil_change_km", e.target.value === "" ? "" : Number(e.target.value))} placeholder="e.g. 155000" data-testid="repair-next-oil-km" />
                 <p className="text-[10px] text-muted-foreground">{t("setAfterOilChange")}</p>
               </div>
@@ -403,21 +470,43 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
             </div>
           </Card>
 
-          {/* ── STEP 4 ─ Repair log */}
+          {/* ── STEP 4 ─ Repair log (redesigned) */}
           <Card className="p-5 border-border space-y-4">
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/15 text-primary text-[10px] font-bold font-mono">4</span>
+              <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-primary/15 text-primary text-[11px] font-bold font-mono">4</span>
               <ClipboardList className="h-4 w-4 text-primary" />
               <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">{t("repairLog")}</div>
             </div>
-            <div className="space-y-1.5"><Label className="text-xs">{t("customerComplaint")}</Label><Textarea rows={2} value={data.complaint || ""} onChange={(e) => set("complaint", e.target.value)} data-testid="repair-complaint" /></div>
-            <div className="space-y-1.5"><Label className="text-xs">{t("diagnosis")}</Label><Textarea rows={2} value={data.diagnosis || ""} onChange={(e) => set("diagnosis", e.target.value)} data-testid="repair-diagnosis" /></div>
-            <div className="space-y-1.5"><Label className="text-xs">{t("workPerformed")}</Label><Textarea rows={3} value={data.work_done || ""} onChange={(e) => set("work_done", e.target.value)} data-testid="repair-work" /></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5"><Label className="text-xs">{t("laborCharge")}</Label><Input type="number" step="0.01" value={data.labor_charge || 0} onChange={(e) => set("labor_charge", e.target.value)} data-testid="repair-labor" />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-1.5 md:col-span-1">
+                <Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground flex items-center gap-1.5">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-rose-500" /> {t("customerComplaint")}
+                </Label>
+                <Textarea rows={5} value={data.complaint || ""} onChange={(e) => set("complaint", e.target.value)} placeholder="…" data-testid="repair-complaint" />
+              </div>
+              <div className="space-y-1.5 md:col-span-1">
+                <Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground flex items-center gap-1.5">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" /> {t("diagnosis")}
+                </Label>
+                <Textarea rows={5} value={data.diagnosis || ""} onChange={(e) => set("diagnosis", e.target.value)} placeholder="…" data-testid="repair-diagnosis" />
+              </div>
+              <div className="space-y-1.5 md:col-span-1">
+                <Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground flex items-center gap-1.5">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" /> {t("workPerformed")}
+                </Label>
+                <Textarea rows={5} value={data.work_done || ""} onChange={(e) => set("work_done", e.target.value)} placeholder="…" data-testid="repair-work" />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-3 border-t border-border">
+              <div className="space-y-1.5">
+                <Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("laborCharge")}</Label>
+                <Input type="number" step="0.01" value={data.labor_charge || 0} onChange={(e) => set("labor_charge", e.target.value)} data-testid="repair-labor" />
                 <p className="text-[10px] text-muted-foreground">{t("laborAuto")}</p>
               </div>
-              <div className="space-y-1.5"><Label className="text-xs">{t("internalNotes")}</Label><Input value={data.notes || ""} onChange={(e) => set("notes", e.target.value)} /></div>
+              <div className="space-y-1.5">
+                <Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("internalNotes")}</Label>
+                <Input value={data.notes || ""} onChange={(e) => set("notes", e.target.value)} />
+              </div>
             </div>
           </Card>
 
@@ -454,16 +543,51 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
             <div className="space-y-2">
               {(data.parts_used || []).length === 0 && <div className="text-sm text-muted-foreground text-center py-6">{t("noPartsUsedYet")}</div>}
               {(data.parts_used || []).map(p => (
-                <div key={p.txn_id} className="flex items-center justify-between p-3 rounded-md bg-muted/40 border border-border">
+                <div
+                  key={p.txn_id}
+                  className={`flex items-center justify-between p-3 rounded-md border ${p.returned ? "bg-rose-500/5 border-rose-500/40" : "bg-muted/40 border-border"}`}
+                  data-testid={`repair-part-row-${p.txn_id}`}
+                >
                   <div className="min-w-0">
-                    <div className="text-sm font-medium truncate">{p.name}</div>
-                    <div className="text-[11px] font-mono text-muted-foreground">{p.sku}</div>
+                    <div className={`text-sm font-medium truncate flex items-center gap-2 ${p.returned ? "text-rose-600 dark:text-rose-400 line-through" : ""}`}>
+                      {p.name}
+                      {p.returned && (
+                        <Badge className="bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/40 text-[10px] font-mono uppercase no-underline">
+                          {t("returned")}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="text-[11px] font-mono text-muted-foreground">
+                      {p.sku}
+                      {p.returned && p.return_reason ? <span className="ms-2 text-rose-600 dark:text-rose-400">· {p.return_reason}</span> : null}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
+                  <div className="flex items-center gap-2">
+                    <div className={`text-right ${p.returned ? "text-rose-600 dark:text-rose-400 line-through" : ""}`}>
                       <div className="text-sm font-mono">{p.quantity} × {formatEUR(p.unit_price)}</div>
                       <div className="text-xs font-mono font-bold">{formatEUR(p.total)}</div>
                     </div>
+                    {p.returned ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-full h-7 text-[11px] border-emerald-500/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10"
+                        onClick={() => unreturnPart(p.txn_id)}
+                        data-testid={`repair-part-unreturn-${p.txn_id}`}
+                      >
+                        <RefreshCw className="h-3 w-3 mr-1" /> {t("unreturn")}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-full h-7 text-[11px] border-rose-500/40 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10"
+                        onClick={() => returnPart(p.txn_id)}
+                        data-testid={`repair-part-return-${p.txn_id}`}
+                      >
+                        <Undo2 className="h-3 w-3 mr-1" /> {t("returnPart")}
+                      </Button>
+                    )}
                     <Button size="icon" variant="ghost" onClick={() => removePart(p.txn_id)} data-testid={`repair-part-remove-${p.txn_id}`}>
                       <X className="h-4 w-4 text-rose-600 dark:text-rose-400" />
                     </Button>
@@ -485,12 +609,43 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
           {/* ── STEP 8 ─ Special order parts */}
           <SpecialPartsPanel card={data} setCard={setData} />
 
-          {/* Totals with BTW / VAT breakdown */}
+          {/* Totals with BTW / VAT breakdown + optional customer discount */}
           <Card className="p-5 border-primary/30 bg-primary/5 space-y-4">
             <div className="grid grid-cols-3 gap-4 text-center">
-              <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("parts")}</div><div className="font-display text-2xl font-bold tabular-nums mt-1">{formatEUR(data.parts_total)}</div></div>
+              <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("parts")}</div><div className="font-display text-2xl font-bold tabular-nums mt-1" data-testid="repair-parts-total">{formatEUR(data.parts_total)}</div></div>
               <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("labor")}</div><div className="font-display text-2xl font-bold tabular-nums mt-1">{formatEUR(data.labor_charge)}</div></div>
-              <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("subtotal")}</div><div className="font-display text-2xl font-bold tabular-nums mt-1">{formatEUR(data.grand_total)}</div></div>
+              <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("subtotal")}</div><div className="font-display text-2xl font-bold tabular-nums mt-1" data-testid="repair-grand-total">{formatEUR(data.grand_total)}</div></div>
+            </div>
+            {/* Discount row */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end pt-3 border-t border-primary/20">
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase tracking-widest font-mono text-primary flex items-center gap-1.5">
+                  <PercentCircle className="h-3 w-3" /> {t("customerDiscount")}
+                </Label>
+                <Select value={data.discount_type || "amount"} onValueChange={(v) => set("discount_type", v)}>
+                  <SelectTrigger data-testid="repair-discount-type"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="amount">{t("discountAmount")} (€)</SelectItem>
+                    <SelectItem value="percent">{t("discountPercent")} (%)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("value")}</Label>
+                <Input
+                  type="number" step="0.01" min="0"
+                  value={data.discount_value ?? 0}
+                  onChange={(e) => set("discount_value", Number(e.target.value))}
+                  placeholder="0"
+                  data-testid="repair-discount-value"
+                />
+              </div>
+              <div className="text-center md:text-right">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("discountApplied")}</div>
+                <div className="font-mono text-lg font-bold tabular-nums mt-1 text-emerald-700 dark:text-emerald-400" data-testid="repair-discount-amount">
+                  −{formatEUR(data.discount_amount || 0)}
+                </div>
+              </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end pt-3 border-t border-primary/20">
               <div className="space-y-1">
@@ -512,6 +667,7 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
               </div>
             </div>
           </Card>
+        </div>
         </div>
 
         <DialogFooter className="flex-wrap gap-2">
@@ -666,7 +822,7 @@ export default function Repairs() {
                 <div className="font-display text-xl font-bold mt-1">{[c.car_make, c.car_model].filter(Boolean).join(" ") || "Vehicle TBD"}</div>
                 <div className="flex items-center gap-2 mt-1 flex-wrap">
                   {c.car_year && <span className="text-xs font-mono text-muted-foreground">{c.car_year}</span>}
-                  <PlateBadge plate={c.car_plate} size="xs" />
+                  <PlateBadge plate={c.car_plate} country={c.car_country || "NL"} size="xs" />
                 </div>
               </div>
               <Badge className={STATUS_STYLE[c.status] + " capitalize whitespace-nowrap"}>{STATUS_LABEL[c.status]}</Badge>

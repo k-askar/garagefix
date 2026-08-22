@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Truck, Plus, X, PackageCheck, CheckCheck, Clock, BookOpen } from "lucide-react";
+import { Truck, Plus, X, PackageCheck, CheckCheck, Clock, BookOpen, Undo2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useLang } from "@/i18n";
 import SearchableSelect from "@/components/SearchableSelect";
@@ -50,7 +50,7 @@ export default function SpecialPartsPanel({ card, setCard }) {
   });
 
   const parts = card.special_parts || [];
-  const total = parts.reduce((s, p) => s + (p.total || 0), 0);
+  const total = parts.filter(p => !p.returned).reduce((s, p) => s + (p.total || 0), 0);
 
   const applyCatalog = (row) => {
     if (!row) return setForm(f => ({ ...f, catalog_id: "" }));
@@ -111,6 +111,24 @@ export default function SpecialPartsPanel({ card, setCard }) {
     try {
       const { data: updated } = await api.delete(`/repairs/${card.id}/special-parts/${p.id}`);
       setCard(updated); qc.invalidateQueries({ queryKey: ["repairs"] });
+    } catch (e) { toast.error(formatApiError(e)); }
+  };
+
+  const returnSp = async (p) => {
+    const reason = window.prompt(t("returnReasonPrompt"), "");
+    if (reason === null) return;
+    try {
+      const { data: updated } = await api.post(`/repairs/${card.id}/special-parts/${p.id}/return`, { reason });
+      setCard(updated); qc.invalidateQueries({ queryKey: ["repairs"] });
+      toast.success(t("partReturned"));
+    } catch (e) { toast.error(formatApiError(e)); }
+  };
+
+  const unreturnSp = async (p) => {
+    try {
+      const { data: updated } = await api.post(`/repairs/${card.id}/special-parts/${p.id}/unreturn`);
+      setCard(updated); qc.invalidateQueries({ queryKey: ["repairs"] });
+      toast.success(t("partUnreturned"));
     } catch (e) { toast.error(formatApiError(e)); }
   };
 
@@ -204,29 +222,58 @@ export default function SpecialPartsPanel({ card, setCard }) {
           </div>
         )}
         {parts.map(p => (
-          <div key={p.id} className="flex items-start justify-between p-3 rounded-md bg-muted/40 border border-border gap-3" data-testid={`sp-row-${p.id}`}>
+          <div
+            key={p.id}
+            className={`flex items-start justify-between p-3 rounded-md border gap-3 ${p.returned ? "bg-rose-500/5 border-rose-500/40" : "bg-muted/40 border-border"}`}
+            data-testid={`sp-row-${p.id}`}
+          >
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-medium">{p.name}</span>
+                <span className={`text-sm font-medium ${p.returned ? "text-rose-600 dark:text-rose-400 line-through" : ""}`}>{p.name}</span>
                 {p.part_number && <span className="text-[10px] font-mono px-1.5 py-[1px] rounded bg-secondary text-muted-foreground">{p.part_number}</span>}
+                {p.returned && (
+                  <Badge className="bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/40 text-[10px] font-mono uppercase">
+                    {t("returned")}
+                  </Badge>
+                )}
                 {p.tax_exempt && (
                   <button type="button" onClick={() => toggleTax(p)} title="Toggle BTW" data-testid={`sp-tax-badge-${p.id}`}>
                     <Badge className="bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/40 hover:opacity-80 cursor-pointer text-[10px]">No BTW</Badge>
                   </button>
                 )}
-                <StatusBadge status={p.status} onClick={() => cycle(p)} testId={`sp-status-${p.id}`} />
+                {!p.returned && <StatusBadge status={p.status} onClick={() => cycle(p)} testId={`sp-status-${p.id}`} />}
               </div>
               <div className="text-[11px] font-mono text-muted-foreground mt-0.5 flex flex-wrap gap-x-3">
                 {p.supplier_name && <span>{p.supplier_name}</span>}
                 {p.expected_date && <span>ETA {p.expected_date}</span>}
                 {p.note && <span className="italic">{p.note}</span>}
+                {p.returned && p.return_reason && <span className="text-rose-600 dark:text-rose-400">· {p.return_reason}</span>}
               </div>
             </div>
-            <div className="flex items-center gap-3 shrink-0">
-              <div className="text-right">
+            <div className="flex items-center gap-2 shrink-0">
+              <div className={`text-right ${p.returned ? "text-rose-600 dark:text-rose-400 line-through" : ""}`}>
                 <div className="text-sm font-mono">{p.quantity} × {formatEUR(p.unit_price)}</div>
                 <div className="text-xs font-mono font-bold">{formatEUR(p.total)}</div>
               </div>
+              {p.returned ? (
+                <Button
+                  size="sm" variant="outline"
+                  className="rounded-full h-7 text-[11px] border-emerald-500/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10"
+                  onClick={() => unreturnSp(p)}
+                  data-testid={`sp-unreturn-${p.id}`}
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" />{t("unreturn")}
+                </Button>
+              ) : (
+                <Button
+                  size="sm" variant="outline"
+                  className="rounded-full h-7 text-[11px] border-rose-500/40 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10"
+                  onClick={() => returnSp(p)}
+                  data-testid={`sp-return-${p.id}`}
+                >
+                  <Undo2 className="h-3 w-3 mr-1" />{t("returnPart")}
+                </Button>
+              )}
               <Button size="icon" variant="ghost" onClick={() => remove(p)} data-testid={`sp-remove-${p.id}`}>
                 <X className="h-4 w-4 text-rose-600 dark:text-rose-400" />
               </Button>

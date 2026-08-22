@@ -113,7 +113,7 @@ export default function Dashboard() {
                   </div>
                   <div className="font-display font-bold truncate">{[c.car_make, c.car_model].filter(Boolean).join(" ") || t("vehicleTbd")}</div>
                   <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    <PlateBadge plate={c.car_plate} size="xs" />
+                    <PlateBadge plate={c.car_plate} country={c.car_country || "NL"} size="xs" />
                     {c.customer_name && <span className="text-[11px] font-mono text-muted-foreground truncate">{c.customer_name}</span>}
                   </div>
                   <div className="mt-1 flex items-center gap-3 text-[11px] font-mono">
