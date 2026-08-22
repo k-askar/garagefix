@@ -15,6 +15,9 @@ import { downloadListReportPdf, printListReport, downloadCustomerHistoryPdf, pri
 import PlateBadge from "@/components/PlateBadge";
 import AddressFields from "@/components/AddressFields";
 import VehicleMakeModelYear from "@/components/VehicleMakeModelYear";
+import CarPassportQrDialog from "@/components/CarPassportQrDialog";
+import { Progress } from "@/components/ui/progress";
+import { QrCode, Gift } from "lucide-react";
 
 export default function PartyPage({ kind }) {
   const qc = useQueryClient();
@@ -30,6 +33,13 @@ export default function PartyPage({ kind }) {
   const [downloadingHistoryId, setDownloadingHistoryId] = useState(null);
   const [vehForm, setVehForm] = useState({ make: "", model: "", year: "", plate: "", color: "", km: "", vin: "", notes: "", country: "NL", apk_expiry: "", next_oil_change_km: "" });
   const [showAddVeh, setShowAddVeh] = useState(false);
+  const [passportVehicle, setPassportVehicle] = useState(null);
+
+  const { data: loyalty } = useQuery({
+    queryKey: ["customer-loyalty", historyId],
+    queryFn: () => api.get(`/customers/${historyId}/loyalty`).then(r => r.data),
+    enabled: !!historyId && !isSup,
+  });
 
   const { data: rows = [] } = useQuery({ queryKey: [kind], queryFn: () => api.get(`/${kind}`).then((r) => r.data) });
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: () => api.get("/settings").then(r => r.data) });
@@ -343,6 +353,40 @@ export default function PartyPage({ kind }) {
                   ))}
                 </div>
 
+                {/* Loyalty progress */}
+                {loyalty?.enabled && (
+                  <Card className={`p-4 border ${loyalty.pending_rewards > 0 ? "border-emerald-500/40 bg-emerald-500/5" : "border-primary/30 bg-primary/5"}`} data-testid="loyalty-card">
+                    <div className="flex items-center justify-between gap-4 flex-wrap">
+                      <div className="flex items-center gap-3">
+                        <div className={`h-10 w-10 rounded-full flex items-center justify-center ${loyalty.pending_rewards > 0 ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-primary/15 text-primary"}`}>
+                          <Gift className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Loyalty</div>
+                          {loyalty.pending_rewards > 0 ? (
+                            <div className="font-display text-lg font-bold text-emerald-700 dark:text-emerald-400" data-testid="loyalty-pending">
+                              {loyalty.pending_rewards} reward{loyalty.pending_rewards > 1 ? "s" : ""} ready · {formatEUR(loyalty.discount_eur)} off next invoice{loyalty.pending_rewards > 1 ? "s" : ""}
+                            </div>
+                          ) : (
+                            <div className="font-display text-lg font-bold" data-testid="loyalty-progress">
+                              {loyalty.progress_in_cycle} / {loyalty.threshold} paid invoices · {loyalty.next_reward_in} to next {formatEUR(loyalty.discount_eur)} reward
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="min-w-[160px] flex-1 md:max-w-[240px]">
+                        <Progress
+                          value={(loyalty.progress_in_cycle / Math.max(loyalty.threshold, 1)) * 100}
+                          className="h-2"
+                        />
+                        <div className="text-[10px] font-mono text-muted-foreground mt-1 text-right">
+                          {loyalty.redeemed_rewards} previously redeemed
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                )}
+
                 {/* Vehicles + per-vehicle timeline */}
                 <Card className="border-border overflow-hidden">
                   <div className="p-4 border-b border-border flex items-center justify-between">
@@ -434,6 +478,11 @@ export default function PartyPage({ kind }) {
                                 <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("total")}</div>
                                 <div className="font-mono font-bold text-lg tabular-nums text-primary">{formatEUR(g.total_spent)}</div>
                               </div>
+                              {registered && (
+                                <Button size="icon" variant="ghost" onClick={() => setPassportVehicle(v)} data-testid={`veh-qr-${v.id}`} title="Car passport QR">
+                                  <QrCode className="h-4 w-4 text-primary" />
+                                </Button>
+                              )}
                               {registered && (
                                 <Button size="icon" variant="ghost" onClick={() => deleteVehicle(v.id)} data-testid={`del-vehicle-${v.id}`}>
                                   <Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" />
@@ -530,6 +579,13 @@ export default function PartyPage({ kind }) {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+      )}
+      {!isSup && (
+        <CarPassportQrDialog
+          vehicle={passportVehicle}
+          open={!!passportVehicle}
+          onOpenChange={(v) => { if (!v) setPassportVehicle(null); }}
+        />
       )}
     </div>
   );

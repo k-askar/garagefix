@@ -152,12 +152,25 @@
   new endpoint `POST /api/repairs/{id}/assign` (idempotent, patch-style)
 
 ## Roadmap / Backlog
-- Loyalty Credit (€ discount after N paid invoices) — P1
 - SMS fallback via Twilio when a customer has no email — P1
-- Car Passport / QR Code (customer scans → full service timeline) — P1
 - Live Bay Board (big-screen live status of open cards) — P3
 - Ordered-parts dashboard (cross-workshop) — P3
-- Refactor `server.py` (~3100 lines) into APIRouter modules per domain
+- CSV Bulk Import (vehicles/customers) — P2
+- Refactor `server.py` (~3300 lines) into APIRouter modules per domain
+
+## Iteration 13 (Feb 2026) — Loyalty rewards + Car Passport QR
+### Loyalty rewards
+- New settings block (`loyalty_enabled` / `loyalty_threshold` / `loyalty_discount_eur`), configurable in the Settings page.
+- New endpoint `GET /api/customers/{cid}/loyalty` — returns paid-invoice count, redeemed rewards, pending rewards, and cycle progress.
+- Auto-application: whenever an invoice is generated from a repair (`POST /api/repairs/{rid}/invoice`) or from transactions (`POST /api/invoices/from-transactions`), if the customer has pending rewards, a negative `LOYALTY` line item is prepended and `customers.loyalty_redeemed` is incremented atomically.
+- New "Loyalty" card in the customer history dialog with progress bar (or emerald "reward ready" badge when a milestone has been crossed).
+
+### Car Passport QR
+- Every `Vehicle` now has a unique `passport_token` (auto-generated with `secrets.token_urlsafe(12)`, lazy-backfilled for legacy rows).
+- Public, unauthenticated endpoint `GET /api/passport/{token}` returns vehicle info, APK status, oil-change status, service events + recent repairs + garage branding.
+- New public frontend route `/passport/:token` — `CarPassport` page renders a customer-facing view with plate badge, APK/oil status pills, service-event timeline, and recent repairs.
+- New `CarPassportQrDialog` (uses `qrcode` package) opened from every vehicle row in the customer history — Copy link / Rotate token / Print sheet.
+- `POST /api/vehicles/{vid}/passport/rotate` — one-tap way to invalidate a leaked QR.
 
 ## Iteration 12 (Feb 2026) — Structured address + smart vehicle picker
 - **Structured customer/supplier address** — postcode, house number, addition, street, city, country stored as separate fields (backwards-compatible with the old single-line `address`, which is now auto-composed from the parts).

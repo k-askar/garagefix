@@ -24,6 +24,7 @@ import ScanPickup from "@/pages/ScanPickup";
 import Accounts from "@/pages/Accounts";
 import CalendarPage from "@/pages/Calendar";
 import Workboard from "@/pages/Workboard";
+import CarPassport from "@/pages/CarPassport";
 import "@/App.css";
 
 function ProtectedShell() {
@@ -53,6 +54,7 @@ function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/passport/:token" element={<CarPassport />} />
             <Route element={<ProtectedShell />}>
               <Route path="/" element={<Dashboard />} />
               <Route path="/inventory" element={<Inventory />} />

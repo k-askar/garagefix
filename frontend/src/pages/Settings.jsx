@@ -27,6 +27,7 @@ const DEFAULT_FORM = {
   invoice_header_align: "left",
   invoice_currency_symbol_pos: "suffix",
   invoice_template: "classic",
+  loyalty_enabled: true, loyalty_threshold: 5, loyalty_discount_eur: 25,
 };
 
 // Same yellow-plate mock used in printInvoice; here for the preview only.
@@ -315,6 +316,29 @@ export default function Settings() {
                 <Label>Receipt footer</Label>
                 <Input value={form.footer_note} onChange={(e) => set("footer_note", e.target.value)} placeholder="Thank you for choosing us!" data-testid="settings-footer" />
               </div>
+            </section>
+
+            {/* --- Loyalty rewards --- */}
+            <section className="space-y-4 pt-2">
+              <h3 className="font-display text-lg font-bold border-b border-border pb-2">Loyalty rewards</h3>
+              <div className="flex items-center justify-between rounded-md border border-border p-3">
+                <div>
+                  <Label className="cursor-pointer">Give returning customers an automatic € discount</Label>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">Every N paid invoices they earn a reward that is auto-applied as a line item on their next invoice.</p>
+                </div>
+                <Switch checked={!!form.loyalty_enabled} onCheckedChange={(v) => set("loyalty_enabled", v)} data-testid="settings-loyalty-enabled" />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Reward every N paid invoices</Label>
+                  <Input type="number" min="1" max="50" value={form.loyalty_threshold} onChange={(e) => set("loyalty_threshold", Math.max(1, Number(e.target.value) || 1))} disabled={!form.loyalty_enabled} data-testid="settings-loyalty-threshold" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Discount amount (€)</Label>
+                  <Input type="number" step="0.5" min="0" value={form.loyalty_discount_eur} onChange={(e) => set("loyalty_discount_eur", Number(e.target.value) || 0)} disabled={!form.loyalty_enabled} data-testid="settings-loyalty-amount" />
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">Example — every {form.loyalty_threshold || 5} paid invoices, {formatEUR(form.loyalty_discount_eur || 25)} is deducted from the customer's next invoice.</p>
             </section>
 
             <Button type="submit" disabled={saving} className="rounded-full bg-primary hover:bg-primary/90" data-testid="settings-save">

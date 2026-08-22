@@ -143,6 +143,7 @@ class Customer(BaseModel):
     street: Optional[str] = ""
     city: Optional[str] = ""
     address_country: Optional[str] = "NL"
+    loyalty_redeemed: int = 0            # how many times this customer has consumed a loyalty reward
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 class CustomerCreate(BaseModel):
@@ -186,6 +187,7 @@ class Vehicle(BaseModel):
     apk_expiry: Optional[str] = None          # YYYY-MM-DD — Dutch technical inspection expiry
     next_oil_change_km: Optional[int] = None  # odometer at which oil is due
     notes: Optional[str] = ""
+    passport_token: str = Field(default_factory=lambda: secrets.token_urlsafe(12))  # shareable public link token
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 class VehicleCreate(BaseModel):
@@ -436,6 +438,9 @@ async def add_customer_vehicle(cid: str, payload: VehicleCreate, user: dict = De
     if not c:
         raise HTTPException(status_code=404, detail="Customer not found")
     obj = Vehicle(customer_id=cid, **payload.model_dump())
+    # Guarantee every vehicle has a unique passport token
+    if not obj.passport_token:
+        obj.passport_token = secrets.token_urlsafe(12)
     await db.vehicles.insert_one(obj.model_dump())
     return obj
 
@@ -937,6 +942,10 @@ class GarageSettings(BaseModel):
     invoice_header_align: Literal["left", "center", "right"] = "left"
     invoice_currency_symbol_pos: Literal["prefix", "suffix"] = "suffix"
     invoice_template: Literal["classic", "minimal", "bold"] = "classic"
+    # --- Loyalty rewards ---
+    loyalty_enabled: bool = True
+    loyalty_threshold: int = 5           # number of paid invoices the customer must accumulate to earn a reward
+    loyalty_discount_eur: float = 25.0   # € discount automatically applied on the next invoice after the milestone
 
 @api_router.get("/settings")
 async def get_settings(user: dict = Depends(get_current_user)):
@@ -1407,6 +1416,7 @@ async def invoice_from_txns(payload: InvoiceFromTxns, user: dict = Depends(get_c
     lines = [InvoiceLine(item_id=t["item_id"], sku=t["item_sku"], name=t["item_name"],
                          quantity=t["quantity"], unit_price=t["unit_price"], total=t["total"]) for t in txns]
     subtotal = round(sum(l.total for l in lines), 2)
+    lines, subtotal, loyalty_meta = await _maybe_apply_loyalty(payload.customer_id, lines, subtotal)
     tax = round(subtotal * (payload.tax_rate or 0) / 100, 2)
     total = round(subtotal + tax, 2)
     customer_name = ""
@@ -1428,6 +1438,8 @@ async def invoice_from_txns(payload: InvoiceFromTxns, user: dict = Depends(get_c
     )
     await db.invoices.insert_one(inv.model_dump())
     await db.transactions.update_many({"id": {"$in": payload.transaction_ids}}, {"$set": {"invoice_id": inv.id}})
+    if loyalty_meta.get("applied"):
+        await db.customers.update_one({"id": payload.customer_id}, {"$inc": {"loyalty_redeemed": 1}})
     return inv
 
 @api_router.post("/invoices/{inv_id}/mark-paid")
@@ -1563,6 +1575,61 @@ async def customer_balance(cid: str, user: dict = Depends(get_current_user)):
     unpaid = round(sum(i["total"] for i in invs if i["status"] != "paid"), 2)
     paid = round(sum(i["total"] for i in invs if i["status"] == "paid"), 2)
     return {"customer_id": cid, "unpaid": unpaid, "paid": paid, "invoice_count": len(invs)}
+
+
+async def _loyalty_status(cid: str) -> dict:
+    """Return a customer's loyalty progress based on Settings.loyalty_threshold
+    and how many rewards they've already consumed. Safe to call for any customer."""
+    s = await db.settings.find_one({"_id": "garage"}, {"_id": 0}) or {}
+    enabled = bool(s.get("loyalty_enabled", True))
+    threshold = int(s.get("loyalty_threshold") or 5)
+    discount = float(s.get("loyalty_discount_eur") or 25.0)
+    c = await db.customers.find_one({"id": cid}, {"_id": 0}) or {}
+    paid_count = await db.invoices.count_documents({"customer_id": cid, "status": "paid"})
+    redeemed = int(c.get("loyalty_redeemed") or 0)
+    earned_cycles = paid_count // threshold if threshold > 0 else 0
+    pending_rewards = max(earned_cycles - redeemed, 0)
+    in_cycle = paid_count - (redeemed * threshold)  # progress inside current cycle
+    if in_cycle < 0: in_cycle = paid_count % threshold if threshold else 0
+    return {
+        "enabled": enabled,
+        "threshold": threshold,
+        "discount_eur": discount,
+        "paid_invoices": paid_count,
+        "redeemed_rewards": redeemed,
+        "pending_rewards": pending_rewards,
+        "progress_in_cycle": min(in_cycle, threshold),
+        "next_reward_in": max(threshold - in_cycle, 0) if pending_rewards == 0 else 0,
+    }
+
+
+@api_router.get("/customers/{cid}/loyalty")
+async def get_customer_loyalty(cid: str, user: dict = Depends(get_current_user)):
+    return await _loyalty_status(cid)
+
+
+async def _maybe_apply_loyalty(customer_id: Optional[str], lines: list, subtotal: float) -> tuple[list, float, dict]:
+    """If the customer has a pending loyalty reward, prepend a discount line to `lines`
+    and lower `subtotal`. Returns (updated_lines, updated_subtotal, meta)."""
+    meta = {"applied": False, "amount": 0.0}
+    if not customer_id:
+        return lines, subtotal, meta
+    st = await _loyalty_status(customer_id)
+    if not st["enabled"] or st["pending_rewards"] <= 0:
+        return lines, subtotal, meta
+    discount = min(float(st["discount_eur"]), subtotal)
+    if discount <= 0:
+        return lines, subtotal, meta
+    lines = list(lines) + [InvoiceLine(
+        sku="LOYALTY",
+        name=f"Loyalty reward · after {st['threshold']} paid invoices",
+        quantity=1,
+        unit_price=-discount,
+        total=-discount,
+    )]
+    subtotal = round(subtotal - discount, 2)
+    meta = {"applied": True, "amount": discount}
+    return lines, subtotal, meta
 
 @api_router.get("/customers/{cid}/history")
 async def customer_history(cid: str, user: dict = Depends(get_current_user)):
@@ -2412,6 +2479,7 @@ async def invoice_repair(rid: str, tax_rate: Optional[float] = None, user: dict 
         lines.append(InvoiceLine(sku="LABOR", name=f"Labor · {card.get('work_done') or 'workshop time'}",
                                  quantity=1, unit_price=card["labor_charge"], total=card["labor_charge"]))
     subtotal = round(sum(l.total for l in lines), 2)
+    lines, subtotal, loyalty_meta = await _maybe_apply_loyalty(card.get("customer_id"), lines, subtotal)
     tax = round(subtotal * (tax_rate or 0) / 100, 2)
     total = round(subtotal + tax, 2)
     inv = Invoice(
@@ -2427,6 +2495,8 @@ async def invoice_repair(rid: str, tax_rate: Optional[float] = None, user: dict 
     await db.invoices.insert_one(inv.model_dump())
     await db.repairs.update_one({"id": rid}, {"$set": {"invoice_id": inv.id, "status": "completed",
                                                        "completed_at": datetime.now(timezone.utc).isoformat()}})
+    if loyalty_meta.get("applied") and card.get("customer_id"):
+        await db.customers.update_one({"id": card["customer_id"]}, {"$inc": {"loyalty_redeemed": 1}})
     return inv
 
 # =========================
@@ -2571,7 +2641,6 @@ async def lookup_vehicle_makes():
 
 @api_router.get("/lookup/vehicle-models")
 async def lookup_vehicle_models(make: str):
-    """Return models for a given make (NHTSA vPIC, cached)."""
     m = (make or "").strip()
     if not m:
         raise HTTPException(status_code=400, detail="make is required")
@@ -2598,6 +2667,72 @@ async def lookup_vehicle_models(make: str):
     models.sort(key=lambda x: x["name"].lower())
     _MODELS_CACHE[key] = models
     return {"models": models}
+
+
+# =========================
+# Car Passport — public QR-linked page
+# =========================
+async def _ensure_passport_token(vehicle: dict) -> str:
+    tok = vehicle.get("passport_token")
+    if tok:
+        return tok
+    tok = secrets.token_urlsafe(12)
+    await db.vehicles.update_one({"id": vehicle["id"]}, {"$set": {"passport_token": tok}})
+    return tok
+
+
+@api_router.post("/vehicles/{vid}/passport/rotate")
+async def rotate_passport(vid: str, user: dict = Depends(get_current_user)):
+    v = await db.vehicles.find_one({"id": vid}, {"_id": 0})
+    if not v:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    tok = secrets.token_urlsafe(12)
+    await db.vehicles.update_one({"id": vid}, {"$set": {"passport_token": tok}})
+    return {"passport_token": tok}
+
+
+@api_router.get("/vehicles/{vid}/passport/token")
+async def get_passport_token(vid: str, user: dict = Depends(get_current_user)):
+    v = await db.vehicles.find_one({"id": vid}, {"_id": 0})
+    if not v:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    tok = await _ensure_passport_token(v)
+    return {"passport_token": tok}
+
+
+@api_router.get("/passport/{token}")
+async def public_passport(token: str):
+    """Public, unauthenticated view of a vehicle's service passport."""
+    v = await db.vehicles.find_one({"passport_token": token}, {"_id": 0})
+    if not v:
+        raise HTTPException(status_code=404, detail="Passport not found")
+    events = await db.service_events.find({"vehicle_id": v["id"]}, {"_id": 0}).sort("at", -1).to_list(200)
+    repairs = await db.repairs.find(
+        {"vehicle_id": v["id"], "invoice_id": {"$ne": None}},
+        {"_id": 0, "card_number": 1, "created_at": 1, "work_done": 1, "car_km": 1, "mechanic_name": 1, "grand_total": 1}
+    ).sort("created_at", -1).to_list(50)
+    s = await db.settings.find_one({"_id": "garage"}, {"_id": 0}) or {}
+    customer = await db.customers.find_one({"id": v.get("customer_id")}, {"_id": 0, "name": 1}) or {}
+    return {
+        "vehicle": {
+            "make": v.get("make") or "", "model": v.get("model") or "",
+            "year": v.get("year") or "", "plate": v.get("plate") or "",
+            "country": v.get("country") or "NL", "color": v.get("color") or "",
+            "vin": v.get("vin") or "", "km": v.get("km") or "",
+            "apk_expiry": v.get("apk_expiry"),
+            "next_oil_change_km": v.get("next_oil_change_km"),
+        },
+        "owner_name": customer.get("name") or "",
+        "garage": {
+            "name": s.get("name") or "PitStock Garage",
+            "phone": s.get("phone") or "",
+            "email": s.get("email") or "",
+            "logo_url": s.get("logo_url") or "",
+            "accent": s.get("invoice_accent_color") or "#0EA5E9",
+        },
+        "events": events,
+        "recent_repairs": repairs,
+    }
 
 
 app.include_router(api_router)
