@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatEUR, formatApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
@@ -549,6 +550,7 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
 export default function Repairs() {
   const qc = useQueryClient();
   const { t, meta } = useLang();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [showNew, setShowNew] = useState(false);
   const [openCardId, setOpenCardId] = useState(null);
   const [filter, setFilter] = useState("all");
@@ -596,6 +598,15 @@ export default function Repairs() {
   };
 
   const openCard = cards.find(c => c.id === openCardId);
+
+  // Deep-link: /repairs?card=JOB-XXXX opens the specific card automatically
+  useEffect(() => {
+    const cardNum = searchParams.get("card");
+    if (!cardNum || openCardId) return;
+    const target = cards.find(c => c.card_number === cardNum);
+    if (target) { setOpenCardId(target.id); setSearchParams({}, { replace: true }); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, cards]);
 
   const exportReport = async (mode) => {
     const args = {

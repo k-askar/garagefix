@@ -109,6 +109,17 @@
 ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.5); }
 
+/* Arabic must NEVER have letter-spacing (letters need to join). Override Tailwind's tracking-* utilities. */
+html[lang="ar"] * {
+  letter-spacing: 0 !important;
+}
+html[lang="ar"] .font-mono,
+html[lang="ar"] code,
+html[lang="ar"] .tabular-nums {
+  /* Numbers keep font-variant tabular but Arabic characters render with Cairo — no spacing */
+  font-variant-numeric: tabular-nums;
+}
+
 /* RTL mirroring helpers */
 html[dir="rtl"] .lucide { transform: none; }
 html[dir="rtl"] [data-lucide="chevron-right"],

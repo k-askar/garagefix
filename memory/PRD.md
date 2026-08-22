@@ -157,10 +157,16 @@
 - 📊 **Live Bay Board** (`/bay-board`): TV-friendly grid of every open/in-progress card with time-in-shop, live clock counter, priority flame, on-order badge, mechanic assignment, and full-screen toggle. Refreshes every 30 s.
 - 📥 **CSV Fleet Import**: paste or upload a CSV of plates + APK dates → backend `POST /api/import/vehicles-csv` bulk-creates customers + vehicles, deduping by (name, phone). Downloadable template. New `CsvImportDialog` button on Customers page.
 
+## Iteration 15 (Feb 2026) — Bay Board deep-link + Arabic shaping + BayBoard/DeliveryScan i18n
+- 🔗 **Bay Board deep link**: clicking any card on `/bay-board` now navigates to `/repairs?card=CARD_NUMBER` and auto-opens that job-card modal (via `useSearchParams` + a `useEffect` matcher — the query param is stripped after opening so a browser back doesn't re-open).
+- 🕌 **Arabic letter shaping fix** (`html[lang="ar"] * { letter-spacing: 0 !important }`): the workshop-typographic `tracking-widest` / `tracking-tight` utilities were breaking Arabic joining. Now every Arabic screen renders with correct joined script (verified in a full-screen Bay Board screenshot).
+- 🌐 **Full i18n on the two new pages**: `BayBoard.jsx` + `DeliveryScan.jsx` now use `useLang()` throughout — every heading, KPI, badge, status, empty-state, form field, and toast. ~35 new keys added to `en / nl / ar` for those pages (Werkplaats-bord / لوحة الورشة, Pakbon scannen / مسح بون التسليم, "Loopt nu" / "يعمل الآن", etc.). Also filled the missing NL/AR sidebar entries `bayBoard` + `deliveryScan`.
+
 ## Roadmap / Backlog
+- Full translation pass for Repairs card modal + Invoice preview labels — P1
 - SMS fallback via Twilio when a customer has no email — P1
 - Ordered-parts dashboard (cross-workshop) — P3
-- Refactor `server.py` (~3400 lines) into APIRouter modules per domain
+- Refactor `server.py` (~3480 lines) into APIRouter modules per domain
 
 ## Iteration 13 (Feb 2026) — Loyalty rewards + Car Passport QR
 ### Loyalty rewards
