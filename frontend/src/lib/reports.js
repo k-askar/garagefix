@@ -146,8 +146,23 @@ export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels =
       <td style="${tdBase};text-align:${dir === 'rtl' ? 'left' : 'right'};${strike}">${formatEUR(p.total)}</td>
     </tr>`;
   }).join("");
-  const specialRows = (card.special_parts || []).map(p =>
-    `<tr><td>${p.name} <span style="font-size:9px;background:#f5e7c5;color:#8a6d1a;padding:1px 6px;border-radius:6px;margin-inline-start:4px">${l.special || 'SPECIAL'}</span><div style="font-size:10px;color:#888;direction:ltr">${p.part_number || ""}${p.supplier_name ? " · " + p.supplier_name : ""}</div></td><td class="right">${p.quantity}</td><td class="right">${formatEUR(p.unit_price)}</td><td class="right">${formatEUR(p.total)}</td></tr>`).join("");
+  const specialRows = (card.special_parts || []).map(p => {
+    const isRet = !!p.returned;
+    const rowStyle = isRet ? "background:#fef2f2;color:#b91c1c;" : "";
+    const tdBase = `padding:8px;border-bottom:1px solid #eef2f7;font-size:13px;text-align:${dir === 'rtl' ? 'right' : 'left'};${rowStyle}`;
+    const strike = isRet ? "text-decoration:line-through;" : "";
+    const badge = isRet
+      ? `<span style="display:inline-block;background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;padding:1px 6px;border-radius:6px;font-size:9px;letter-spacing:.1em;font-weight:800;margin-inline-start:6px;text-decoration:none;-webkit-print-color-adjust:exact;print-color-adjust:exact;">${l.returned}</span>`
+      : `<span style="font-size:9px;background:#f5e7c5;color:#8a6d1a;padding:1px 6px;border-radius:6px;margin-inline-start:4px;-webkit-print-color-adjust:exact;print-color-adjust:exact;">${l.special || 'SPECIAL'}</span>`;
+    const reason = isRet && p.return_reason
+      ? `<div style="font-size:10px;color:#b91c1c;margin-top:2px;text-decoration:none">· ${p.return_reason}</div>` : "";
+    return `<tr style="${rowStyle}">
+      <td style="${tdBase}"><span style="${strike}">${p.name}</span>${badge}<div style="font-size:10px;color:#888;direction:ltr;text-decoration:none">${p.part_number || ""}${p.supplier_name ? " · " + p.supplier_name : ""}</div>${reason}</td>
+      <td style="${tdBase};text-align:${dir === 'rtl' ? 'left' : 'right'};${strike}">${p.quantity}</td>
+      <td style="${tdBase};text-align:${dir === 'rtl' ? 'left' : 'right'};${strike}">${formatEUR(p.unit_price)}</td>
+      <td style="${tdBase};text-align:${dir === 'rtl' ? 'left' : 'right'};${strike}">${formatEUR(p.total)}</td>
+    </tr>`;
+  }).join("");
   const rows = stockRows + specialRows;
   const bodyFont = dir === "rtl" ? "'Cairo','Amiri',system-ui,sans-serif" : "-apple-system,Helvetica,Arial,sans-serif";
   const alignEnd = dir === "rtl" ? "left" : "right";
@@ -158,8 +173,12 @@ export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels =
     in_progress: { bg: "#fef3c7", fg: "#92400e" },
     completed: { bg: "#d1fae5", fg: "#065f46" },
   }[card.status] || { bg: "#e5e7eb", fg: "#374151" };
-  const partsUsedCount = (card.parts_used || []).filter(p => !p.returned).length + (card.special_parts || []).length;
-  const returnedCount = (card.parts_used || []).filter(p => p.returned).length;
+  // Parts count excludes ALL returned parts (stock + special).
+  const partsUsedCount = (card.parts_used || []).filter(p => !p.returned).length
+                       + (card.special_parts || []).filter(p => !p.returned).length;
+  const returnedCount = (card.parts_used || []).filter(p => p.returned).length
+                      + (card.special_parts || []).filter(p => p.returned).length;
+  const discountAmount = Number(card.discount_amount || 0);
   return `<div style="font-family:${bodyFont};color:#0f172a;background:#fff;padding:8px;direction:${dir}">
     <style>
       .jc { max-width: 760px; }
@@ -231,9 +250,10 @@ export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels =
         <div>
           <div class="lbl">${l.partsTotal}</div>
           <div class="parts-count">${partsUsedCount}</div>
-          ${returnedCount ? `<div class="ret-note">· ${returnedCount} ${l.returned.toLowerCase()}</div>` : ""}
+          ${returnedCount ? `<div class="ret-note">· ${returnedCount} ${(l.returned || 'returned').toLowerCase()}</div>` : ""}
         </div>
         <div style="text-align:${alignEnd}">
+          ${discountAmount > 0 ? `<div style="font-size:11px;color:#059669;margin-bottom:4px;font-family:'IBM Plex Mono',monospace">${l.discountApplied || 'Discount'}: −${formatEUR(discountAmount)}</div>` : ""}
           <div class="lbl">${l.grandTotal}</div>
           <div class="total-big">${formatEUR(card.total_with_tax || card.grand_total)}</div>
         </div>

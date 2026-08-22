@@ -16,17 +16,17 @@
 - Frontend: React + React Router 7 + TanStack Query + Tailwind + Shadcn UI + recharts + react-barcode + html5-qrcode + jsPDF + html2canvas + xlsx (SheetJS) + MediaDevices getUserMedia
 - Fonts: Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (data) + Cairo/Amiri (Arabic)
 
-## Implemented (highlights, latest first)
+## Implemented (latest first)
 
-### Session 2026-02 (fork agent — big-batch update)
-- **Country-aware license plates everywhere** — plate strip color/label now driven by `vehicle.car_country` (was hard-coded NL yellow). Fixed callers in Repairs/Dashboard + fixed `/api/dashboard/summary` to include car_country in the open_cars projection.
-- **Parts Return workflow (stock + special)** — added `returned/returned_at/return_reason` on both `PartUsed` and `SpecialPart`; four new endpoints `POST /api/repairs/{rid}/parts/{txn}/return` + `/unreturn` and `POST /api/repairs/{rid}/special-parts/{sp}/return` + `/unreturn`. Returned parts stay on the card in RED (line-through) but are excluded from totals; stock parts also restock inventory and log compensating IN/OUT txns. Un-return reverses everything with a stock guard.
-- **Customer discount per job card** — `discount_type` (`amount` | `percent`) + `discount_value` fields on RepairCard. `_recalc_repair` applies discount pre-tax, and BTW is on the discounted taxable base (pro-rata). Persisted `discount_amount` for reports.
-- **Excel Export on Cash Register** — new "Export Excel" button uses `xlsx` (SheetJS) to export the currently filtered ledger entries with currency formatting.
-- **Modern Job Card PDF redesign** — `buildRepairCardHtml` rewritten with light-blue header band, inline country-aware plate badge, status pill, quote-block for complaint, and parts-count-vs-total footer. Returned parts render in red with strike-through in the PDF too.
-- **Job Card modal redesign** — removed logo band, added compact gradient header with icon + card number + status, redesigned Customer + Vehicle cards (email/address rows, live country dropdown, inline plate badge in header), 3-column colour-coded Repair log (complaint = red · diagnosis = amber · workDone = green), full discount UI in totals block.
-- **A4 Delivery-Note live camera** — replaced the `capture="environment"` file input with a proper in-app camera dialog using `navigator.mediaDevices.getUserMedia`. Displays live rear-camera video with an A4 framing guide, has Capture/Upload/Close buttons, and falls back to file picker when getUserMedia isn't available.
-- **Bug fixes from Iteration 14 testing** — (a) `DELETE /parts/{txn}` no longer double-restocks after a return and also cleans up the orphan RETURN IN transaction; (b) Cash Register "ref_undefined" typo now shows `—` when reference_type is missing; (c) Dashboard plate country now flows through from the backend.
+### Session 2026-02 fork agent — big batch
+- **Country-aware license plates everywhere** — plate strip color/label driven by `vehicle.car_country`. Fixed callers in Repairs/Dashboard + `/api/dashboard/summary` now includes car_country.
+- **Parts Return workflow (stock + special)** — added `returned/returned_at/return_reason` on both `PartUsed` and `SpecialPart`; four endpoints `POST /api/repairs/{rid}/parts/{txn}/return` + `/unreturn` and `POST /api/repairs/{rid}/special-parts/{sp}/return` + `/unreturn`. Returned parts stay on the card in RED (line-through + `RETURNED` badge) but are excluded from totals; stock parts also restock inventory and log compensating IN/OUT txns. Un-return reverses with stock guard.
+- **Customer discount per job card** — `discount_type` (`amount` | `percent`) + `discount_value` fields on RepairCard. `_recalc_repair` applies discount pre-tax with pro-rata BTW. `discount_amount` persisted for reports.
+- **Excel Export on Cash Register** — new "Export Excel" button uses `xlsx` (SheetJS) with currency formatting.
+- **Modern Job Card PDF redesign** — `buildRepairCardHtml` rewritten with light-blue header band, inline country-aware plate badge, status pill, quote-block for complaint, parts-count-vs-total footer. Returned parts (**both stock and special**) render in red with strike-through. Discount line shown in totals when amount > 0.
+- **Job Card modal redesign** — removed logo band, added compact gradient header with icon + card number + status, redesigned Customer + Vehicle cards (email/address rows, live country dropdown, inline plate badge in header), 3-column colour-coded Repair log (complaint red · diagnosis amber · workDone green), full discount UI in totals block.
+- **A4 Delivery-Note live camera** — replaced `capture="environment"` file input with a proper in-app camera dialog using `navigator.mediaDevices.getUserMedia`. Live rear-camera video + A4 framing guide + Capture/Upload/Close buttons. Falls back to file picker when getUserMedia unsupported.
+- **Bug fixes from Iteration 14 testing** — (a) `DELETE /parts/{txn}` no longer double-restocks after a return and cleans up orphan RETURN IN transaction; (b) Cash Register "ref_undefined" typo now shows `—`; (c) Dashboard plate country flows through.
 
 ### Prior sessions (rolled up)
 - Smart Address (NL postcode auto-fetch) + cascading make/model/year dropdowns
@@ -42,17 +42,17 @@
 ## Backlog / Roadmap
 - **P0** — Refactor monolithic `server.py` (~3.8k lines) into `/backend/routes/`.
 - **P0** — Full Arabic translation of the Invoice modal + Invoice PDF.
-- **P1** — Twilio SMS service reminders (email → SMS fallback when customer has no email).
-- **P1** — Supplier-return tracker page: single view of all returned parts with a "credit note received" toggle.
+- **P1** — Twilio SMS service reminders (email → SMS fallback).
+- **P1** — Supplier-return tracker page: all returned parts with "credit note received" toggle.
 - **P2** — Excel export on Invoices + Purchase Orders + Repairs listing.
 - **P2** — Cost-basis fix on the compensating RETURN IN txn (currently logged at selling price).
-- **P2** — Owner-only guard on the return endpoints + audit trail beyond the txn note.
+- **P2** — Owner-only guard on the return endpoints + audit trail.
 
 ## Health
 - Broken: none.
 - Mocked: none.
-- Backend endpoints verified via curl this session: `/api/repairs/{}/parts/{}/return + /unreturn`, `/api/repairs/{}/special-parts/{}/return + /unreturn`, PUT `/api/repairs/{}` with discount payload — all round-trip cleanly.
-- Frontend verified via screenshot: redesigned modal (top + bottom), Cash Register export button, live A4 camera dialog.
+- Backend endpoints verified via curl: `/api/repairs/{}/parts/{}/return + /unreturn` (195→135→195), `/api/repairs/{}/special-parts/{}/return + /unreturn` (149.85→74.93→149.85), PUT `/api/repairs/{}` with discount payload (150→135 at 10%).
+- Frontend verified via screenshot: redesigned modal, Cash Register export button, live A4 camera dialog with framing guide.
 
 ## Credentials
 `/app/memory/test_credentials.md` — admin@garage.com / admin123

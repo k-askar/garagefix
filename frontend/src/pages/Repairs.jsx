@@ -41,6 +41,7 @@ function repairLabels(t) {
     plate: t("plate"), km: t("km"),
     timeClock: t("timeClock"), startedAt: t("startedAt"), stopped: t("stopped"), duration: t("duration"),
     returned: t("returned"),
+    discountApplied: t("discountApplied"),
     status_open: t("statusOpen") || "Open",
     status_in_progress: t("inProgress") || "In progress",
     status_completed: t("completed") || "Completed",
