@@ -9,17 +9,48 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Camera, CameraOff, Truck, Search, Plus, ArrowRight } from "lucide-react";
+import { Camera, CameraOff, Truck, Search, Plus, ArrowRight, ScanText, Loader2, Sparkles, Upload } from "lucide-react";
 import { toast } from "sonner";
 import SearchableSelect from "@/components/SearchableSelect";
 import PlateBadge from "@/components/PlateBadge";
 import { useLang } from "@/i18n";
+
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => {
+    const s = String(r.result || "");
+    resolve(s.includes(",") ? s.split(",")[1] : s);
+  };
+  r.onerror = reject;
+  r.readAsDataURL(file);
+});
+
+// Downscale a phone photo before uploading — capped at ~1600 px on the long side.
+async function shrinkImage(file, maxSide = 1600, quality = 0.82) {
+  const dataUrl = await new Promise((res, rej) => {
+    const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file);
+  });
+  const img = await new Promise((res, rej) => {
+    const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = dataUrl;
+  });
+  const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  c.getContext("2d").drawImage(img, 0, 0, w, h);
+  const blob = await new Promise(res => c.toBlob(res, "image/jpeg", quality));
+  const b64 = await fileToBase64(blob);
+  return { base64: b64, previewUrl: URL.createObjectURL(blob) };
+}
 
 export default function DeliveryScan() {
   const qc = useQueryClient();
   const nav = useNavigate();
   const { t } = useLang();
   const scannerRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const galleryInputRef = useRef(null);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState("");
   const [manual, setManual] = useState("");
@@ -27,6 +58,9 @@ export default function DeliveryScan() {
   const [targetCard, setTargetCard] = useState(null);
   const [form, setForm] = useState({ name: "", part_number: "", quantity: 1, unit_price: "", unit_cost: "", tax_exempt: false, supplier_id: "" });
   const [busy, setBusy] = useState(false);
+  const [ocrBusy, setOcrBusy] = useState(false);
+  const [ocrPreview, setOcrPreview] = useState(null);
+  const [ocrResult, setOcrResult] = useState(null);
 
   const { data: suppliers = [] } = useQuery({ queryKey: ["suppliers"], queryFn: () => api.get("/suppliers").then(r => r.data) });
 
@@ -35,7 +69,8 @@ export default function DeliveryScan() {
     const id = "delivery-scan-cam";
     scannerRef.current = new Html5Qrcode(id);
     scannerRef.current.start(
-      { facingMode: "environment" }, { fps: 12, qrbox: { width: 260, height: 160 } },
+      { facingMode: "environment" },
+      { fps: 12, qrbox: (w, h) => ({ width: Math.min(w * 0.85, 520), height: Math.min(h * 0.55, 300) }) },
       (text) => { setScanning(false); onScanned(text); },
       () => {}
     ).catch((e) => { setScanError(String(e?.message || e)); setScanning(false); });
@@ -59,6 +94,59 @@ export default function DeliveryScan() {
     finally { setBusy(false); }
   };
 
+  const pickA4 = () => fileInputRef.current?.click();
+  const pickGallery = () => galleryInputRef.current?.click();
+
+  const onA4Chosen = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!/^image\/(jpeg|jpg|png|webp)$/i.test(file.type)) {
+      toast.error(t("ocrUnsupportedFormat"));
+      return;
+    }
+    setOcrBusy(true); setOcrResult(null); setDetected(null); setTargetCard(null);
+    try {
+      const { base64, previewUrl } = await shrinkImage(file, 1600, 0.82);
+      setOcrPreview(previewUrl);
+      const { data } = await api.post("/special-parts/ocr-delivery-note", {
+        image_base64: base64,
+        mime: "image/jpeg",
+      });
+      setOcrResult(data);
+
+      setForm(f => ({
+        ...f,
+        name: data.part_name || f.name,
+        part_number: data.part_number || f.part_number,
+        quantity: data.quantity || f.quantity || 1,
+        unit_price: data.unit_price || f.unit_price,
+        unit_cost: data.unit_cost || f.unit_cost,
+      }));
+
+      if (data.plate) {
+        const { data: match } = await api.post("/special-parts/scan-delivery", { code: data.plate });
+        setDetected(match);
+        if (match.matched && match.matches.length === 1) {
+          setTargetCard(match.matches[0]);
+          toast.success(t("ocrMatchedCard", { card: match.matches[0].card_number }));
+        } else if (match.matched && match.matches.length > 1) {
+          toast(t("multipleCardsMatch"));
+        } else {
+          toast(t("ocrPickCard"));
+        }
+      } else {
+        toast(t("ocrNoPlateFound"));
+        const { data: match } = await api.post("/special-parts/scan-delivery", { code: "unknown" });
+        setDetected(match);
+      }
+    } catch (err) {
+      toast.error(formatApiError(err));
+    } finally {
+      setOcrBusy(false);
+    }
+  };
+
   const manualLoad = () => { if (!manual.trim()) return; onScanned(manual.trim()); };
 
   const addPart = async () => {
@@ -80,6 +168,7 @@ export default function DeliveryScan() {
       qc.invalidateQueries();
       setForm({ name: "", part_number: "", quantity: 1, unit_price: "", unit_cost: "", tax_exempt: false, supplier_id: "" });
       setTargetCard(null); setDetected(null); setManual("");
+      setOcrPreview(null); setOcrResult(null);
     } catch (e) { toast.error(formatApiError(e)); }
     finally { setBusy(false); }
   };
@@ -92,13 +181,81 @@ export default function DeliveryScan() {
       <div>
         <div className="text-xs font-mono uppercase tracking-widest text-primary mb-2">{t("supplierDelivery")}</div>
         <h1 className="font-display text-4xl font-black tracking-tight">{t("scanDeliveryNote")}</h1>
-        <p className="text-muted-foreground mt-2">{t("scanDeliveryHint")}</p>
+        <p className="text-muted-foreground mt-2">{t("scanDeliveryHintV2")}</p>
       </div>
 
+      <Card className="p-6 border-primary/40 bg-primary/5 space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="h-10 w-10 rounded-full bg-primary/15 text-primary flex items-center justify-center shrink-0">
+            <Sparkles className="h-5 w-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-display text-lg font-bold">{t("scanA4Title")}</div>
+            <p className="text-xs text-muted-foreground mt-1">{t("scanA4Sub")}</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            className="rounded-full bg-primary hover:bg-primary/90"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={ocrBusy}
+            data-testid="delivery-scan-a4"
+          >
+            {ocrBusy
+              ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {t("ocrReading")}</>)
+              : (<><ScanText className="h-4 w-4 mr-2" /> {t("scanA4Btn")}</>)}
+          </Button>
+          <Button variant="outline" className="rounded-full" onClick={() => galleryInputRef.current?.click()} disabled={ocrBusy} data-testid="delivery-gallery">
+            <Upload className="h-4 w-4 mr-2" /> {t("uploadFromGallery")}
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            capture="environment"
+            hidden
+            onChange={onA4Chosen}
+            data-testid="delivery-a4-file"
+          />
+          <input
+            ref={galleryInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            hidden
+            onChange={onA4Chosen}
+            data-testid="delivery-gallery-file"
+          />
+        </div>
+        {ocrPreview && (
+          <div className="flex gap-4 items-start pt-2 flex-wrap">
+            <img
+              src={ocrPreview}
+              alt="A4 preview"
+              className="w-40 h-auto rounded-md border border-border"
+              data-testid="delivery-a4-preview"
+            />
+            {ocrResult && (
+              <div className="text-xs font-mono space-y-1 flex-1 min-w-[200px]" data-testid="delivery-a4-result">
+                <div><span className="text-muted-foreground">{t("detectedPlate")}:</span> <strong>{ocrResult.plate || "—"}</strong></div>
+                <div><span className="text-muted-foreground">{t("partName")}:</span> <strong>{ocrResult.part_name || "—"}</strong></div>
+                <div><span className="text-muted-foreground">{t("partNumber")}:</span> <strong>{ocrResult.part_number || "—"}</strong></div>
+                <div><span className="text-muted-foreground">{t("costPerUnit")}:</span> <strong>€ {Number(ocrResult.unit_cost || 0).toFixed(2)}</strong></div>
+                <div><span className="text-muted-foreground">{t("sellPerUnit")}:</span> <strong>€ {Number(ocrResult.unit_price || 0).toFixed(2)}</strong></div>
+                <div><span className="text-muted-foreground">{t("qty")}:</span> <strong>{ocrResult.quantity}</strong></div>
+                {ocrResult.supplier_name && <div><span className="text-muted-foreground">{t("supplier")}:</span> <strong>{ocrResult.supplier_name}</strong></div>}
+                <div className="pt-1 text-[10px] text-muted-foreground">{t("ocrConfidence")}: {Math.round((ocrResult.confidence || 0) * 100)}%</div>
+                {ocrResult.notes && <div className="text-amber-600 dark:text-amber-400">⚠ {ocrResult.notes}</div>}
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+
       <Card className="p-6 border-border space-y-4">
+        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("orBarcodeScan")}</div>
         <div className="flex items-center gap-2 flex-wrap">
           {!scanning ? (
-            <Button className="rounded-full bg-primary" onClick={() => { setScanning(true); setScanError(""); }} data-testid="delivery-scan-open">
+            <Button variant="outline" className="rounded-full" onClick={() => { setScanning(true); setScanError(""); }} data-testid="delivery-scan-open">
               <Camera className="h-4 w-4 mr-2" /> {t("startCamera")}
             </Button>
           ) : (
@@ -116,7 +273,7 @@ export default function DeliveryScan() {
         </div>
         {scanning && (
           <div>
-            <div id="delivery-scan-cam" style={{ width: "100%", minHeight: 240, background: "#000", borderRadius: 8 }} />
+            <div id="delivery-scan-cam" style={{ width: "100%", minHeight: 320, background: "#000", borderRadius: 8 }} />
             <div className="text-[11px] font-mono text-muted-foreground mt-2">{t("aimCameraBarcode")}</div>
           </div>
         )}
@@ -195,14 +352,14 @@ export default function DeliveryScan() {
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">{t("costPerUnit")}</Label>
-              <Input type="number" step="0.01" value={form.unit_cost} onChange={(e) => setForm({ ...form, unit_cost: e.target.value })} />
+              <Input type="number" step="0.01" value={form.unit_cost} onChange={(e) => setForm({ ...form, unit_cost: e.target.value })} data-testid="delivery-cost" />
             </div>
             <div className="md:col-span-3 flex items-center justify-between gap-3 rounded-md border border-border p-3">
               <Label className="cursor-pointer text-xs">{t("taxExemptUsed")}</Label>
               <Switch checked={form.tax_exempt} onCheckedChange={(v) => setForm({ ...form, tax_exempt: v })} />
             </div>
           </div>
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-2 flex-wrap">
             <Button variant="ghost" onClick={() => setTargetCard(null)}>{t("back")}</Button>
             <Button className="rounded-full bg-primary" onClick={addPart} disabled={busy} data-testid="delivery-add-run">
               <Plus className="h-4 w-4 mr-2" /> {busy ? t("adding") : t("addToCard")}

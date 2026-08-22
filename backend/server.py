@@ -3380,7 +3380,6 @@ def _norm_plate(s: str) -> str:
 # accidentally lift "23 plat" out of a supplier's description text.
 _PLATE_RE = re.compile(r"\b([A-Z]{1,3}[- ][A-Z0-9]{1,4}[- ][A-Z0-9]{1,4})\b")
 
-
 @api_router.post("/special-parts/scan-delivery")
 async def scan_delivery(payload: dict, user: dict = Depends(get_current_user)):
     """Scan a delivery-note barcode / typed text."""
@@ -3420,6 +3419,123 @@ async def scan_delivery(payload: dict, user: dict = Depends(get_current_user)):
         ).sort("created_at", -1).limit(50).to_list(50)
         return {"matched": False, "detected_plate": plate, "candidates": cards}
     return {"matched": True, "detected_plate": plate, "matches": matches}
+
+
+# =========================
+# OCR — full A4 delivery note (Claude Sonnet vision)
+# =========================
+_OCR_SYSTEM = (
+    "You extract structured data from a photograph of an automotive supplier's delivery note "
+    "(packing slip / pakbon / bon de livraison). The paper is A4 and lists ONE ordered part "
+    "for a specific vehicle. You must return STRICT JSON — no prose, no code fences.\n\n"
+    "Schema — always return every key, use empty string / 0 when unknown, never invent values:\n"
+    "{\n"
+    "  \"plate\": string,           // vehicle licence plate e.g. 'B-DE-9022' or 'NL-42-ABC'\n"
+    "  \"part_name\": string,       // human-readable part name e.g. 'Front brake pads'\n"
+    "  \"part_number\": string,     // OEM / manufacturer part number e.g. '34116794300'\n"
+    "  \"unit_cost\": number,       // purchase price / inkoop per unit in EUR\n"
+    "  \"unit_price\": number,      // sell price / verkoop per unit in EUR — same as unit_cost if only one price appears\n"
+    "  \"quantity\": number,        // qty ordered (integer). Default 1 if not shown.\n"
+    "  \"supplier_name\": string,   // supplier / leverancier name from the letterhead\n"
+    "  \"confidence\": number,      // 0..1 — how sure you are the extraction is correct\n"
+    "  \"notes\": string            // one short line if something looks off, otherwise empty\n"
+    "}\n\n"
+    "Rules:\n"
+    "- Prices are in EUR — strip currency symbols, use dot as decimal separator, no thousands separators.\n"
+    "- The plate letters are always uppercase.\n"
+    "- If two prices appear (cost + sell), unit_cost = the lower/inkoop, unit_price = the higher/verkoop.\n"
+    "- If only one price appears, put it in BOTH unit_cost and unit_price.\n"
+    "- Return ONLY the JSON object, nothing else."
+)
+
+
+class OcrDeliveryPayload(BaseModel):
+    image_base64: str
+    mime: Optional[str] = "image/jpeg"
+
+
+@api_router.post("/special-parts/ocr-delivery-note")
+async def ocr_delivery_note(payload: OcrDeliveryPayload, user: dict = Depends(get_current_user)):
+    """Full-page OCR of an A4 delivery note using Claude Sonnet 4.6 vision. Returns
+    structured JSON: plate, part_name, part_number, unit_cost, unit_price, quantity, supplier_name."""
+    key = os.environ.get("EMERGENT_LLM_KEY", "")
+    if not key:
+        raise HTTPException(status_code=503, detail="Vision OCR unavailable — EMERGENT_LLM_KEY not configured")
+    b64 = (payload.image_base64 or "").strip()
+    if not b64:
+        raise HTTPException(status_code=400, detail="image_base64 is required")
+    # Strip a data URL prefix if the client sent one
+    if b64.startswith("data:"):
+        try: b64 = b64.split(",", 1)[1]
+        except IndexError: pass
+
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"OCR library not installed: {e}")
+
+    chat = LlmChat(
+        api_key=key,
+        session_id=f"ocr-{uuid.uuid4()}",
+        system_message=_OCR_SYSTEM,
+    ).with_model("anthropic", "claude-sonnet-4-6")
+
+    prompt = (
+        "This is a photograph of an automotive supplier's A4 delivery note. Extract the fields per the schema "
+        "in your system message. Return ONLY the JSON object, no code fences, no explanations."
+    )
+    try:
+        reply = await chat.send_message(UserMessage(
+            text=prompt,
+            file_contents=[ImageContent(image_base64=b64)],
+        ))
+    except Exception as e:
+        logger.error(f"OCR chat error: {e}")
+        raise HTTPException(status_code=502, detail=f"Vision OCR failed: {e}")
+
+    raw = (reply or "").strip()
+    # Some models still wrap JSON in a code fence — strip it defensively.
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(), flags=re.MULTILINE)
+    try:
+        import json as _json
+        parsed = _json.loads(raw)
+    except Exception:
+        # Sometimes the model adds a short intro — try to locate the first {...} block.
+        m2 = re.search(r"\{[\s\S]*\}", raw)
+        if not m2:
+            raise HTTPException(status_code=502, detail=f"OCR returned non-JSON: {raw[:200]}")
+        try:
+            import json as _json
+            parsed = _json.loads(m2.group(0))
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"OCR JSON parse failed: {e}")
+
+    # Normalise + coerce
+    def _num(v):
+        if v is None: return 0.0
+        if isinstance(v, (int, float)): return float(v)
+        s = str(v).replace("€", "").replace("EUR", "").replace(",", ".").strip()
+        try: return float(re.sub(r"[^0-9.\-]", "", s) or 0)
+        except ValueError: return 0.0
+
+    out = {
+        "plate": str(parsed.get("plate", "")).strip().upper(),
+        "part_name": str(parsed.get("part_name", "")).strip(),
+        "part_number": str(parsed.get("part_number", "")).strip(),
+        "unit_cost": round(_num(parsed.get("unit_cost")), 2),
+        "unit_price": round(_num(parsed.get("unit_price")), 2),
+        "quantity": max(1, int(_num(parsed.get("quantity")) or 1)),
+        "supplier_name": str(parsed.get("supplier_name", "")).strip(),
+        "confidence": max(0.0, min(1.0, _num(parsed.get("confidence")))),
+        "notes": str(parsed.get("notes", "")).strip(),
+    }
+    # If only one price came back, mirror it to the other.
+    if out["unit_price"] and not out["unit_cost"]:
+        out["unit_cost"] = out["unit_price"]
+    if out["unit_cost"] and not out["unit_price"]:
+        out["unit_price"] = out["unit_cost"]
+    return out
 
 
 # Re-include the router now that new routes have been declared.

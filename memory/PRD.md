@@ -162,11 +162,17 @@
 - 🕌 **Arabic letter shaping fix** (`html[lang="ar"] * { letter-spacing: 0 !important }`): the workshop-typographic `tracking-widest` / `tracking-tight` utilities were breaking Arabic joining. Now every Arabic screen renders with correct joined script (verified in a full-screen Bay Board screenshot).
 - 🌐 **Full i18n on the two new pages**: `BayBoard.jsx` + `DeliveryScan.jsx` now use `useLang()` throughout — every heading, KPI, badge, status, empty-state, form field, and toast. ~35 new keys added to `en / nl / ar` for those pages (Werkplaats-bord / لوحة الورشة, Pakbon scannen / مسح بون التسليم, "Loopt nu" / "يعمل الآن", etc.). Also filled the missing NL/AR sidebar entries `bayBoard` + `deliveryScan`.
 
+## Iteration 16 (Feb 2026) — A4 delivery-note OCR (Claude Sonnet vision)
+- 🐛 **Bug fix**: mobile Delivery Scan camera was a tiny barcode-sized rectangle. Enlarged to A4-friendly rectangle (85 % width × 55 % height).
+- ✨ **Full A4 OCR**: mechanic now taps "Take A4 photo" (or uploads from gallery) → phone camera opens with `capture="environment"` → the photo is downscaled to 1600 px & sent to backend `POST /api/special-parts/ocr-delivery-note` → **Claude Sonnet 4.6 vision** extracts JSON: plate, part_name, part_number, unit_cost, unit_price, quantity, supplier_name, confidence. Then the same `/scan-delivery` endpoint auto-matches the plate to an open job card. Form is pre-filled — mechanic clicks "Add to card" and moves on. Verified with a synthetic A4 → 99 % confidence, all 7 fields extracted correctly.
+- 🧠 Uses Emergent LLM key via `emergentintegrations.LlmChat` + `ImageContent(image_base64=…)`.
+- 🌐 30 new i18n keys added to en/nl/ar for the A4 flow.
+
 ## Roadmap / Backlog
 - Full translation pass for Repairs card modal + Invoice preview labels — P1
 - SMS fallback via Twilio when a customer has no email — P1
 - Ordered-parts dashboard (cross-workshop) — P3
-- Refactor `server.py` (~3480 lines) into APIRouter modules per domain
+- Refactor `server.py` (~3600 lines) into APIRouter modules per domain
 
 ## Iteration 13 (Feb 2026) — Loyalty rewards + Car Passport QR
 ### Loyalty rewards

@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 13 — verified the new A4 delivery-note OCR (Claude Sonnet 4.6 vision) end-to-end plus the requested regressions. Backend: 6/6 pytest cases pass in /app/backend/tests/test_iteration13.py — POST /api/special-parts/ocr-delivery-note on a Pillow-generated 800x1100 A4 slip returned ALL 7 fields exactly right (plate 'B-XX-1234', part_name 'Front brake pads BMW E90', part_number '34116794300', unit_cost 42.5, unit_price 75.0, quantity 2, supplier_name 'AutoOnderdelen BV', confidence 0.97), no _id leakage; error paths correct (empty image_base64 -> 400, no Authorization -> 401/403, non-image base64 -> 502). Frontend (Playwright, preview URL, desktop 1920 + mobile 390): /delivery-scan shows the new primary 'Scan the full A4 delivery note' card with 'Take A4 photo' (data-testid=delivery-scan-a4) and the barcode block demoted to 'OR — BARCODE / TYPED CODE'. setInputFiles on the hidden delivery-a4-file input produced: preview image, result panel with plate/part/OEM/€42.50/€75.00/qty 2/supplier/97% confidence, emerald 'Matched' badge, matching card JOB-260820-8729, auto-opened add form pre-filled (name/partnum/qty=2/price=75/cost=42.5); clicking 'Add to card' showed toasts 'AI matched card JOB-260820-8729' + 'Added to JOB-260820-8729' and the special part was verified persisted via GET /api/repairs (then cleaned up). Regressions PASS: typed manual code 'delivery slip 77123 plate B-XX-1234 4x brake pads' -> Matched badge + card picker + add form; JOB-260822-E142 print popup renders 'Brake pads BMW E90' with the SPECIAL pill (no 'No parts'), and the WhatsApp URL contains 'Brake%20pads%20BMW%20E90'. Zero JS page errors. i18n: all 11 new OCR keys present in 3 locales (en/nl/ar). Mobile 390px: no horizontal overflow, A4 card/buttons fully usable.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/special-parts/ocr-delivery-note", "issue": "No payload size / image validation before calling the LLM — an arbitrarily large base64 body is forwarded to the vision model (cost/latency risk). Also non-image base64 surfaces the raw provider error text in the 502 detail; consider a Pillow/imghdr pre-check returning 400 'not a valid image' instead of a 502."},
+      {"endpoint": "POST /api/special-parts/ocr-delivery-note", "issue": "`mime` in the request body is accepted but never used (ImageContent is called with base64 only) — dead parameter, or the mime should be passed through."},
+      {"endpoint": "POST /api/special-parts/scan-delivery", "issue": "Still open from iteration 12: plate regex is uppercase-only and the input text is not .upper()'d, so lowercase OCR/barcode text like 'bon 12345 plate b-xx-1234' does not match. OCR path is unaffected (backend upper-cases the plate), but typed lowercase input still fails."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/delivery-scan header", "issues": ["Sub-heading still reads 'Point the camera at the supplier's packing-slip barcode…' although the A4 photo OCR is now the primary action — copy is stale/misleading (all 3 locales)."]},
+      {"screen": "/delivery-scan A4 card", "issues": ["The secondary 'Upload photo' button opens the exact same file input as 'Take A4 photo' (same capture=environment attribute), so on mobile both open the camera — gallery upload is not actually reachable. Suggest a second input without the capture attribute."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration13.py", "/app/test_reports/pytest/iteration13.xml"],
+  "action_items": [
+    "Optional: update /delivery-scan sub-heading copy to mention A4 photo OCR (en/nl/ar).",
+    "Optional: give 'Upload photo' its own file input without capture=\"environment\" so gallery picking works on mobile.",
+    "Optional: pre-validate the uploaded image server-side (return 400 for non-image instead of 502) and cap payload size.",
+    "Carry-over: upper-case the input in /api/special-parts/scan-delivery so lowercase typed/barcode text matches the plate regex."
+  ],
+  "critical_code_review_comments": [
+    "server.py is very large (>3500 lines) — the OCR route + _OCR_SYSTEM prompt would be better in a dedicated module/router.",
+    "ocr_delivery_note has no timeout around chat.send_message; a hung provider call will block the request until the ingress timeout."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration13.py"],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "Generated /app/test_reports/a4_delivery_note.jpg (synthetic A4 slip, reused by both backend and Playwright tests). Special part added to JOB-260820-8729 during the UI test was verified then deleted — card is back to 0 special parts.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@garage.com / admin123 (worked)",
+  "context_for_next_testing_agent": "Reuse build_a4_image() in /app/backend/tests/test_iteration13.py to regenerate the synthetic A4 JPEG at /app/test_reports/a4_delivery_note.jpg, then setInputFiles it on data-testid=delivery-a4-file. OCR round-trip takes ~5s. Remember to delete the special part created on JOB-260820-8729 after UI runs.",
+  "rca_of_the_issue": "N/A — the reported A4 OCR feature works as specified; only cosmetic copy/UX and defensive-validation nits remain."
+}
