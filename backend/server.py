@@ -800,6 +800,12 @@ class GarageSettings(BaseModel):
     kvk_number: str = ""                        # Chamber-of-Commerce (KvK) number for NL businesses
     invoice_terms: str = ""                     # multi-line payment / warranty terms
     show_plate_badge: bool = True               # render yellow NL plate on the invoice
+    # --- Payments block (new) ---
+    bank_name: str = ""                         # human-readable bank name shown next to IBAN
+    bic: str = ""                               # BIC / SWIFT code (used in SEPA QR too)
+    invoice_show_qr: bool = True                # render SEPA payment QR on paper invoice
+    invoice_header_align: Literal["left", "center", "right"] = "left"
+    invoice_currency_symbol_pos: Literal["prefix", "suffix"] = "suffix"
 
 @api_router.get("/settings")
 async def get_settings(user: dict = Depends(get_current_user)):
@@ -839,7 +845,9 @@ async def upload_settings_logo(file: UploadFile = File(...), user: dict = Depend
     return {"logo_url": logo_ref}
 
 @api_router.get("/settings/logo-file")
-async def download_settings_logo(path: str, user: dict = Depends(get_current_user)):
+async def download_settings_logo(path: str):
+    """Public logo endpoint — no auth required so <img> tags in printable PDFs
+    and shared invoice pages can load the logo without an Authorization header."""
     from backup import _get_object
     try:
         data = _get_object(path)
@@ -1072,6 +1080,8 @@ class Invoice(BaseModel):
     reminder_sent_at: Optional[str] = None
     reminder_stage: int = 0                     # 0=none, 1=friendly (day1), 2=firm (day7), 3=final (day14)
     reminder_history: List[dict] = []           # [{stage, sent_at, days_overdue}]
+    last_emailed_at: Optional[str] = None       # when the invoice was last emailed to the customer
+    last_emailed_to: Optional[str] = None       # recipient of the last email
     created_by: str = ""
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     paid_at: Optional[str] = None
@@ -1320,6 +1330,101 @@ async def mark_paid(inv_id: str, payload: MarkPaidPayload = MarkPaidPayload(), u
 async def delete_invoice(inv_id: str, user: dict = Depends(require_owner)):
     await db.invoices.delete_one({"id": inv_id})
     return {"ok": True}
+
+
+class InvoiceEmailBody(BaseModel):
+    to: Optional[str] = None  # override customer email, e.g. resend to a different address
+    subject: Optional[str] = None
+    message: Optional[str] = None  # extra note prepended to the HTML body
+
+
+def _invoice_email_html(inv: dict, settings: dict, note: str = "") -> str:
+    accent = settings.get("invoice_accent_color") or "#0EA5E9"
+    row_style = "padding:6px 8px;border-bottom:1px solid #eee"
+    right_style = "padding:6px 8px;text-align:right;border-bottom:1px solid #eee"
+    lines_html = "".join(
+        f'<tr><td style="{row_style}">{escape(l.get("name",""))}'
+        f'<div style="font-size:10px;color:#888">{escape(l.get("sku","") or "")}</div></td>'
+        f'<td style="{right_style}">{l.get("quantity",0)}</td>'
+        f'<td style="{right_style}">{l.get("unit_price",0):.2f} &euro;</td>'
+        f'<td style="{right_style}">{l.get("total",0):.2f} &euro;</td></tr>'
+        for l in (inv.get("lines") or [])
+    )
+    iban = settings.get("iban") or ""
+    tax_line = ""
+    if inv.get("tax"):
+        tax_line = f'<div style="color:#666;font-size:12px">BTW: {inv.get("tax",0):.2f} &euro;</div>'
+    iban_line = ""
+    if iban:
+        iban_line = (
+            f'<p style="color:#666;font-size:12px">Payment to IBAN: '
+            f'<span style="font-family:monospace">{escape(iban)}</span></p>'
+        )
+    note_line = f'<p>{escape(note)}</p>' if note else ""
+    name = escape(settings.get("name") or "Garage")
+    inv_no = escape(inv.get("invoice_number") or "")
+    cust = escape(inv.get("customer_name") or "there")
+    footer = escape(settings.get("footer_note") or "Thank you!")
+    date_str = _new_date_str(inv.get("created_at"))
+    return (
+        f'<div style="font-family:Arial,sans-serif;color:#111;max-width:640px;padding:24px">'
+        f'<div style="border-left:4px solid {accent};padding-left:12px;margin-bottom:16px">'
+        f'<h2 style="margin:0">{name}</h2>'
+        f'<div style="color:#666;font-size:12px">Invoice {inv_no} &middot; {date_str}</div>'
+        f'</div>'
+        f'{note_line}'
+        f'<p>Hi {cust}, please find your invoice below.</p>'
+        f'<table style="width:100%;border-collapse:collapse;margin-top:12px">'
+        f'<thead><tr style="background:#f5f5f5">'
+        f'<th style="text-align:left;padding:6px 8px">Item</th>'
+        f'<th style="text-align:right;padding:6px 8px">Qty</th>'
+        f'<th style="text-align:right;padding:6px 8px">Unit</th>'
+        f'<th style="text-align:right;padding:6px 8px">Total</th></tr></thead>'
+        f'<tbody>{lines_html}</tbody></table>'
+        f'<div style="text-align:right;margin-top:8px">'
+        f'<div style="color:#666;font-size:12px">Subtotal: {inv.get("subtotal",0):.2f} &euro;</div>'
+        f'{tax_line}'
+        f'<div style="font-weight:700;font-size:16px;margin-top:4px">'
+        f'Total: {inv.get("total",0):.2f} &euro;</div>'
+        f'</div>'
+        f'{iban_line}'
+        f'<p style="color:#888;font-size:11px;margin-top:24px">{footer}</p>'
+        f'</div>'
+    )
+
+
+def _new_date_str(iso: Optional[str]) -> str:
+    if not iso:
+        return ""
+    try:
+        return datetime.fromisoformat(iso.replace("Z", "+00:00")).strftime("%d/%m/%Y")
+    except Exception:
+        return iso[:10]
+
+
+@api_router.post("/invoices/{inv_id}/email")
+async def email_invoice(inv_id: str, payload: InvoiceEmailBody = InvoiceEmailBody(), user: dict = Depends(get_current_user)):
+    """Email the invoice to the customer (or a custom recipient)."""
+    inv = await db.invoices.find_one({"id": inv_id}, {"_id": 0})
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    to = payload.to
+    if not to and inv.get("customer_id"):
+        c = await db.customers.find_one({"id": inv["customer_id"]}, {"_id": 0})
+        to = (c or {}).get("email") or ""
+    if not to:
+        raise HTTPException(status_code=400, detail="No recipient email available for this customer")
+    settings = await db.settings.find_one({"_id": "garage"}, {"_id": 0}) or {}
+    garage_name = settings.get("name") or "PitStock Garage"
+    subject = payload.subject or f"Invoice {inv['invoice_number']} from {garage_name}"
+    html = _invoice_email_html(inv, settings, payload.message or "")
+    try:
+        await send_email(to=to, subject=subject, html=html)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Email failed: {str(e)[:180]}")
+    await db.invoices.update_one({"id": inv_id}, {"$set": {"last_emailed_at": datetime.now(timezone.utc).isoformat(), "last_emailed_to": to}})
+    return {"ok": True, "to": to}
+
 
 @api_router.get("/customers/{cid}/balance")
 async def customer_balance(cid: str, user: dict = Depends(get_current_user)):

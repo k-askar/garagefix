@@ -5,81 +5,32 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { CheckCircle2, Printer, Trash2, Plus, MessageCircle, Archive, FileSpreadsheet, FileDown, Bell, AlertTriangle } from "lucide-react";
+import { CheckCircle2, Printer, Trash2, Plus, MessageCircle, Archive, FileSpreadsheet, FileDown, Bell, AlertTriangle, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { whatsappShare } from "@/lib/whatsapp";
 import { useLang } from "@/i18n";
-import { downloadInvoicesZip, invoiceToHtml } from "@/lib/invoice-zip";
-import { downloadHtmlAsPdf } from "@/lib/pdf";
+import { downloadInvoicesZip } from "@/lib/invoice-zip";
+import { renderInvoiceHtml } from "@/lib/invoice-render";
+import { downloadHtmlAsPdf, printHtml } from "@/lib/pdf";
 import SearchableSelect from "@/components/SearchableSelect";
 
 // Extract a Dutch-style plate (letters/digits joined by hyphens) from a free-text note
-// e.g. "Repair JOB-260820-FE40 · Honda civc 29-JDH-1" -> "29-JDH-1"
-// We deliberately skip the JOB-... token by matching from the *end* of the note.
 function extractPlate(note) {
   if (!note) return null;
   const matches = String(note).match(/\b[A-Z0-9]+(?:-[A-Z0-9]+){1,3}\b/gi) || [];
-  // Drop the JOB card number if present
   const candidates = matches.filter(m => !/^JOB-/i.test(m));
   return candidates.length ? candidates[candidates.length - 1] : null;
 }
 
-function plateHtml(plate) {
-  if (!plate) return "";
-  return `<span style="display:inline-block;padding:6px 18px;background:#FFCB05;color:#000;border:2px solid #000;border-radius:6px;font-family:'Arial Black',Impact,'Helvetica Neue',sans-serif;font-weight:900;font-size:22px;letter-spacing:.15em;line-height:1;text-align:center;vertical-align:middle;-webkit-print-color-adjust:exact;print-color-adjust:exact;box-shadow:inset 0 -2px 0 rgba(0,0,0,0.08)">${String(plate).toUpperCase()}</span>`;
-}
-
-function noteWithPlate(note) {
-  const plate = extractPlate(note);
-  if (!plate) return note ? `<span>${note}</span>` : "";
-  const before = note.slice(0, note.lastIndexOf(plate));
-  return `<span>${before}</span>${plateHtml(plate)}`;
-}
-
-function printInvoice(inv, settings) {
-  const w = window.open("", "_blank", "width=720,height=900");
-  if (!w) return;
-  const accent = settings?.invoice_accent_color || "#0EA5E9";
-  const showPlate = settings?.show_plate_badge !== false;
-  const token = localStorage.getItem("garage_token") || "";
-  const logoSrc = settings?.logo_url?.startsWith("/api/")
-    ? `${process.env.REACT_APP_BACKEND_URL}${settings.logo_url}&auth=${encodeURIComponent(token)}`
-    : settings?.logo_url;
-  const rows = inv.lines.map((l) => `<tr><td>${l.name}<div style="font-size:10px;color:#888">${l.sku || ""}</div></td><td class="right">${l.quantity}</td><td class="right">${formatEUR(l.unit_price)}</td><td class="right">${formatEUR(l.total)}</td></tr>`).join("");
-  w.document.write(`<!doctype html><html><head><title>${inv.invoice_number}</title>
-    <style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;padding:32px;color:#111;max-width:720px;margin:0 auto;-webkit-print-color-adjust:exact;print-color-adjust:exact}h1{font-size:22px;margin:0}.muted{color:#666;font-size:12px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{padding:8px;border-bottom:1px solid #eee;text-align:left;font-size:13px}th{background:#f5f5f5}.right{text-align:right}.badge{display:inline-block;padding:2px 10px;border-radius:999px;background:${accent};color:#fff;font-size:10px;letter-spacing:.1em;-webkit-print-color-adjust:exact;print-color-adjust:exact}.paid{background:#22c55e}.totrow{font-size:15px;font-weight:700}hr.accent{border:none;border-top:2px solid ${accent};margin:16px 0}.terms{margin-top:20px;font-size:10px;color:#666;white-space:pre-line;border-top:1px solid #eee;padding-top:8px}@media print{*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}}</style>
-    </head><body>
-    <div style="display:flex;justify-content:space-between;align-items:start">
-      <div style="display:flex;gap:12px;align-items:flex-start">
-        ${logoSrc ? `<img src="${logoSrc}" style="height:56px;width:auto;object-fit:contain" crossorigin="anonymous"/>` : ""}
-        <div><h1>${settings?.name || "Garage"}</h1><div class="muted">${(settings?.address || "").replace(/\n/g, "<br/>")}</div><div class="muted">${settings?.phone || ""}${settings?.email ? " · " + settings.email : ""}</div>${settings?.tax_id ? `<div class="muted">BTW: ${settings.tax_id}</div>` : ""}${settings?.kvk_number ? `<div class="muted">KvK: ${settings.kvk_number}</div>` : ""}</div>
-      </div>
-      <div style="text-align:right"><span class="badge ${inv.status === 'paid' ? 'paid' : ''}">${inv.status === 'paid' ? 'PAID' : 'INVOICE'}</span><div style="font-size:14px;margin-top:6px;font-weight:700">${inv.invoice_number}</div><div class="muted">${new Date(inv.created_at).toLocaleDateString("en-GB")}</div></div>
-    </div>
-    <hr class="accent" />
-    <div class="muted" style="text-transform:uppercase;letter-spacing:.1em;font-size:10px">Bill to</div>
-    <div style="font-size:15px;font-weight:600;margin-top:4px">${inv.customer_name || "Walk-in customer"}</div>
-    <table><thead><tr><th>Item</th><th class="right">Qty</th><th class="right">Unit price</th><th class="right">Total</th></tr></thead>
-    <tbody>${rows}</tbody></table>
-    <div style="margin-top:16px;text-align:right">
-      <div class="muted">Subtotal: ${formatEUR(inv.subtotal)}</div>
-      ${inv.tax ? `<div class="muted">BTW: ${formatEUR(inv.tax)}</div>` : ""}
-      <div class="totrow" style="margin-top:4px">Total: ${formatEUR(inv.total)}</div>
-    </div>
-    ${inv.note ? `<p class="muted" style="margin-top:24px">${showPlate ? noteWithPlate(inv.note) : inv.note}</p>` : ""}
-    ${settings?.iban ? `<p class="muted" style="margin-top:8px">Payment to IBAN: <span style="font-family:monospace">${settings.iban}</span></p>` : ""}
-    <p class="muted" style="margin-top:4px">Payment due within ${settings?.payment_terms_days || 14} days${inv.due_date ? ` (by ${inv.due_date})` : ""}.</p>
-    ${settings?.invoice_terms ? `<div class="terms">${settings.invoice_terms.replace(/</g, "&lt;")}</div>` : ""}
-    <p class="muted" style="margin-top:24px;text-align:center">${settings?.footer_note || "Thank you!"}</p>
-    </body></html>`);
-  w.document.close();
-  setTimeout(() => w.print(), 300);
+async function printInvoice(inv, settings) {
+  const html = await renderInvoiceHtml(inv, settings);
+  printHtml(html, { title: inv.invoice_number });
 }
 
 export default function Invoices() {
@@ -94,7 +45,11 @@ export default function Invoices() {
   const [payMethodId, setPayMethodId] = useState("");
   const [selectedInvoices, setSelectedInvoices] = useState([]);
   const [zipping, setZipping] = useState(false);
+  const [zipProgress, setZipProgress] = useState({ done: 0, total: 0 });
   const [sendingReminders, setSendingReminders] = useState(false);
+  const [emailTarget, setEmailTarget] = useState(null);
+  const [emailForm, setEmailForm] = useState({ to: "", subject: "", message: "" });
+  const [sendingEmail, setSendingEmail] = useState(false);
 
   const { data: overdue = [] } = useQuery({
     queryKey: ["overdue-invoices"],
@@ -109,7 +64,7 @@ export default function Invoices() {
     setSendingReminders(true);
     try {
       const res = await api.post("/invoices/overdue/send-reminders");
-      toast.success(`Sent ${res.data.sent} · ${res.data.skipped_no_email} skipped (no email)`);
+      toast.success(`Sent ${res.data.sent} · ${res.data.skipped ?? res.data.skipped_no_email ?? 0} skipped`);
       qc.invalidateQueries({ queryKey: ["overdue-invoices"] });
       qc.invalidateQueries({ queryKey: ["invoices"] });
     } catch (e) { toast.error(formatApiError(e)); }
@@ -137,7 +92,7 @@ export default function Invoices() {
         note,
       });
       toast.success(`Invoice ${data.invoice_number} created`, {
-        action: { label: "Print", onClick: () => printInvoice(data, settings) },
+        action: { label: "Print", onClick: () => { printInvoice(data, settings); } },
       });
       setShowCreate(false); setSelectedTxns([]); setCustomerId(""); setNote(""); setTaxRate(0);
       qc.invalidateQueries();
@@ -152,6 +107,33 @@ export default function Invoices() {
       qc.invalidateQueries();
     }
     catch (e) { toast.error(formatApiError(e)); }
+  };
+
+  const openEmail = (inv) => {
+    const cust = customers.find(c => c.id === inv.customer_id);
+    setEmailTarget(inv);
+    setEmailForm({
+      to: cust?.email || "",
+      subject: `Invoice ${inv.invoice_number} from ${settings?.name || "our garage"}`,
+      message: "",
+    });
+  };
+
+  const sendEmail = async () => {
+    if (!emailTarget) return;
+    if (!emailForm.to?.trim()) return toast.error(t("recipientRequired"));
+    setSendingEmail(true);
+    try {
+      await api.post(`/invoices/${emailTarget.id}/email`, {
+        to: emailForm.to.trim(),
+        subject: emailForm.subject?.trim() || undefined,
+        message: emailForm.message || undefined,
+      });
+      toast.success(t("sentTo", { to: emailForm.to }));
+      setEmailTarget(null);
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setSendingEmail(false); }
   };
 
   const del = async (id) => {
@@ -175,9 +157,14 @@ export default function Invoices() {
     <div className="space-y-8" data-testid="invoices-page">
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
-          <div className="text-xs font-mono uppercase tracking-widest text-primary mb-2">Billing</div>
-          <h1 className="font-display text-4xl font-black tracking-tight">Invoices</h1>
-          <p className="text-muted-foreground mt-2">{invoices.length} invoices · {formatEUR(invoices.filter(i => i.status !== "paid").reduce((s, i) => s + i.total, 0))} outstanding</p>
+          <div className="text-xs font-mono uppercase tracking-widest text-primary mb-2">{t("billing")}</div>
+          <h1 className="font-display text-4xl font-black tracking-tight">{t("invoices")}</h1>
+          <p className="text-muted-foreground mt-2" dir="ltr" style={{ unicodeBidi: "isolate" }}>
+            {t("invoicesSub", {
+              count: invoices.length,
+              out: formatEUR(invoices.filter(i => i.status !== "paid").reduce((s, i) => s + i.total, 0)),
+            })}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           {overdue.length > 0 && (
@@ -188,7 +175,7 @@ export default function Invoices() {
               onClick={sendOverdueReminders}
               data-testid="invoices-overdue-remind"
             >
-              <Bell className="h-4 w-4 mr-2" /> {sendingReminders ? "..." : `Remind ${overdue.length} overdue`}
+              <Bell className="h-4 w-4 mr-2" /> {sendingReminders ? "..." : t("remindNOverdue", { n: overdue.length })}
             </Button>
           )}
           <Button
@@ -197,16 +184,24 @@ export default function Invoices() {
             disabled={zipping || invoices.length === 0}
             onClick={async () => {
               setZipping(true);
+              setZipProgress({ done: 0, total: 0 });
               try {
                 const list = selectedInvoices.length > 0 ? invoices.filter(i => selectedInvoices.includes(i.id)) : invoices;
-                await downloadInvoicesZip(list, settings, `invoices-${new Date().toISOString().slice(0, 10)}.zip`);
+                await downloadInvoicesZip(
+                  list, settings,
+                  `invoices-${new Date().toISOString().slice(0, 10)}.zip`,
+                  (done, total) => setZipProgress({ done, total })
+                );
                 toast.success(t("zipDownloaded"));
               } catch (e) { toast.error(formatApiError(e)); }
-              finally { setZipping(false); }
+              finally { setZipping(false); setZipProgress({ done: 0, total: 0 }); }
             }}
             data-testid="invoices-zip-button"
           >
-            <Archive className="h-4 w-4 mr-2" /> {zipping ? "..." : (selectedInvoices.length > 0 ? `${t("downloadZip")} (${selectedInvoices.length})` : t("downloadAllZip"))}
+            <Archive className="h-4 w-4 mr-2" />
+            {zipping
+              ? (zipProgress.total ? `${zipProgress.done}/${zipProgress.total}...` : "...")
+              : (selectedInvoices.length > 0 ? t("pdfsZipN", { n: selectedInvoices.length }) : t("allPdfsZip"))}
           </Button>
           <Button
             variant="outline"
@@ -221,10 +216,10 @@ export default function Invoices() {
             }}
             data-testid="invoices-excel-button"
           >
-            <FileSpreadsheet className="h-4 w-4 mr-2" /> Excel
+            <FileSpreadsheet className="h-4 w-4 mr-2" /> {t("excel")}
           </Button>
           <Button className="rounded-full bg-primary hover:bg-primary/90" onClick={() => setShowCreate(true)} data-testid="invoice-create-button">
-            <Plus className="h-4 w-4 mr-2" /> New invoice
+            <Plus className="h-4 w-4 mr-2" /> {t("newInvoice")}
           </Button>
         </div>
       </div>
@@ -239,11 +234,11 @@ export default function Invoices() {
                   <div className="text-xs font-mono text-muted-foreground">{c.count} invoices</div>
                 </div>
                 {c.unpaid > 0
-                  ? <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/15">Owes {formatEUR(c.unpaid)}</Badge>
-                  : <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">Settled</Badge>}
+                  ? <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/15">{t("owesLabel", { n: formatEUR(c.unpaid) })}</Badge>
+                  : <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">{t("settledLabel")}</Badge>}
               </div>
               <div className="mt-2 flex justify-between text-xs text-muted-foreground">
-                <span>Paid lifetime</span>
+                <span>{t("paidLifetime")}</span>
                 <span className="font-mono">{formatEUR(c.paid)}</span>
               </div>
             </Card>
@@ -262,13 +257,13 @@ export default function Invoices() {
                   data-testid="invoices-select-all"
                 />
               </TableHead>
-              <TableHead>Invoice #</TableHead>
-              <TableHead>Customer</TableHead>
-              <TableHead>Lines</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead className="text-right w-40">Actions</TableHead>
+              <TableHead>{t("invoiceNumber")}</TableHead>
+              <TableHead>{t("customer")}</TableHead>
+              <TableHead>{t("lines")}</TableHead>
+              <TableHead className="text-right">{t("total")}</TableHead>
+              <TableHead>{t("status")}</TableHead>
+              <TableHead>{t("createdAt")}</TableHead>
+              <TableHead className="text-right w-40">{t("actionsLabel")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -287,11 +282,11 @@ export default function Invoices() {
                 <TableCell className="text-right tabular-nums font-mono">{formatEUR(inv.total)}</TableCell>
                 <TableCell>
                   {inv.status === "paid"
-                    ? <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">Paid</Badge>
+                    ? <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">{t("invoiceStatusPaid")}</Badge>
                     : overdueIds.has(inv.id)
                       ? (
                         <div className="flex flex-col gap-1 items-start">
-                          <Badge className="bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/40 hover:bg-rose-500/15" data-testid={`invoice-overdue-${inv.invoice_number}`}><AlertTriangle className="h-3 w-3 mr-1" />Overdue</Badge>
+                          <Badge className="bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/40 hover:bg-rose-500/15" data-testid={`invoice-overdue-${inv.invoice_number}`}><AlertTriangle className="h-3 w-3 mr-1" />{t("invoiceStatusOverdue")}</Badge>
                           {inv.reminder_stage > 0 && (
                             <span
                               className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border ${
@@ -302,14 +297,14 @@ export default function Invoices() {
                               data-testid={`invoice-reminder-stage-${inv.invoice_number}`}
                               title={inv.reminder_sent_at ? `Last sent: ${new Date(inv.reminder_sent_at).toLocaleString()}` : ""}
                             >
-                              {inv.reminder_stage === 1 && "Notice 1 · friendly"}
-                              {inv.reminder_stage === 2 && "Notice 2 · firm"}
-                              {inv.reminder_stage === 3 && "Notice 3 · final"}
+                              {inv.reminder_stage === 1 && t("notice1")}
+                              {inv.reminder_stage === 2 && t("notice2")}
+                              {inv.reminder_stage === 3 && t("notice3")}
                             </span>
                           )}
                         </div>
                       )
-                      : <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/15">Due</Badge>}
+                      : <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/15">{t("invoiceStatusDue")}</Badge>}
                 </TableCell>
                 <TableCell className="text-muted-foreground text-xs font-mono">
                   {new Date(inv.created_at).toLocaleDateString("en-GB")}
@@ -321,19 +316,26 @@ export default function Invoices() {
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
-                    <Button size="icon" variant="ghost" onClick={() => printInvoice(inv, settings)} data-testid={`invoice-print-${inv.invoice_number}`}><Printer className="h-4 w-4" /></Button>
+                    <Button size="icon" variant="ghost" onClick={() => { printInvoice(inv, settings); }} data-testid={`invoice-print-${inv.invoice_number}`}><Printer className="h-4 w-4" /></Button>
                     <Button
                       size="icon"
                       variant="ghost"
-                      title="Download PDF"
+                      title={t("downloadPdf")}
                       data-testid={`invoice-pdf-${inv.invoice_number}`}
                       onClick={async () => {
                         try {
-                          const html = invoiceToHtml(inv, settings);
+                          const html = await renderInvoiceHtml(inv, settings);
                           await downloadHtmlAsPdf(html, `${inv.invoice_number}.pdf`);
                         } catch (e) { toast.error(formatApiError(e)); }
                       }}
                     ><FileDown className="h-4 w-4" /></Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      title={t("emailInvoice")}
+                      data-testid={`invoice-email-${inv.invoice_number}`}
+                      onClick={() => openEmail(inv)}
+                    ><Mail className="h-4 w-4" /></Button>
                     <Button size="icon" variant="ghost" className="text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300" onClick={() => {
                       const cust = customers.find(c => c.id === inv.customer_id);
                       whatsappShare({
@@ -431,6 +433,54 @@ export default function Invoices() {
             <Button type="button" variant="ghost" onClick={() => { setPayTarget(null); setPayMethodId(""); }}>{t("cancel")}</Button>
             <Button className="rounded-full bg-emerald-500 hover:bg-emerald-500/90" onClick={() => markPaid(payTarget.id)} data-testid="invoice-paid-confirm">
               <CheckCircle2 className="h-4 w-4 mr-2" /> {t("paid")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!emailTarget} onOpenChange={(v) => { if (!v) setEmailTarget(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-display">{t("emailInvoiceTitle", { inv: emailTarget?.invoice_number || "" })}</DialogTitle>
+            <DialogDescription>{t("emailInvoice")}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>{t("recipientEmail")}</Label>
+              <Input
+                type="email"
+                value={emailForm.to}
+                onChange={(e) => setEmailForm(f => ({ ...f, to: e.target.value }))}
+                placeholder="customer@example.com"
+                data-testid="invoice-email-to"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("subject")}</Label>
+              <Input
+                value={emailForm.subject}
+                onChange={(e) => setEmailForm(f => ({ ...f, subject: e.target.value }))}
+                data-testid="invoice-email-subject"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("messageOptional")}</Label>
+              <Textarea
+                rows={3}
+                value={emailForm.message}
+                onChange={(e) => setEmailForm(f => ({ ...f, message: e.target.value }))}
+                data-testid="invoice-email-message"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEmailTarget(null)}>{t("cancel")}</Button>
+            <Button
+              className="rounded-full bg-primary"
+              disabled={sendingEmail}
+              onClick={sendEmail}
+              data-testid="invoice-email-send"
+            >
+              <Mail className="h-4 w-4 mr-2" />{sendingEmail ? t("sending") : t("sendEmail")}
             </Button>
           </DialogFooter>
         </DialogContent>

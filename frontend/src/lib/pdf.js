@@ -2,56 +2,107 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
 /**
- * Render HTML content to a downloadable PDF file.
- * Works with Arabic / RTL text because we snapshot the rendered HTML via html2canvas
- * — the browser handles Arabic shaping and direction, and the result is embedded as an image.
+ * Render HTML content to a downloadable PDF file — WITHOUT causing the parent
+ * page to visibly shrink/scroll.  We use a same-origin sandboxed iframe so
+ * html2canvas can rasterise an isolated document.
  */
-export async function downloadHtmlAsPdf(html, filename, options = {}) {
-  // Mount hidden container
-  const container = document.createElement("div");
-  container.style.position = "fixed";
-  container.style.left = "-10000px";
-  container.style.top = "0";
-  container.style.width = "800px";
-  container.style.background = "#fff";
-  container.style.color = "#000";
-  container.style.padding = "24px";
-  container.style.fontFamily = "system-ui, -apple-system, 'Cairo', 'Amiri', 'Segoe UI', sans-serif";
-  if (options.dir) container.setAttribute("dir", options.dir);
-  container.innerHTML = html;
-  document.body.appendChild(container);
-
-  // Give browser one frame to lay out
-  await new Promise((r) => setTimeout(r, 60));
-
+async function renderHtmlToCanvas(html) {
+  const iframe = document.createElement("iframe");
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.setAttribute("sandbox", "allow-same-origin");
+  Object.assign(iframe.style, {
+    position: "fixed",
+    left: "-10000px",
+    top: "0",
+    width: "820px",
+    height: "1200px",
+    border: "0",
+    opacity: "0",
+    pointerEvents: "none",
+    // very important: DO NOT set display:none — html2canvas needs a rendered layout
+  });
+  document.body.appendChild(iframe);
   try {
-    const canvas = await html2canvas(container, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
-    const img = canvas.toDataURL("image/png");
-    const pdf = new jsPDF({ orientation: "p", unit: "pt", format: "a4" });
-    const pageW = pdf.internal.pageSize.getWidth();
-    const pageH = pdf.internal.pageSize.getHeight();
-    const imgW = pageW - 40; // 20pt margin each side
-    const imgH = (canvas.height * imgW) / canvas.width;
-    let heightLeft = imgH;
-    let position = 20;
-    pdf.addImage(img, "PNG", 20, position, imgW, imgH, undefined, "FAST");
-    heightLeft -= pageH - 40;
-    while (heightLeft > 0) {
-      position = 20 - (imgH - heightLeft);
-      pdf.addPage();
-      pdf.addImage(img, "PNG", 20, position, imgW, imgH, undefined, "FAST");
-      heightLeft -= pageH - 40;
-    }
-    pdf.save(filename);
+    const doc = iframe.contentDocument;
+    if (!doc) throw new Error("Cannot open sandbox document");
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    // Wait for images (logo, QR) to load inside the iframe.
+    await new Promise((resolve) => {
+      const done = () => resolve();
+      if (doc.readyState === "complete") { setTimeout(done, 50); return; }
+      doc.addEventListener("DOMContentLoaded", () => setTimeout(done, 50), { once: true });
+      window.setTimeout(done, 1500); // hard cap
+    });
+    const imgs = Array.from(doc.images || []);
+    await Promise.all(imgs.map((im) => im.complete
+      ? Promise.resolve()
+      : new Promise((r) => { im.onload = im.onerror = r; })
+    ));
+
+    // Give layout one final frame
+    await new Promise((r) => setTimeout(r, 40));
+
+    const target = doc.body;
+    // ensure body has natural size so html2canvas doesn't try to expand
+    const height = Math.max(target.scrollHeight, target.offsetHeight, 400);
+    return await html2canvas(target, {
+      scale: 2,
+      backgroundColor: "#ffffff",
+      useCORS: true,
+      allowTaint: true,
+      logging: false,
+      width: target.scrollWidth,
+      height,
+      windowWidth: target.scrollWidth,
+      windowHeight: height,
+      scrollX: 0,
+      scrollY: 0,
+    });
   } finally {
-    document.body.removeChild(container);
+    if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
   }
 }
 
-/**
- * Print the given HTML fragment via the browser print dialog
- * (native way to print to physical printer OR save as PDF).
- */
+/** Turn a rasterised canvas into a jsPDF instance (A4 portrait, multi-page). */
+function canvasToPdf(canvas) {
+  const pdf = new jsPDF({ orientation: "p", unit: "pt", format: "a4" });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const marginX = 20;
+  const imgW = pageW - marginX * 2;
+  const imgH = (canvas.height * imgW) / canvas.width;
+  const img = canvas.toDataURL("image/png");
+  let position = 20;
+  let heightLeft = imgH;
+  pdf.addImage(img, "PNG", marginX, position, imgW, imgH, undefined, "FAST");
+  heightLeft -= pageH - 40;
+  while (heightLeft > 0) {
+    position = 20 - (imgH - heightLeft);
+    pdf.addPage();
+    pdf.addImage(img, "PNG", marginX, position, imgW, imgH, undefined, "FAST");
+    heightLeft -= pageH - 40;
+  }
+  return pdf;
+}
+
+/** Public: download the given HTML as a PDF file. */
+export async function downloadHtmlAsPdf(html, filename) {
+  const canvas = await renderHtmlToCanvas(html);
+  const pdf = canvasToPdf(canvas);
+  pdf.save(filename);
+}
+
+/** Public: render the HTML to a PDF Blob (used for bulk ZIP-of-PDFs). */
+export async function htmlToPdfBlob(html) {
+  const canvas = await renderHtmlToCanvas(html);
+  const pdf = canvasToPdf(canvas);
+  return pdf.output("blob");
+}
+
+/** Print an HTML fragment via a new tab / OS print dialog. */
 export function printHtml(html, options = {}) {
   const w = window.open("", "_blank", "width=800,height=900");
   if (!w) return;
@@ -63,6 +114,6 @@ export function printHtml(html, options = {}) {
     <title>${options.title || "Print"}</title>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&family=Amiri:wght@400;700&display=swap" rel="stylesheet"/>
     <style>body{font-family:${bodyFont};color:#111;background:#fff;margin:0;padding:24px}</style>
-    </head><body>${html}<script>window.onload=function(){setTimeout(function(){window.print()},250)}</script></body></html>`);
+    </head><body>${html}<script>window.onload=function(){setTimeout(function(){window.print()},350)}</script></body></html>`);
   w.document.close();
 }

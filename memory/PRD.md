@@ -103,6 +103,18 @@
 - **Repairs job-card header band** switched from stark `bg-black/95` to `bg-secondary` (theme-aware) in both list card and dialog editor.
 - Verified by testing_agent iteration_7 (toggle mechanism) + iteration_8 (WCAG contrast sweep in both modes).
 
+### Iteration 13 (Feb 2026) — Invoice PDF + Email + SEPA QR overhaul
+- **Fixed logo missing on print/PDF**: `/api/settings/logo-file` is now PUBLIC (`<img>` tags cannot send Authorization headers). Frontend also inlines the logo as a base64 data URI via `logoAsDataUrl()` so it always renders inside html2canvas snapshots.
+- **Fixed PDF-download page-shrink bug**: rewrote `pdf.js` to render inside a hidden same-origin iframe instead of appending to `document.body`. Parent page's `scrollHeight` stays identical before / during / after export (verified 1068 → 1068).
+- **Compact NL license plate**: dropped from 22 px / 6-18 padding to a proportional 12 px pill with a mini blue "NL" strip, matching the on-screen `PlateBadge`.
+- **Bulk PDF ZIP**: `downloadInvoicesZip` now bundles one real `.pdf` per invoice (was `.html`) with a live "1/N..." progress label.
+- **Send by email (new)**: `POST /api/invoices/{id}/email` + a per-row Mail button + dialog (recipient / subject / message). Updates `last_emailed_at` and `last_emailed_to` (fields added to the `Invoice` model so they surface on GET).
+- **SEPA / iDEAL QR**: EPC069-12 payload built from `settings.iban + bic + name + inv.total + inv.invoice_number`, rendered as PNG inside a right-aligned "Payment details" block (with bank name, IBAN, BIC, reference). Toggleable via `invoice_show_qr`.
+- **More customisation options** in `/settings`: `bank_name`, `bic`, `invoice_header_align` (Left / Center / Right), `invoice_currency_symbol_pos` (Suffix / Prefix — now actually applied by the invoice renderer), plus the SEPA-QR toggle.
+- **i18n**: /invoices fully translated to Arabic (RTL), Dutch, English — headers, action tooltips, status pills, customer-balance card, ZIP button label, email dialog. RTL number placement in "N invoices · X outstanding" fixed with `dir=ltr` isolation.
+- **A11y**: `DialogDescription` added to the email dialog to clear the Radix warning.
+- Verified end-to-end by testing_agent (iteration_11) + self-verification: backend 14/14, frontend all critical scenarios green.
+
 ### Iteration 12 (Feb 2026) — Scheduling guard + Escalating reminders
 - **Appointment Conflict Guard** (Calendar):
   - New `GET /api/appointments/conflicts?mechanic_id&start&duration_min&exclude` endpoint

@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 11 — full e2e test of the invoice PDF/print/email/settings-customisation work. Backend: 13/14 pytest cases pass (new settings fields, public logo endpoint, invoice email endpoint, regression on invoice lifecycle / reminders / conflicts). Frontend: verified via Playwright on the preview URL — Settings new controls save+persist, logo renders (data-URI in PDF, no broken icon), PDF download works with NO page shrink/reflow (scrollHeight & scrollWidth identical before/during/after, page stays interactive), email dialog prefill + validation + success toast, bulk ZIP now contains real .pdf files with a live progress label, small 12px NL plate, SEPA QR + payment details block, QR-off toggle honoured, header alignment honoured, and the whole flow re-verified in Arabic RTL. Two real defects found (email metadata stripped by response_model; currency-symbol-position setting is a no-op) plus i18n gaps on /invoices.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/invoices", "issue": "last_emailed_at / last_emailed_to are written to Mongo by POST /api/invoices/{id}/email (verified directly in DB) but are STRIPPED from the API response because GET /api/invoices uses response_model=List[Invoice] and the Invoice model (server.py ~1063) does not declare these two fields. The requested acceptance criterion 'GET /api/invoices shows last_emailed_at/last_emailed_to' therefore fails. Fix: add last_emailed_at: Optional[str] = None and last_emailed_to: Optional[str] = None to the Invoice model."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Settings — Currency symbol position", "issue": "Setting is saved/persisted (invoice_currency_symbol_pos) but has NO effect anywhere: invoice-render.js and the /settings live preview both use formatEUR() which always renders the suffix form ('10,50 €'). With 'Prefix — € 12.50' selected the printed/PDF invoice still shows the suffix. Dead setting.", "selector": "[data-testid=\"settings-currency-pos\"]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/invoices in Arabic (RTL)", "issues": ["Page is almost entirely untranslated: heading 'Invoices', 'New invoice', 'Excel', 'All PDFs · ZIP', 'Remind 1 overdue', table headers (Invoice #, Customer, Lines, Total, Status, Created, Actions), status pills (Due, Overdue, NOTICE 3 · FINAL, Paid) and the customer balance card (Owes / Paid lifetime / 'x invoices') all stay in English while the sidebar is Arabic.", "Subtitle renders as 'invoices · 164,56 € outstanding 3' in RTL — the count is pushed to the wrong end; wrap the number+word in a bdi/span with dir=ltr.", "Email invoice dialog is English-only (title, 'Recipient email', 'Subject', 'Message (optional)', 'Send email', toasts)."]},
+      {"screen": "Email invoice dialog", "issues": ["Radix warning in console: 'Missing Description or aria-describedby for DialogContent' — add DialogDescription for a11y (also affects the New-invoice dialog)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration11.py",
+    "/app/test_reports/pytest/iteration11.xml"
+  ],
+  "action_items": [
+    "Add last_emailed_at / last_emailed_to Optional[str] fields to the Invoice Pydantic model so GET /api/invoices exposes them (currently silently dropped).",
+    "Make invoice_currency_symbol_pos actually work: pass it into the money formatter used by invoice-render.js (and the /settings live preview) or remove the control.",
+    "i18n: translate the /invoices page strings + email dialog for Arabic and fix the RTL number placement in the 'N invoices · X outstanding' subtitle.",
+    "Add DialogDescription (or aria-describedby) to the email + new-invoice dialogs to clear the Radix a11y warning."
+  ],
+  "critical_code_review_comments": [
+    "server.py: GET /api/invoices response_model=List[Invoice] acts as an allow-list — any new field persisted by a write endpoint must be added to the model or it disappears from the API (root cause of the last_emailed_* bug).",
+    "invoice-render.js correctly inlines the logo as a base64 data URI (fetch credentials:'omit' against the now-public /api/settings/logo-file), which is why the logo appears in both print and html2canvas output — keep this behaviour if the endpoint is ever re-secured.",
+    "pdf.js off-screen iframe approach is sound: verified no layout jitter on the parent document; iframe is removed in a finally block so no DOM leak after 3+ consecutive exports.",
+    "invoice-zip.js swallows per-invoice errors with an empty catch — a failed invoice is silently omitted from the ZIP with no user feedback; consider surfacing a toast listing skipped invoice numbers.",
+    "SEPA payload follows EPC069-12 field order (BCD/002/1/SCT/BIC/name/IBAN/EUR amount/.../reference) and QR renders at 179x179 — structurally valid; not machine-scanned in this run."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration11.py"],
+  "success_rate": {"backend": "93% (13/14)", "frontend": "92% (11/12 scenarios; only the currency-symbol-position customisation failed)"},
+  "seed_data_creation": "No new seed data kept. Test artifacts: uploaded a 1x1 TEST_logo.png via POST /api/settings/logo to validate the public logo endpoint, then restored settings.logo_url to /logo-shawish.png. Settings left as: bank_name='ING Bank', bic='INGBNL2A', iban=NL91ABNA0417164300, invoice_show_qr=true, invoice_header_align='left', invoice_currency_symbol_pos='suffix'. Invoice INV-260821-F798 now carries last_emailed_to=test@example.com. A TEST_ customer + transaction + invoice created in the lifecycle regression test were deleted.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@garage.com / admin123 (owner) — valid, login returns {token, user}",
+  "context_for_next_testing_agent": "Verified this iteration: PDF shrink bug is FIXED (body scrollHeight/scrollWidth 1080/1920 unchanged before, during and after export in both LTR and Arabic RTL; New-invoice dialog still opens right after export). Bulk ZIP 'PDFs · ZIP (2)' produced invoices-2026-08-22.zip containing 2 real .pdf files (138KB/139KB, no .html) and flipped to a '1/2...' progress label. Print popup inspection is the cheapest way to assert PDF content: page.context.expect_page() on invoice-print-{number}, then evaluate on the popup (logo naturalWidth>0, plate font-size 12px with rgb(255,201,0) bg, 'Scan to pay' present only when invoice_show_qr=true, 'Payment details' + IBAN/BIC/bank/reference always present when iban set). Remaining open items: Invoice model missing last_emailed_* fields, dead currency-symbol-position setting, /invoices Arabic i18n gaps.",
+  "rca_of_the_issue": "last_emailed_* bug: POST /api/invoices/{id}/email does update Mongo (confirmed by direct motor query: {'last_emailed_at': '2026-08-22T17:11:03+00:00', 'last_emailed_to': 'test@example.com'}), but FastAPI serialises the list response through response_model=List[Invoice]; since Invoice has no such fields, Pydantic drops them. Currency-pos bug: invoice_currency_symbol_pos is only read in Settings.jsx form state; invoice-render.js formats every amount with formatEUR() and never consults it."
+}

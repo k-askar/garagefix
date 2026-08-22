@@ -22,14 +22,17 @@ const DEFAULT_FORM = {
   payment_terms_days: 14,
   iban: "", kvk_number: "", invoice_terms: "",
   show_plate_badge: true,
+  bank_name: "", bic: "",
+  invoice_show_qr: true,
+  invoice_header_align: "left",
+  invoice_currency_symbol_pos: "suffix",
 };
 
 // Same yellow-plate mock used in printInvoice; here for the preview only.
 function InvoicePreview({ form }) {
   const accent = form.invoice_accent_color || "#0EA5E9";
   const logo = form.logo_url;
-  const token = localStorage.getItem("garage_token") || "";
-  const logoSrc = logo?.startsWith("/api/") ? `${process.env.REACT_APP_BACKEND_URL}${logo}&auth=${encodeURIComponent(token)}` : logo;
+  const logoSrc = logo?.startsWith("/api/") ? `${process.env.REACT_APP_BACKEND_URL}${logo}` : logo;
   return (
     <div className="p-6 bg-white text-black rounded-md border border-border shadow-sm text-sm" data-testid="invoice-preview">
       <div className="flex items-start justify-between">
@@ -134,8 +137,9 @@ export default function Settings() {
   };
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const token = localStorage.getItem("garage_token") || "";
-  const logoSrc = form.logo_url?.startsWith("/api/") ? `${process.env.REACT_APP_BACKEND_URL}${form.logo_url}&auth=${encodeURIComponent(token)}` : form.logo_url;
+  const logoSrc = form.logo_url?.startsWith("/api/")
+    ? `${process.env.REACT_APP_BACKEND_URL}${form.logo_url}`
+    : form.logo_url;
 
   return (
     <div className="space-y-8 max-w-6xl" data-testid="settings-page">
@@ -230,6 +234,46 @@ export default function Settings() {
               <div className="space-y-1.5">
                 <Label>IBAN (bank account)</Label>
                 <Input value={form.iban} onChange={(e) => set("iban", e.target.value)} placeholder="NL91 ABNA 0417 1643 00" className="font-mono" data-testid="settings-iban" />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Bank name</Label>
+                  <Input value={form.bank_name} onChange={(e) => set("bank_name", e.target.value)} placeholder="ABN AMRO / ING / ..." data-testid="settings-bank-name" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>BIC / SWIFT</Label>
+                  <Input value={form.bic} onChange={(e) => set("bic", e.target.value)} placeholder="ABNANL2A" className="font-mono uppercase" data-testid="settings-bic" />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Header alignment</Label>
+                  <Select value={form.invoice_header_align || "left"} onValueChange={(v) => set("invoice_header_align", v)}>
+                    <SelectTrigger data-testid="settings-header-align"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="left">Left (default)</SelectItem>
+                      <SelectItem value="center">Center</SelectItem>
+                      <SelectItem value="right">Right</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Currency symbol position</Label>
+                  <Select value={form.invoice_currency_symbol_pos || "suffix"} onValueChange={(v) => set("invoice_currency_symbol_pos", v)}>
+                    <SelectTrigger data-testid="settings-currency-pos"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="suffix">Suffix — 12,50 €</SelectItem>
+                      <SelectItem value="prefix">Prefix — € 12.50</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex items-center justify-between rounded-md border border-border p-3">
+                <div>
+                  <Label className="cursor-pointer">Show SEPA payment QR code</Label>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">Adds a scannable QR (IBAN + total + reference) so customers can pay in one tap with any banking app.</p>
+                </div>
+                <Switch checked={!!form.invoice_show_qr} onCheckedChange={(v) => set("invoice_show_qr", v)} data-testid="settings-show-qr" />
               </div>
               <div className="space-y-1.5">
                 <Label>Payment term</Label>
