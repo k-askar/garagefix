@@ -2027,6 +2027,24 @@ async def update_repair(rid: str, payload: RepairUpdate, user: dict = Depends(ge
     merged = _recalc_repair(merged)
     updates.update(_recalc_fields(merged))
     await db.repairs.update_one({"id": rid}, {"$set": updates})
+    # Auto-sync back to the linked vehicle record so the customer's saved car
+    # reflects the freshest odometer, APK expiry, and next-oil-change target.
+    veh_id = card.get("vehicle_id") or merged.get("vehicle_id")
+    if veh_id:
+        veh_updates = {}
+        if "car_km" in updates and updates["car_km"]:
+            veh_updates["km"] = str(updates["car_km"])
+        if "car_apk_expiry" in updates:
+            veh_updates["apk_expiry"] = updates["car_apk_expiry"]
+        if "car_next_oil_change_km" in updates:
+            try:
+                veh_updates["next_oil_change_km"] = int(updates["car_next_oil_change_km"])
+            except (TypeError, ValueError):
+                veh_updates["next_oil_change_km"] = updates["car_next_oil_change_km"]
+        if "car_country" in updates and updates["car_country"]:
+            veh_updates["country"] = updates["car_country"]
+        if veh_updates:
+            await db.vehicles.update_one({"id": veh_id}, {"$set": veh_updates})
     return await db.repairs.find_one({"id": rid}, {"_id": 0})
 
 @api_router.post("/repairs/{rid}/assign", response_model=RepairCard)

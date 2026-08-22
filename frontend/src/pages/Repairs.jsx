@@ -375,6 +375,48 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
             </Card>
           </div>
 
+          {/* Service data — editable in-card so mechanic can log the oil target as work progresses */}
+          <Card className="p-5 border-border" data-testid="repair-service-info">
+            <div className="flex items-center gap-2 mb-3">
+              <Gauge className="h-4 w-4 text-primary" />
+              <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Service info · auto-synced to vehicle record</div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Current odometer (km)</Label>
+                <Input
+                  type="number"
+                  value={data.car_km || ""}
+                  onChange={(e) => set("car_km", e.target.value)}
+                  placeholder="e.g. 145200"
+                  data-testid="repair-current-km"
+                />
+                <p className="text-[10px] text-muted-foreground">Update as you receive the car.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">APK expiry</Label>
+                <Input
+                  type="date"
+                  value={data.car_apk_expiry || ""}
+                  onChange={(e) => set("car_apk_expiry", e.target.value)}
+                  data-testid="repair-apk-expiry"
+                />
+                <p className="text-[10px] text-muted-foreground">Renew after a fresh APK inspection.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Next oil change (km)</Label>
+                <Input
+                  type="number"
+                  value={data.car_next_oil_change_km || ""}
+                  onChange={(e) => set("car_next_oil_change_km", e.target.value === "" ? "" : Number(e.target.value))}
+                  placeholder="e.g. 155000"
+                  data-testid="repair-next-oil-km"
+                />
+                <p className="text-[10px] text-muted-foreground">Set after doing an oil change; triggers a reminder near this mileage.</p>
+              </div>
+            </div>
+          </Card>
+
           {/* Mechanic + status */}
           <Card className="p-5 border-border">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -544,7 +586,7 @@ export default function Repairs() {
   const [form, setForm] = useState({
     customer_id: "", customer_name: "", customer_phone: "",
     car_make: "", car_model: "", car_year: "", car_plate: "", car_color: "", car_km: "",
-    car_country: "NL", car_apk_expiry: "", car_next_oil_change_km: "",
+    car_country: "NL", car_apk_expiry: "",
     mechanic_id: "", complaint: "", notes: "",
   });
 
@@ -571,7 +613,7 @@ export default function Repairs() {
       });
       toast.success(`Card ${data.card_number} created`);
       setShowNew(false);
-      setForm({ customer_id: "", customer_name: "", customer_phone: "", car_make: "", car_model: "", car_year: "", car_plate: "", car_color: "", car_km: "", car_country: "NL", car_apk_expiry: "", car_next_oil_change_km: "", mechanic_id: "", complaint: "", notes: "" });
+      setForm({ customer_id: "", customer_name: "", customer_phone: "", car_make: "", car_model: "", car_year: "", car_plate: "", car_color: "", car_km: "", car_country: "NL", car_apk_expiry: "", mechanic_id: "", complaint: "", notes: "" });
       qc.invalidateQueries();
       setOpenCardId(data.id);
     } catch (e) { toast.error(formatApiError(e)); }
@@ -746,13 +788,9 @@ export default function Repairs() {
                   <option value="AE">🇦🇪 AE</option><option value="GB">🇬🇧 GB</option><option value="OTHER">Other</option>
                 </select>
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 col-span-2">
                 <Label className="text-xs">{t("apkExpiry")}</Label>
                 <Input type="date" value={form.car_apk_expiry} onChange={(e) => setForm({ ...form, car_apk_expiry: e.target.value })} data-testid="new-repair-apk" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">{t("nextOilChangeKm")}</Label>
-                <Input type="number" value={form.car_next_oil_change_km} onChange={(e) => setForm({ ...form, car_next_oil_change_km: e.target.value })} placeholder="e.g. 145000" data-testid="new-repair-next-oil" />
               </div>
             </div>
             <DialogFooter>
