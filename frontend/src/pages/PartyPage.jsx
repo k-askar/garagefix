@@ -419,7 +419,9 @@ export default function PartyPage({ kind }) {
                           {g.repairs.length === 0 ? (
                             <div className="p-3 text-xs text-muted-foreground text-center border border-dashed border-border rounded-md">{t("noRepairsForVehicle")}</div>
                           ) : (
-                            <div className="overflow-x-auto">
+                            <>
+                              {registered && v.id && <VehicleServiceHistory vehicleId={v.id} />}
+                              <div className="overflow-x-auto">
                               <Table>
                                 <TableHeader>
                                   <TableRow className="hover:bg-transparent">
@@ -448,7 +450,8 @@ export default function PartyPage({ kind }) {
                                   ))}
                                 </TableBody>
                               </Table>
-                            </div>
+                              </div>
+                            </>
                           )}
                         </div>
                       );
@@ -502,6 +505,35 @@ export default function PartyPage({ kind }) {
           </DialogContent>
         </Dialog>
       )}
+    </div>
+  );
+}
+
+/* Tiny inline component that fetches + renders the APK/oil timeline for a vehicle. */
+function VehicleServiceHistory({ vehicleId }) {
+  const { data } = useQuery({
+    queryKey: ["veh-history", vehicleId],
+    queryFn: () => api.get(`/vehicles/${vehicleId}/history`).then(r => r.data),
+    enabled: !!vehicleId,
+  });
+  const events = data?.events || [];
+  if (events.length === 0) return null;
+  return (
+    <div className="rounded-md border border-primary/20 bg-primary/5 p-3 space-y-1.5" data-testid={`veh-history-${vehicleId}`}>
+      <div className="text-[10px] font-mono uppercase tracking-widest text-primary mb-1">Service history · {events.length} event(s)</div>
+      <ul className="space-y-1">
+        {events.map((e) => (
+          <li key={e.id} className="text-[11px] font-mono flex items-center gap-2 flex-wrap">
+            <span className={`inline-block h-2 w-2 rounded-full ${e.kind === "apk_renewal" ? "bg-emerald-500" : "bg-sky-500"}`} />
+            <span className="text-muted-foreground">{new Date(e.at).toLocaleDateString()}</span>
+            <span className="font-semibold uppercase">{e.kind === "apk_renewal" ? "APK renewed" : "Oil change"}</span>
+            {e.km && <span className="text-muted-foreground">at {e.km} km</span>}
+            <span>→ <strong>{e.new_value}</strong></span>
+            {e.previous_value && <span className="text-muted-foreground">(was {e.previous_value})</span>}
+            {e.card_number && <span className="text-muted-foreground">· {e.card_number}</span>}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

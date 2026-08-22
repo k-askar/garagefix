@@ -2030,22 +2030,58 @@ async def update_repair(rid: str, payload: RepairUpdate, user: dict = Depends(ge
     # Auto-sync back to the linked vehicle record so the customer's saved car
     # reflects the freshest odometer, APK expiry, and next-oil-change target.
     veh_id = card.get("vehicle_id") or merged.get("vehicle_id")
+    now_iso = datetime.now(timezone.utc).isoformat()
     if veh_id:
+        veh = await db.vehicles.find_one({"id": veh_id}, {"_id": 0})
         veh_updates = {}
+        events: List[dict] = []
         if "car_km" in updates and updates["car_km"]:
             veh_updates["km"] = str(updates["car_km"])
         if "car_apk_expiry" in updates:
+            prev = (veh or {}).get("apk_expiry")
+            if updates["car_apk_expiry"] and updates["car_apk_expiry"] != prev:
+                events.append({
+                    "id": str(uuid.uuid4()), "vehicle_id": veh_id, "customer_id": merged.get("customer_id"),
+                    "card_id": rid, "card_number": merged.get("card_number"),
+                    "kind": "apk_renewal", "at": now_iso,
+                    "km": str(updates.get("car_km") or merged.get("car_km") or ""),
+                    "new_value": updates["car_apk_expiry"], "previous_value": prev or "",
+                })
             veh_updates["apk_expiry"] = updates["car_apk_expiry"]
         if "car_next_oil_change_km" in updates:
+            prev = (veh or {}).get("next_oil_change_km")
+            new_val = updates["car_next_oil_change_km"]
             try:
-                veh_updates["next_oil_change_km"] = int(updates["car_next_oil_change_km"])
+                new_int = int(new_val) if new_val not in (None, "") else None
             except (TypeError, ValueError):
-                veh_updates["next_oil_change_km"] = updates["car_next_oil_change_km"]
+                new_int = None
+            if new_int and new_int != prev:
+                events.append({
+                    "id": str(uuid.uuid4()), "vehicle_id": veh_id, "customer_id": merged.get("customer_id"),
+                    "card_id": rid, "card_number": merged.get("card_number"),
+                    "kind": "oil_change", "at": now_iso,
+                    "km": str(updates.get("car_km") or merged.get("car_km") or ""),
+                    "new_value": str(new_int), "previous_value": str(prev or ""),
+                })
+            veh_updates["next_oil_change_km"] = new_int
         if "car_country" in updates and updates["car_country"]:
             veh_updates["country"] = updates["car_country"]
         if veh_updates:
             await db.vehicles.update_one({"id": veh_id}, {"$set": veh_updates})
+        if events:
+            await db.service_events.insert_many(events)
     return await db.repairs.find_one({"id": rid}, {"_id": 0})
+
+
+@api_router.get("/vehicles/{vid}/history")
+async def vehicle_service_history(vid: str, user: dict = Depends(get_current_user)):
+    """Timeline of every APK renewal + oil change ever logged for a vehicle."""
+    v = await db.vehicles.find_one({"id": vid}, {"_id": 0})
+    if not v:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    events = await db.service_events.find({"vehicle_id": vid}, {"_id": 0}).sort("at", -1).to_list(500)
+    repairs = await db.repairs.find({"vehicle_id": vid}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return {"vehicle": v, "events": events, "repair_count": len(repairs)}
 
 @api_router.post("/repairs/{rid}/assign", response_model=RepairCard)
 async def assign_repair(rid: str, payload: RepairAssign, user: dict = Depends(get_current_user)):

@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Car, Wrench, Plus, Trash2, CheckCircle2, FileText, Printer, User, Gauge, X, ClipboardList, FileDown, MessageCircle, Play, Square, Timer, Lock, Unlock, RefreshCw } from "lucide-react";
+import NewJobCardDialog from "@/components/NewJobCardDialog";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { useLang } from "@/i18n";
@@ -739,67 +740,17 @@ export default function Repairs() {
       </div>
 
       {/* New card dialog */}
-      <Dialog open={showNew} onOpenChange={setShowNew}>
-        <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
-          <DialogHeader><DialogTitle className="font-display">New job card</DialogTitle></DialogHeader>
-          <form onSubmit={create} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label>Customer (existing or new)</Label>
-              <SearchableSelect
-                value={form.customer_id}
-                onChange={(v) => setForm({ ...form, customer_id: v })}
-                options={customers.map(c => ({ value: c.id, label: c.name, secondary: c.phone }))}
-                emptyLabel="— walk-in / enter manually —"
-                searchPlaceholder="Search customer by name or phone"
-                placeholder="Pick or leave blank"
-                testId="new-repair-customer-select"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5"><Label>Customer name</Label><Input value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} data-testid="new-repair-name" /></div>
-              <div className="space-y-1.5"><Label>Phone</Label><Input value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} data-testid="new-repair-phone" /></div>
-              <div className="space-y-1.5"><Label>Car make</Label><Input value={form.car_make} onChange={(e) => setForm({ ...form, car_make: e.target.value })} placeholder="e.g. VW" data-testid="new-repair-make" /></div>
-              <div className="space-y-1.5"><Label>Car model</Label><Input value={form.car_model} onChange={(e) => setForm({ ...form, car_model: e.target.value })} placeholder="e.g. Golf" data-testid="new-repair-model" /></div>
-              <div className="space-y-1.5"><Label>Year</Label><Input value={form.car_year} onChange={(e) => setForm({ ...form, car_year: e.target.value })} /></div>
-              <div className="space-y-1.5"><Label>Plate</Label><Input value={form.car_plate} onChange={(e) => setForm({ ...form, car_plate: e.target.value })} data-testid="new-repair-plate" /></div>
-              <div className="space-y-1.5"><Label>Color</Label><Input value={form.car_color} onChange={(e) => setForm({ ...form, car_color: e.target.value })} /></div>
-              <div className="space-y-1.5"><Label>Odometer (km)</Label><Input value={form.car_km} onChange={(e) => setForm({ ...form, car_km: e.target.value })} /></div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Mechanic</Label>
-              <Select value={form.mechanic_id || "none"} onValueChange={(v) => setForm({ ...form, mechanic_id: v === "none" ? "" : v })}>
-                <SelectTrigger data-testid="new-repair-mechanic-select"><SelectValue placeholder="Assign later if needed" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">— unassigned —</SelectItem>
-                  {users.map(u => <SelectItem key={u.id} value={u.id}>{u.name} · {u.role}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5"><Label>Customer complaint</Label><Textarea rows={3} value={form.complaint} onChange={(e) => setForm({ ...form, complaint: e.target.value })} placeholder="e.g. Brake pedal soft, pulls to the right..." data-testid="new-repair-complaint" /></div>
-            <div className="grid grid-cols-3 gap-3 pt-2 border-t border-border">
-              <div className="space-y-1.5">
-                <Label className="text-xs">{t("country")}</Label>
-                <select value={form.car_country} onChange={(e) => setForm({ ...form, car_country: e.target.value })} className="w-full h-10 rounded-md border border-input bg-transparent px-3 text-sm" data-testid="new-repair-country">
-                  <option value="NL">🇳🇱 NL</option><option value="DE">🇩🇪 DE</option><option value="FR">🇫🇷 FR</option>
-                  <option value="BE">🇧🇪 BE</option><option value="IT">🇮🇹 IT</option><option value="ES">🇪🇸 ES</option>
-                  <option value="PL">🇵🇱 PL</option><option value="TR">🇹🇷 TR</option><option value="MA">🇲🇦 MA</option>
-                  <option value="SY">🇸🇾 SY</option><option value="LB">🇱🇧 LB</option><option value="JO">🇯🇴 JO</option>
-                  <option value="IQ">🇮🇶 IQ</option><option value="EG">🇪🇬 EG</option><option value="SA">🇸🇦 SA</option>
-                  <option value="AE">🇦🇪 AE</option><option value="GB">🇬🇧 GB</option><option value="OTHER">Other</option>
-                </select>
-              </div>
-              <div className="space-y-1.5 col-span-2">
-                <Label className="text-xs">{t("apkExpiry")}</Label>
-                <Input type="date" value={form.car_apk_expiry} onChange={(e) => setForm({ ...form, car_apk_expiry: e.target.value })} data-testid="new-repair-apk" />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="ghost" onClick={() => setShowNew(false)}>Cancel</Button>
-              <Button type="submit" className="rounded-full bg-primary" data-testid="new-repair-submit">Open card</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <NewJobCardDialog
+        open={showNew}
+        onOpenChange={setShowNew}
+        customers={customers}
+        users={users}
+        onCreated={(newCard) => {
+          qc.invalidateQueries({ queryKey: ["repairs"] });
+          qc.invalidateQueries({ queryKey: ["cus"] });
+          setOpenCardId(newCard.id);
+        }}
+      />
 
       {openCard && (
         <CardEditor
