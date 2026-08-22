@@ -267,15 +267,15 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
         <div className="rounded-lg bg-secondary border border-primary/20 p-4 flex items-center justify-between gap-4 mb-4">
           <img src={logoSrc} alt="logo" className="h-14 w-auto object-contain" data-testid="repair-editor-logo" onError={(e) => { e.currentTarget.src = "/logo-shawish.png"; }} />
           <div className="text-right">
-            <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-primary">Job card</div>
+            <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-primary">{t("jobCards")}</div>
             <div className="font-mono text-primary text-sm">{data.card_number}</div>
             <div className="text-[10px] font-mono text-muted-foreground">{new Date(data.created_at).toLocaleDateString(meta.dir === 'rtl' ? 'ar-EG' : 'en-GB')}</div>
           </div>
         </div>
         <DialogHeader>
           <DialogTitle className="font-display flex items-center gap-3">
-            <span>Job card {data.card_number}</span>
-            <Badge className={STATUS_STYLE[data.status] + " capitalize"}>{STATUS_LABEL[data.status]}</Badge>
+            <span>{t("jobCards")} {data.card_number}</span>
+            <Badge className={STATUS_STYLE[data.status] + " capitalize"}>{t("status_" + data.status) || STATUS_LABEL[data.status]}</Badge>
           </DialogTitle>
         </DialogHeader>
 
@@ -315,132 +315,124 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
             </div>
           </div>
 
-          {/* Customer + Car header cards */}
+          {/* ── STEP 1 ─ Customer + Vehicle */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card className={`p-5 border-border card-hover ${locked ? "bg-muted/10" : ""}`}>
               <div className="flex items-center gap-2 mb-3">
+                <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/15 text-primary text-[10px] font-bold font-mono">1</span>
                 <User className="h-4 w-4 text-primary" />
-                <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Customer</div>
+                <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">{t("customer")}</div>
                 {locked && <Lock className="h-3 w-3 ms-auto text-muted-foreground/70" />}
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5 col-span-2"><Label className="text-xs">Name</Label><Input value={data.customer_name || ""} readOnly={locked} disabled={locked} onChange={(e) => set("customer_name", e.target.value)} data-testid="repair-customer-name" /></div>
-                <div className="space-y-1.5 col-span-2"><Label className="text-xs">Phone</Label><Input value={data.customer_phone || ""} readOnly={locked} disabled={locked} onChange={(e) => set("customer_phone", e.target.value)} data-testid="repair-customer-phone" /></div>
+                <div className="space-y-1.5 col-span-2"><Label className="text-xs">{t("name")}</Label><Input value={data.customer_name || ""} readOnly={locked} disabled={locked} onChange={(e) => set("customer_name", e.target.value)} data-testid="repair-customer-name" /></div>
+                <div className="space-y-1.5 col-span-2"><Label className="text-xs">{t("phone")}</Label><Input value={data.customer_phone || ""} readOnly={locked} disabled={locked} onChange={(e) => set("customer_phone", e.target.value)} data-testid="repair-customer-phone" /></div>
               </div>
             </Card>
             <Card className={`p-5 border-border card-hover ${locked ? "bg-muted/10" : ""}`}>
               <div className="flex items-center gap-2 mb-3">
+                <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/15 text-primary text-[10px] font-bold font-mono">1</span>
                 <Car className="h-4 w-4 text-primary" />
-                <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Vehicle</div>
+                <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">{t("vehicle")}</div>
                 {locked && <Lock className="h-3 w-3 ms-auto text-muted-foreground/70" />}
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5"><Label className="text-xs">Make</Label><Input value={data.car_make || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_make", e.target.value)} data-testid="repair-car-make" /></div>
-                <div className="space-y-1.5"><Label className="text-xs">Model</Label><Input value={data.car_model || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_model", e.target.value)} data-testid="repair-car-model" /></div>
-                <div className="space-y-1.5"><Label className="text-xs">Year</Label><Input value={data.car_year || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_year", e.target.value)} data-testid="repair-car-year" /></div>
-                <div className="space-y-1.5"><Label className="text-xs">Plate</Label><Input value={data.car_plate || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_plate", e.target.value)} data-testid="repair-car-plate" /></div>
-                <div className="space-y-1.5"><Label className="text-xs">Color</Label><Input value={data.car_color || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_color", e.target.value)} /></div>
-                <div className="space-y-1.5"><Label className="text-xs">Odometer (km)</Label><Input value={data.car_km || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_km", e.target.value)} /></div>
+                <div className="space-y-1.5"><Label className="text-xs">{t("make")}</Label><Input value={data.car_make || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_make", e.target.value)} data-testid="repair-car-make" /></div>
+                <div className="space-y-1.5"><Label className="text-xs">{t("model")}</Label><Input value={data.car_model || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_model", e.target.value)} data-testid="repair-car-model" /></div>
+                <div className="space-y-1.5"><Label className="text-xs">{t("year")}</Label><Input value={data.car_year || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_year", e.target.value)} data-testid="repair-car-year" /></div>
+                <div className="space-y-1.5"><Label className="text-xs">{t("plateNumber")}</Label><Input value={data.car_plate || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_plate", e.target.value)} data-testid="repair-car-plate" /></div>
+                <div className="space-y-1.5"><Label className="text-xs">{t("color")}</Label><Input value={data.car_color || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_color", e.target.value)} /></div>
+                <div className="space-y-1.5"><Label className="text-xs">{t("odometer")}</Label><Input value={data.car_km || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_km", e.target.value)} /></div>
               </div>
             </Card>
           </div>
 
-          {/* Service data — editable in-card so mechanic can log the oil target as work progresses */}
+          {/* ── STEP 2 ─ Service data */}
           <Card className="p-5 border-border" data-testid="repair-service-info">
             <div className="flex items-center gap-2 mb-3">
+              <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/15 text-primary text-[10px] font-bold font-mono">2</span>
               <Gauge className="h-4 w-4 text-primary" />
-              <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Service info · auto-synced to vehicle record</div>
+              <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">{t("serviceInfoAutoSync")}</div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs">Current odometer (km)</Label>
-                <Input
-                  type="number"
-                  value={data.car_km || ""}
-                  onChange={(e) => set("car_km", e.target.value)}
-                  placeholder="e.g. 145200"
-                  data-testid="repair-current-km"
-                />
-                <p className="text-[10px] text-muted-foreground">Update as you receive the car.</p>
+                <Label className="text-xs">{t("currentOdometerKm")}</Label>
+                <Input type="number" value={data.car_km || ""} onChange={(e) => set("car_km", e.target.value)} placeholder="e.g. 145200" data-testid="repair-current-km" />
+                <p className="text-[10px] text-muted-foreground">{t("updateOnReceive")}</p>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs">APK expiry</Label>
-                <Input
-                  type="date"
-                  value={data.car_apk_expiry || ""}
-                  onChange={(e) => set("car_apk_expiry", e.target.value)}
-                  data-testid="repair-apk-expiry"
-                />
-                <p className="text-[10px] text-muted-foreground">Renew after a fresh APK inspection.</p>
+                <Label className="text-xs">{t("apkExpiry")}</Label>
+                <Input type="date" value={data.car_apk_expiry || ""} onChange={(e) => set("car_apk_expiry", e.target.value)} data-testid="repair-apk-expiry" />
+                <p className="text-[10px] text-muted-foreground">{t("renewAfterAPK")}</p>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs">Next oil change (km)</Label>
-                <Input
-                  type="number"
-                  value={data.car_next_oil_change_km || ""}
-                  onChange={(e) => set("car_next_oil_change_km", e.target.value === "" ? "" : Number(e.target.value))}
-                  placeholder="e.g. 155000"
-                  data-testid="repair-next-oil-km"
-                />
-                <p className="text-[10px] text-muted-foreground">Set after doing an oil change; triggers a reminder near this mileage.</p>
+                <Label className="text-xs">{t("nextOilChangeKm")}</Label>
+                <Input type="number" value={data.car_next_oil_change_km || ""} onChange={(e) => set("car_next_oil_change_km", e.target.value === "" ? "" : Number(e.target.value))} placeholder="e.g. 155000" data-testid="repair-next-oil-km" />
+                <p className="text-[10px] text-muted-foreground">{t("setAfterOilChange")}</p>
               </div>
             </div>
           </Card>
 
-          {/* Mechanic + status */}
+          {/* ── STEP 3 ─ Assignment + Status */}
           <Card className="p-5 border-border">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/15 text-primary text-[10px] font-bold font-mono">3</span>
+              <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">{t("assignmentAndStatus")}</div>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1.5">
-                <Label className="text-xs uppercase tracking-widest font-mono text-muted-foreground">Mechanic</Label>
+                <Label className="text-xs uppercase tracking-widest font-mono text-muted-foreground">{t("mechanic")}</Label>
                 <Select value={data.mechanic_id || "none"} onValueChange={(v) => set("mechanic_id", v === "none" ? "" : v)}>
-                  <SelectTrigger data-testid="repair-mechanic-select"><SelectValue placeholder="Assign mechanic" /></SelectTrigger>
+                  <SelectTrigger data-testid="repair-mechanic-select"><SelectValue placeholder={t("assignMechanic")} /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">— unassigned —</SelectItem>
+                    <SelectItem value="none">— {t("unassigned")} —</SelectItem>
                     {users.map(u => <SelectItem key={u.id} value={u.id}>{u.name} · {u.role}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5 md:col-span-2">
-                <Label className="text-xs uppercase tracking-widest font-mono text-muted-foreground">Status</Label>
+                <Label className="text-xs uppercase tracking-widest font-mono text-muted-foreground">{t("status")}</Label>
                 <Tabs value={data.status} onValueChange={(v) => set("status", v)}>
                   <TabsList className="grid grid-cols-3 w-full">
-                    <TabsTrigger value="open" data-testid="repair-status-open">Open</TabsTrigger>
-                    <TabsTrigger value="in_progress" data-testid="repair-status-progress">In progress</TabsTrigger>
-                    <TabsTrigger value="completed" data-testid="repair-status-completed">Completed</TabsTrigger>
+                    <TabsTrigger value="open" data-testid="repair-status-open">{t("statusOpen")}</TabsTrigger>
+                    <TabsTrigger value="in_progress" data-testid="repair-status-progress">{t("inProgress")}</TabsTrigger>
+                    <TabsTrigger value="completed" data-testid="repair-status-completed">{t("completed")}</TabsTrigger>
                   </TabsList>
                 </Tabs>
               </div>
             </div>
           </Card>
 
-          {/* Repair notes */}
+          {/* ── STEP 4 ─ Repair log */}
           <Card className="p-5 border-border space-y-4">
             <div className="flex items-center gap-2">
+              <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/15 text-primary text-[10px] font-bold font-mono">4</span>
               <ClipboardList className="h-4 w-4 text-primary" />
-              <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Repair log</div>
+              <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">{t("repairLog")}</div>
             </div>
-            <div className="space-y-1.5"><Label className="text-xs">Customer complaint</Label><Textarea rows={2} value={data.complaint || ""} onChange={(e) => set("complaint", e.target.value)} data-testid="repair-complaint" /></div>
-            <div className="space-y-1.5"><Label className="text-xs">Diagnosis</Label><Textarea rows={2} value={data.diagnosis || ""} onChange={(e) => set("diagnosis", e.target.value)} data-testid="repair-diagnosis" /></div>
-            <div className="space-y-1.5"><Label className="text-xs">Work performed</Label><Textarea rows={3} value={data.work_done || ""} onChange={(e) => set("work_done", e.target.value)} data-testid="repair-work" /></div>
+            <div className="space-y-1.5"><Label className="text-xs">{t("customerComplaint")}</Label><Textarea rows={2} value={data.complaint || ""} onChange={(e) => set("complaint", e.target.value)} data-testid="repair-complaint" /></div>
+            <div className="space-y-1.5"><Label className="text-xs">{t("diagnosis")}</Label><Textarea rows={2} value={data.diagnosis || ""} onChange={(e) => set("diagnosis", e.target.value)} data-testid="repair-diagnosis" /></div>
+            <div className="space-y-1.5"><Label className="text-xs">{t("workPerformed")}</Label><Textarea rows={3} value={data.work_done || ""} onChange={(e) => set("work_done", e.target.value)} data-testid="repair-work" /></div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5"><Label className="text-xs">Labor charge (€)</Label><Input type="number" step="0.01" value={data.labor_charge || 0} onChange={(e) => set("labor_charge", e.target.value)} data-testid="repair-labor" />
+              <div className="space-y-1.5"><Label className="text-xs">{t("laborCharge")}</Label><Input type="number" step="0.01" value={data.labor_charge || 0} onChange={(e) => set("labor_charge", e.target.value)} data-testid="repair-labor" />
                 <p className="text-[10px] text-muted-foreground">{t("laborAuto")}</p>
               </div>
-              <div className="space-y-1.5"><Label className="text-xs">Internal notes</Label><Input value={data.notes || ""} onChange={(e) => set("notes", e.target.value)} /></div>
+              <div className="space-y-1.5"><Label className="text-xs">{t("internalNotes")}</Label><Input value={data.notes || ""} onChange={(e) => set("notes", e.target.value)} /></div>
             </div>
           </Card>
 
-          {/* Labor time clock */}
+          {/* ── STEP 5 ─ Time clock */}
           <TimeClockPanel card={data} setData={setData} settings={settings} refetch={refetch} />
 
-          {/* Parts used */}
+          {/* ── STEP 6 ─ Parts used */}
           <Card className="p-5 border-border">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <div className="flex items-center gap-2">
+                <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/15 text-primary text-[10px] font-bold font-mono">6</span>
                 <Wrench className="h-4 w-4 text-primary" />
-                <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Parts used</div>
+                <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">{t("partsUsed")}</div>
               </div>
-              <div className="font-mono text-sm">{(data.parts_used || []).length} lines · {formatEUR(data.parts_total)}</div>
+              <div className="font-mono text-sm">{(data.parts_used || []).length} {t("lines")} · {formatEUR(data.parts_total)}</div>
             </div>
             <div className="grid grid-cols-[1fr_100px_auto] gap-2 mb-4">
               <SearchableSelect
@@ -449,18 +441,18 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
                 options={items.filter(i => i.quantity > 0).map(i => ({
                   value: i.id,
                   label: i.name,
-                  secondary: `${i.sku} · ${i.quantity} in stock · ${formatEUR(i.selling_price)}`,
+                  secondary: `${i.sku} · ${i.quantity} ${t("inStock")} · ${formatEUR(i.selling_price)}`,
                 }))}
-                emptyLabel="— pick from stock —"
-                searchPlaceholder="Search by name or SKU"
-                placeholder="Pick a part from stock"
+                emptyLabel={"— " + t("pickFromStock") + " —"}
+                searchPlaceholder={t("searchByNameSku")}
+                placeholder={t("pickPartFromStock")}
                 testId="repair-part-select"
               />
               <Input type="number" min="1" value={addQty} onChange={(e) => setAddQty(e.target.value)} data-testid="repair-part-qty" />
-              <Button onClick={addPart} className="rounded-full bg-primary" data-testid="repair-part-add"><Plus className="h-4 w-4 mr-1" /> Add</Button>
+              <Button onClick={addPart} className="rounded-full bg-primary" data-testid="repair-part-add"><Plus className="h-4 w-4 mr-1" /> {t("add")}</Button>
             </div>
             <div className="space-y-2">
-              {(data.parts_used || []).length === 0 && <div className="text-sm text-muted-foreground text-center py-6">No parts used yet.</div>}
+              {(data.parts_used || []).length === 0 && <div className="text-sm text-muted-foreground text-center py-6">{t("noPartsUsedYet")}</div>}
               {(data.parts_used || []).map(p => (
                 <div key={p.txn_id} className="flex items-center justify-between p-3 rounded-md bg-muted/40 border border-border">
                   <div className="min-w-0">
@@ -481,12 +473,16 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
             </div>
           </Card>
 
-          {/* Photos of the vehicle */}
+          {/* ── STEP 7 ─ Photos */}
           <Card className="p-5 border-border">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/15 text-primary text-[10px] font-bold font-mono">7</span>
+              <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">{t("photos")}</div>
+            </div>
             <RepairPhotos repairId={data.id} photos={data.photos || []} onChange={(photos) => setData({ ...data, photos })} />
           </Card>
 
-          {/* Special-order parts (not from stock) */}
+          {/* ── STEP 8 ─ Special order parts */}
           <SpecialPartsPanel card={data} setCard={setData} />
 
           {/* Totals with BTW / VAT breakdown */}

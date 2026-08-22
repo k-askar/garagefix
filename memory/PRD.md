@@ -178,11 +178,15 @@
   - Manual movement panel still available at the bottom.
 - 🌐 27 new i18n keys added to en/nl/ar (workshopBooks, cash / bank / card / other, section, net, from, to, entries, searchLedgerPh, etc.).
 
+## Iteration 18 (Feb 2026) — Repairs modal redesign + full translation
+- 🧭 **Numbered step-flow** inside the job-card modal — every section now shows a small circled step number (1 Customer + Vehicle → 2 Service info → 3 Assignment & status → 4 Repair log → 5 Time clock → 6 Parts used → 7 Photos → 8 Special-ordered parts → Totals) so the mechanic can visually tell where they are in the workflow.
+- 🌐 **Full i18n on the modal** — every previously-hard-coded English label (Customer, Vehicle, Make, Model, Year, Plate, Odometer, Current odometer, APK expiry, Next oil change, Assignment & status, Assign mechanic, Repair log, Customer complaint, Diagnosis, Work performed, Labor charge, Internal notes, Parts used, No parts used yet, Photos, Pick a part from stock, Search by name or SKU, in stock…) now runs through `t()`. Added 21 new keys to en/nl/ar.
+- 🔤 Status pill inside the modal now honours the language (`t("status_" + data.status)`), so it reads "قيد العمل" / "bezig" instead of "In progress" for AR/NL users.
+
 ## Roadmap / Backlog
-- Full translation pass for Repairs card modal + Invoice preview labels — P1
+- Server refactor — split `server.py` into `routes/` modules — P1 (deferred; needs dedicated iteration to avoid regressions)
 - SMS fallback via Twilio when a customer has no email — P1
 - Ordered-parts dashboard (cross-workshop) — P3
-- Refactor `server.py` (~3650 lines) into APIRouter modules per domain
 
 ## Iteration 13 (Feb 2026) — Loyalty rewards + Car Passport QR
 ### Loyalty rewards
