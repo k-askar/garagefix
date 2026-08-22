@@ -15,6 +15,8 @@ import { ChevronLeft, ChevronRight, Plus, CalendarDays, Car, User, Wrench, Trash
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import SearchableSelect from "@/components/SearchableSelect";
+import AddressFields from "@/components/AddressFields";
+import VehicleMakeModelYear from "@/components/VehicleMakeModelYear";
 
 const STATUS_STYLE = {
   scheduled: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30",
@@ -53,7 +55,7 @@ export default function CalendarPage() {
   const [showNew, setShowNew] = useState(false);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [showNewVehicle, setShowNewVehicle] = useState(false);
-  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", email: "", address: "", make: "", model: "", year: "", plate: "", color: "", km: "" });
+  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", email: "", address: "", make: "", model: "", year: "", plate: "", color: "", km: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL" });
   const [newVehicle, setNewVehicle] = useState({ make: "", model: "", year: "", plate: "", color: "", km: "" });
   const [form, setForm] = useState({
     customer_id: "", vehicle_id: "", mechanic_id: "",
@@ -173,6 +175,10 @@ export default function CalendarPage() {
       const { data } = await api.post("/customers", {
         name: newCustomer.name, phone: newCustomer.phone, email: newCustomer.email,
         address: newCustomer.address, vehicle: summaryVehicle,
+        postcode: newCustomer.postcode, house_number: newCustomer.house_number,
+        house_number_addition: newCustomer.house_number_addition,
+        street: newCustomer.street, city: newCustomer.city,
+        address_country: newCustomer.address_country,
       });
       let newVehId = "";
       if (newCustomer.make || newCustomer.plate) {
@@ -188,7 +194,7 @@ export default function CalendarPage() {
       await qc.invalidateQueries({ queryKey: ["cus"] });
       if (newVehId) await qc.invalidateQueries({ queryKey: ["cust-vehicles", data.id] });
       setForm(f => ({ ...f, customer_id: data.id, vehicle_id: newVehId }));
-      setNewCustomer({ name: "", phone: "", email: "", address: "", make: "", model: "", year: "", plate: "", color: "", km: "" });
+      setNewCustomer({ name: "", phone: "", email: "", address: "", make: "", model: "", year: "", plate: "", color: "", km: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL" });
       setShowNewCustomer(false);
     } catch (err) { toast.error(formatApiError(err)); }
   };
@@ -436,10 +442,12 @@ export default function CalendarPage() {
             </div>
             <div className="space-y-2 p-3 rounded-md border border-border bg-muted/20">
               <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("vehicle")} · {t("optional")}</div>
+              <VehicleMakeModelYear
+                value={{ make: newCustomer.make, model: newCustomer.model, year: newCustomer.year }}
+                onChange={(mmy) => setNewCustomer({ ...newCustomer, ...mmy })}
+                testIdPrefix="quick-cust"
+              />
               <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1.5"><Label className="text-xs">{t("make")}</Label><Input value={newCustomer.make} onChange={(e) => setNewCustomer({ ...newCustomer, make: e.target.value })} placeholder="e.g. VW, BMW, Toyota" data-testid="quick-cust-make" /></div>
-                <div className="space-y-1.5"><Label className="text-xs">{t("model")}</Label><Input value={newCustomer.model} onChange={(e) => setNewCustomer({ ...newCustomer, model: e.target.value })} placeholder="e.g. Golf, 320i" data-testid="quick-cust-model" /></div>
-                <div className="space-y-1.5"><Label className="text-xs">{t("year")}</Label><Input value={newCustomer.year} onChange={(e) => setNewCustomer({ ...newCustomer, year: e.target.value })} placeholder="2020" /></div>
                 <div className="space-y-1.5"><Label className="text-xs">{t("plateNumber")}</Label><Input value={newCustomer.plate} onChange={(e) => setNewCustomer({ ...newCustomer, plate: e.target.value })} placeholder="NL-XX-00" data-testid="quick-cust-plate" /></div>
                 <div className="space-y-1.5"><Label className="text-xs">{t("color")}</Label><Input value={newCustomer.color} onChange={(e) => setNewCustomer({ ...newCustomer, color: e.target.value })} /></div>
                 <div className="space-y-1.5"><Label className="text-xs">{t("odometer")}</Label><Input value={newCustomer.km} onChange={(e) => setNewCustomer({ ...newCustomer, km: e.target.value })} placeholder="km" /></div>
@@ -450,7 +458,22 @@ export default function CalendarPage() {
               <div className="space-y-1.5"><Label>{t("email")}</Label><Input type="email" value={newCustomer.email} onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })} /></div>
               <div className="space-y-1.5"><Label>{t("phone")}</Label><Input value={newCustomer.phone} onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })} data-testid="quick-customer-phone" /></div>
             </div>
-            <div className="space-y-1.5"><Label>{t("address")}</Label><Input value={newCustomer.address} onChange={(e) => setNewCustomer({ ...newCustomer, address: e.target.value })} /></div>
+            <div className="space-y-2 p-3 rounded-md border border-border bg-muted/20">
+              <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("address")}</div>
+              <AddressFields
+                value={{
+                  postcode: newCustomer.postcode,
+                  house_number: newCustomer.house_number,
+                  house_number_addition: newCustomer.house_number_addition,
+                  street: newCustomer.street,
+                  city: newCustomer.city,
+                  address_country: newCustomer.address_country,
+                }}
+                onChange={(a) => setNewCustomer({ ...newCustomer, ...a })}
+                testIdPrefix="quick-cust-addr"
+                compact
+              />
+            </div>
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={() => setShowNewCustomer(false)}>{t("cancel")}</Button>
               <Button type="submit" className="rounded-full" data-testid="quick-customer-save">{t("save")}</Button>
@@ -461,13 +484,15 @@ export default function CalendarPage() {
 
       {/* Quick add vehicle dialog */}
       <Dialog open={showNewVehicle} onOpenChange={setShowNewVehicle}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle className="font-display">{t("newVehicle")}</DialogTitle></DialogHeader>
           <form onSubmit={createVehicle} className="space-y-3">
+            <VehicleMakeModelYear
+              value={{ make: newVehicle.make, model: newVehicle.model, year: newVehicle.year }}
+              onChange={(mmy) => setNewVehicle({ ...newVehicle, ...mmy })}
+              testIdPrefix="quick-veh"
+            />
             <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1.5"><Label>{t("make")}</Label><Input value={newVehicle.make} onChange={(e) => setNewVehicle({ ...newVehicle, make: e.target.value })} data-testid="quick-veh-make" /></div>
-              <div className="space-y-1.5"><Label>{t("model")}</Label><Input value={newVehicle.model} onChange={(e) => setNewVehicle({ ...newVehicle, model: e.target.value })} data-testid="quick-veh-model" /></div>
-              <div className="space-y-1.5"><Label>{t("year")}</Label><Input value={newVehicle.year} onChange={(e) => setNewVehicle({ ...newVehicle, year: e.target.value })} /></div>
               <div className="space-y-1.5"><Label>{t("plateNumber")}</Label><Input value={newVehicle.plate} onChange={(e) => setNewVehicle({ ...newVehicle, plate: e.target.value })} data-testid="quick-veh-plate" /></div>
               <div className="space-y-1.5"><Label>{t("color")}</Label><Input value={newVehicle.color} onChange={(e) => setNewVehicle({ ...newVehicle, color: e.target.value })} /></div>
               <div className="space-y-1.5"><Label>{t("odometer")}</Label><Input value={newVehicle.km} onChange={(e) => setNewVehicle({ ...newVehicle, km: e.target.value })} /></div>

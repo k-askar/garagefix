@@ -11,6 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { UserPlus, Car, Plus, Sparkles } from "lucide-react";
 import SearchableSelect from "@/components/SearchableSelect";
 import PlateBadge from "@/components/PlateBadge";
+import AddressFields from "@/components/AddressFields";
+import VehicleMakeModelYear from "@/components/VehicleMakeModelYear";
 import { toast } from "sonner";
 
 const COUNTRIES = [
@@ -38,7 +40,7 @@ const EMPTY_VEHICLE = { make: "", model: "", year: "", plate: "", color: "", km:
 export default function NewJobCardDialog({ open, onOpenChange, customers, users, onCreated }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
-  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", email: "", address: "" });
+  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", email: "", address: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL" });
   const [newVehicle, setNewVehicle] = useState(EMPTY_VEHICLE);
   const [addingVehicle, setAddingVehicle] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -84,7 +86,7 @@ export default function NewJobCardDialog({ open, onOpenChange, customers, users,
       const { data } = await api.post("/customers", newCustomer);
       toast.success(`Customer ${data.name} added`);
       setForm(f => ({ ...f, customer_id: data.id, customer_name: data.name, customer_phone: data.phone || "" }));
-      setNewCustomer({ name: "", phone: "", email: "", address: "" });
+      setNewCustomer({ name: "", phone: "", email: "", address: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL" });
       setShowNewCustomer(false);
     } catch (e) { toast.error(formatApiError(e)); }
     finally { setBusy(false); }
@@ -210,25 +212,36 @@ export default function NewJobCardDialog({ open, onOpenChange, customers, users,
               )}
 
               {(addingVehicle || (!form.customer_id) || (!form.vehicle_id && cVehicles.length === 0 && form.customer_id)) && (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  <div className="space-y-1.5"><Label className="text-xs">Make</Label><Input value={addingVehicle ? newVehicle.make : form.car_make} onChange={(e) => addingVehicle ? setNewVehicle({ ...newVehicle, make: e.target.value }) : setForm({ ...form, car_make: e.target.value })} placeholder="e.g. VW" data-testid="new-repair-make" /></div>
-                  <div className="space-y-1.5"><Label className="text-xs">Model</Label><Input value={addingVehicle ? newVehicle.model : form.car_model} onChange={(e) => addingVehicle ? setNewVehicle({ ...newVehicle, model: e.target.value }) : setForm({ ...form, car_model: e.target.value })} placeholder="e.g. Golf" data-testid="new-repair-model" /></div>
-                  <div className="space-y-1.5"><Label className="text-xs">Year</Label><Input value={addingVehicle ? newVehicle.year : form.car_year} onChange={(e) => addingVehicle ? setNewVehicle({ ...newVehicle, year: e.target.value }) : setForm({ ...form, car_year: e.target.value })} /></div>
-                  <div className="space-y-1.5"><Label className="text-xs">Plate</Label><Input value={addingVehicle ? newVehicle.plate : form.car_plate} onChange={(e) => addingVehicle ? setNewVehicle({ ...newVehicle, plate: e.target.value }) : setForm({ ...form, car_plate: e.target.value })} data-testid="new-repair-plate" /></div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Country</Label>
-                    <select value={addingVehicle ? newVehicle.country : form.car_country} onChange={(e) => addingVehicle ? setNewVehicle({ ...newVehicle, country: e.target.value }) : setForm({ ...form, car_country: e.target.value })} className="w-full h-10 rounded-md border border-input bg-transparent px-3 text-sm" data-testid="new-repair-country">
-                      {COUNTRIES.map(([c, label]) => <option key={c} value={c}>{label}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-1.5"><Label className="text-xs">Odometer (km)</Label><Input value={addingVehicle ? newVehicle.km : form.car_km} onChange={(e) => addingVehicle ? setNewVehicle({ ...newVehicle, km: e.target.value }) : setForm({ ...form, car_km: e.target.value })} /></div>
-                  <div className="space-y-1.5 md:col-span-2"><Label className="text-xs">APK expiry</Label><Input type="date" value={addingVehicle ? newVehicle.apk_expiry : form.car_apk_expiry} onChange={(e) => addingVehicle ? setNewVehicle({ ...newVehicle, apk_expiry: e.target.value }) : setForm({ ...form, car_apk_expiry: e.target.value })} data-testid="new-repair-apk" /></div>
-                  {addingVehicle && (
-                    <div className="md:col-span-3 flex justify-end gap-2">
-                      <Button type="button" variant="ghost" size="sm" onClick={() => { setAddingVehicle(false); setNewVehicle(EMPTY_VEHICLE); }}>Cancel</Button>
-                      <Button type="button" size="sm" onClick={saveVehicle} disabled={busy} className="rounded-full" data-testid="new-card-save-vehicle"><Plus className="h-3.5 w-3.5 mr-1" />Save vehicle</Button>
+                <div className="space-y-3">
+                  <VehicleMakeModelYear
+                    value={{
+                      make: addingVehicle ? newVehicle.make : form.car_make,
+                      model: addingVehicle ? newVehicle.model : form.car_model,
+                      year: addingVehicle ? newVehicle.year : form.car_year,
+                    }}
+                    onChange={(mmy) => addingVehicle
+                      ? setNewVehicle({ ...newVehicle, ...mmy })
+                      : setForm({ ...form, car_make: mmy.make ?? form.car_make, car_model: mmy.model ?? form.car_model, car_year: mmy.year ?? form.car_year })
+                    }
+                    testIdPrefix={addingVehicle ? "new-veh" : "new-repair"}
+                  />
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <div className="space-y-1.5"><Label className="text-xs">Plate</Label><Input value={addingVehicle ? newVehicle.plate : form.car_plate} onChange={(e) => addingVehicle ? setNewVehicle({ ...newVehicle, plate: e.target.value }) : setForm({ ...form, car_plate: e.target.value })} data-testid="new-repair-plate" /></div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Country</Label>
+                      <select value={addingVehicle ? newVehicle.country : form.car_country} onChange={(e) => addingVehicle ? setNewVehicle({ ...newVehicle, country: e.target.value }) : setForm({ ...form, car_country: e.target.value })} className="w-full h-10 rounded-md border border-input bg-transparent px-3 text-sm" data-testid="new-repair-country">
+                        {COUNTRIES.map(([c, label]) => <option key={c} value={c}>{label}</option>)}
+                      </select>
                     </div>
-                  )}
+                    <div className="space-y-1.5"><Label className="text-xs">Odometer (km)</Label><Input value={addingVehicle ? newVehicle.km : form.car_km} onChange={(e) => addingVehicle ? setNewVehicle({ ...newVehicle, km: e.target.value }) : setForm({ ...form, car_km: e.target.value })} /></div>
+                    <div className="space-y-1.5 md:col-span-2"><Label className="text-xs">APK expiry</Label><Input type="date" value={addingVehicle ? newVehicle.apk_expiry : form.car_apk_expiry} onChange={(e) => addingVehicle ? setNewVehicle({ ...newVehicle, apk_expiry: e.target.value }) : setForm({ ...form, car_apk_expiry: e.target.value })} data-testid="new-repair-apk" /></div>
+                    {addingVehicle && (
+                      <div className="md:col-span-3 flex justify-end gap-2">
+                        <Button type="button" variant="ghost" size="sm" onClick={() => { setAddingVehicle(false); setNewVehicle(EMPTY_VEHICLE); }}>Cancel</Button>
+                        <Button type="button" size="sm" onClick={saveVehicle} disabled={busy} className="rounded-full" data-testid="new-card-save-vehicle"><Plus className="h-3.5 w-3.5 mr-1" />Save vehicle</Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -261,16 +274,33 @@ export default function NewJobCardDialog({ open, onOpenChange, customers, users,
 
       {/* Quick "New customer" modal */}
       <Dialog open={showNewCustomer} onOpenChange={setShowNewCustomer}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">New customer</DialogTitle>
             <DialogDescription>Save the customer once — later you'll just pick them from the list.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5"><Label>Name *</Label><Input value={newCustomer.name} onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })} data-testid="quick-new-customer-name" /></div>
-            <div className="space-y-1.5"><Label>Phone</Label><Input value={newCustomer.phone} onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })} data-testid="quick-new-customer-phone" /></div>
-            <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={newCustomer.email} onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })} data-testid="quick-new-customer-email" /></div>
-            <div className="space-y-1.5"><Label>Address</Label><Input value={newCustomer.address} onChange={(e) => setNewCustomer({ ...newCustomer, address: e.target.value })} /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5"><Label>Phone</Label><Input value={newCustomer.phone} onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })} data-testid="quick-new-customer-phone" /></div>
+              <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={newCustomer.email} onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })} data-testid="quick-new-customer-email" /></div>
+            </div>
+            <div className="space-y-2 p-3 rounded-md border border-border bg-muted/20">
+              <div className="text-[10px] font-mono uppercase tracking-widest text-primary">Address</div>
+              <AddressFields
+                value={{
+                  postcode: newCustomer.postcode,
+                  house_number: newCustomer.house_number,
+                  house_number_addition: newCustomer.house_number_addition,
+                  street: newCustomer.street,
+                  city: newCustomer.city,
+                  address_country: newCustomer.address_country,
+                }}
+                onChange={(a) => setNewCustomer({ ...newCustomer, ...a })}
+                testIdPrefix="quick-cust-addr"
+                compact
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setShowNewCustomer(false)}>Cancel</Button>

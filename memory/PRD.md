@@ -154,9 +154,19 @@
 ## Roadmap / Backlog
 - Loyalty Credit (€ discount after N paid invoices) — P1
 - SMS fallback via Twilio when a customer has no email — P1
-- iDEAL / SEPA QR on paper invoice — P2
+- Car Passport / QR Code (customer scans → full service timeline) — P1
+- Live Bay Board (big-screen live status of open cards) — P3
 - Ordered-parts dashboard (cross-workshop) — P3
-- Refactor `server.py` (~2600 lines) into APIRouter modules per domain
+- Refactor `server.py` (~3100 lines) into APIRouter modules per domain
+
+## Iteration 12 (Feb 2026) — Structured address + smart vehicle picker
+- **Structured customer/supplier address** — postcode, house number, addition, street, city, country stored as separate fields (backwards-compatible with the old single-line `address`, which is now auto-composed from the parts).
+- **PDOK Locatieserver postcode lookup** — free official Dutch government geocoder. Type postcode + house number, blur → street + city auto-fill (green check ✓). Backend proxy at `GET /api/lookup/postcode` (in-memory cache).
+- **NHTSA vPIC vehicle catalog** — 195 car makes and ~40 models per make, cached. Backend proxies `GET /api/lookup/vehicle-makes` and `GET /api/lookup/vehicle-models?make=X`.
+- **Reusable frontend building blocks**:
+  - `AddressFields.jsx` — postcode → auto-fill NL address block with loader/check indicators
+  - `VehicleMakeModelYear.jsx` — searchable Make → Model → Year with a "type manually" toggle per field so unknown vehicles are still allowed. Year list auto-extends every calendar year (1980 → currentYear + 1).
+- **Consumers updated**: PartyPage (Customer + Supplier add/edit), NewJobCardDialog (quick new customer + new vehicle inside a job card), Calendar (quick add customer / quick add vehicle), inline "Add vehicle" inside customer history.
 
 ## Files of note
 - `/app/backend/server.py`

@@ -13,6 +13,8 @@ import { toast } from "sonner";
 import { useLang } from "@/i18n";
 import { downloadListReportPdf, printListReport, downloadCustomerHistoryPdf, printCustomerHistory } from "@/lib/reports";
 import PlateBadge from "@/components/PlateBadge";
+import AddressFields from "@/components/AddressFields";
+import VehicleMakeModelYear from "@/components/VehicleMakeModelYear";
 
 export default function PartyPage({ kind }) {
   const qc = useQueryClient();
@@ -21,7 +23,7 @@ export default function PartyPage({ kind }) {
   const label = isSup ? t("supplier") : t("customer");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState(null);   // when set, the same dialog is used to update
-  const [form, setForm] = useState({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "" });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL" });
   const [vehForm2, setVehForm2] = useState({ make: "", model: "", year: "", plate: "", color: "", km: "", country: "NL", apk_expiry: "", next_oil_change_km: "" });
   const [exporting, setExporting] = useState(false);
   const [historyId, setHistoryId] = useState(null);
@@ -77,7 +79,7 @@ export default function PartyPage({ kind }) {
         }
         toast.success(`${label} added`);
       }
-      setForm({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "" });
+      setForm({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL" });
       setVehForm2({ make: "", model: "", year: "", plate: "", color: "", km: "" });
       setEditId(null);
       setOpen(false);
@@ -94,6 +96,12 @@ export default function PartyPage({ kind }) {
       address: row.address || "",
       contact: row.contact || "",
       vehicle: row.vehicle || "",
+      postcode: row.postcode || "",
+      house_number: row.house_number || "",
+      house_number_addition: row.house_number_addition || "",
+      street: row.street || "",
+      city: row.city || "",
+      address_country: row.address_country || "NL",
     });
     setVehForm2({ make: "", model: "", year: "", plate: "", color: "", km: "" });
     setOpen(true);
@@ -164,13 +172,13 @@ export default function PartyPage({ kind }) {
           <Button variant="outline" className="rounded-full" onClick={() => exportReport("pdf")} disabled={exporting} data-testid={`${kind}-pdf-button`}>
             <FileDown className="h-4 w-4 mr-2" /> {exporting ? t("loading") : t("pdf")}
           </Button>
-          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditId(null); setForm({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "" }); } }}>
+          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditId(null); setForm({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL" }); } }}>
             <DialogTrigger asChild>
               <Button className="rounded-full bg-primary hover:bg-primary/90" data-testid={`add-${kind}-button`}>
                 <Plus className="h-4 w-4 mr-2" /> {isSup ? t("newSupplier") : t("newCustomer")}
               </Button>
             </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
             <DialogHeader><DialogTitle className="font-display">{editId ? (isSup ? t("editSupplier") : t("editCustomer")) : `Add ${label}`}</DialogTitle></DialogHeader>
             <form onSubmit={save} className="space-y-4">
               <div className="space-y-1.5"><Label>{t("name")}</Label><Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid={`${kind}-name`} /></div>
@@ -178,10 +186,12 @@ export default function PartyPage({ kind }) {
               {!isSup && !editId && (
                 <div className="space-y-2 p-3 rounded-md border border-border bg-muted/20">
                   <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("vehicle")} · {t("optional")}</div>
+                  <VehicleMakeModelYear
+                    value={{ make: vehForm2.make, model: vehForm2.model, year: vehForm2.year }}
+                    onChange={(mmy) => setVehForm2({ ...vehForm2, ...mmy })}
+                    testIdPrefix="new-cust-veh"
+                  />
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1.5"><Label className="text-xs">{t("make")}</Label><Input value={vehForm2.make} onChange={(e) => setVehForm2({ ...vehForm2, make: e.target.value })} placeholder="e.g. VW, BMW, Toyota" data-testid="new-cust-veh-make" /></div>
-                    <div className="space-y-1.5"><Label className="text-xs">{t("model")}</Label><Input value={vehForm2.model} onChange={(e) => setVehForm2({ ...vehForm2, model: e.target.value })} placeholder="e.g. Golf, 320i" data-testid="new-cust-veh-model" /></div>
-                    <div className="space-y-1.5"><Label className="text-xs">{t("year")}</Label><Input value={vehForm2.year} onChange={(e) => setVehForm2({ ...vehForm2, year: e.target.value })} placeholder="2020" /></div>
                     <div className="space-y-1.5"><Label className="text-xs">{t("plateNumber")}</Label><Input value={vehForm2.plate} onChange={(e) => setVehForm2({ ...vehForm2, plate: e.target.value })} placeholder="NL-XX-00" data-testid="new-cust-veh-plate" /></div>
                     <div className="space-y-1.5">
                       <Label className="text-xs">{t("country")}</Label>
@@ -218,7 +228,21 @@ export default function PartyPage({ kind }) {
                 <div className="space-y-1.5"><Label>{t("email")}</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
                 <div className="space-y-1.5"><Label>{t("phone")}</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
               </div>
-              <div className="space-y-1.5"><Label>{t("address")}</Label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
+              <div className="space-y-2 p-3 rounded-md border border-border bg-muted/20">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("address")}</div>
+                <AddressFields
+                  value={{
+                    postcode: form.postcode,
+                    house_number: form.house_number,
+                    house_number_addition: form.house_number_addition,
+                    street: form.street,
+                    city: form.city,
+                    address_country: form.address_country,
+                  }}
+                  onChange={(a) => setForm({ ...form, ...a })}
+                  testIdPrefix={`${kind}-addr`}
+                />
+              </div>
               <DialogFooter>
                 <Button type="button" variant="ghost" onClick={() => setOpen(false)}>{t("cancel")}</Button>
                 <Button type="submit" className="rounded-full" data-testid={`${kind}-save`}>{t("save")}</Button>
@@ -333,10 +357,12 @@ export default function PartyPage({ kind }) {
 
                   {showAddVeh && (
                     <form onSubmit={addVehicle} className="p-4 border-b border-border bg-muted/20 space-y-3" data-testid="add-vehicle-form">
+                      <VehicleMakeModelYear
+                        value={{ make: vehForm.make, model: vehForm.model, year: vehForm.year }}
+                        onChange={(mmy) => setVehForm({ ...vehForm, ...mmy })}
+                        testIdPrefix="veh"
+                      />
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                        <Input value={vehForm.make} onChange={(e) => setVehForm({ ...vehForm, make: e.target.value })} placeholder={t("make")} data-testid="veh-make" />
-                        <Input value={vehForm.model} onChange={(e) => setVehForm({ ...vehForm, model: e.target.value })} placeholder={t("model")} data-testid="veh-model" />
-                        <Input value={vehForm.year} onChange={(e) => setVehForm({ ...vehForm, year: e.target.value })} placeholder={t("year")} />
                         <Input value={vehForm.plate} onChange={(e) => setVehForm({ ...vehForm, plate: e.target.value })} placeholder={t("plateNumber")} data-testid="veh-plate" />
                         <select value={vehForm.country} onChange={(e) => setVehForm({ ...vehForm, country: e.target.value })} className="h-10 rounded-md border border-input bg-transparent px-3 text-sm" data-testid="veh-country">
                           <option value="NL">🇳🇱 NL</option>

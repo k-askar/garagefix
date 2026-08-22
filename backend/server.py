@@ -93,6 +93,13 @@ class Supplier(BaseModel):
     email: Optional[str] = ""
     phone: Optional[str] = ""
     address: Optional[str] = ""
+    # Structured address (NL-friendly)
+    postcode: Optional[str] = ""
+    house_number: Optional[str] = ""
+    house_number_addition: Optional[str] = ""
+    street: Optional[str] = ""
+    city: Optional[str] = ""
+    address_country: Optional[str] = "NL"
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 class SupplierCreate(BaseModel):
@@ -101,6 +108,12 @@ class SupplierCreate(BaseModel):
     email: Optional[str] = ""
     phone: Optional[str] = ""
     address: Optional[str] = ""
+    postcode: Optional[str] = ""
+    house_number: Optional[str] = ""
+    house_number_addition: Optional[str] = ""
+    street: Optional[str] = ""
+    city: Optional[str] = ""
+    address_country: Optional[str] = "NL"
 
 
 class SupplierUpdate(BaseModel):
@@ -109,6 +122,12 @@ class SupplierUpdate(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     address: Optional[str] = None
+    postcode: Optional[str] = None
+    house_number: Optional[str] = None
+    house_number_addition: Optional[str] = None
+    street: Optional[str] = None
+    city: Optional[str] = None
+    address_country: Optional[str] = None
 
 class Customer(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -117,6 +136,13 @@ class Customer(BaseModel):
     phone: Optional[str] = ""
     vehicle: Optional[str] = ""
     address: Optional[str] = ""
+    # Structured address (NL-friendly)
+    postcode: Optional[str] = ""
+    house_number: Optional[str] = ""
+    house_number_addition: Optional[str] = ""
+    street: Optional[str] = ""
+    city: Optional[str] = ""
+    address_country: Optional[str] = "NL"
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 class CustomerCreate(BaseModel):
@@ -125,6 +151,12 @@ class CustomerCreate(BaseModel):
     phone: Optional[str] = ""
     vehicle: Optional[str] = ""
     address: Optional[str] = ""
+    postcode: Optional[str] = ""
+    house_number: Optional[str] = ""
+    house_number_addition: Optional[str] = ""
+    street: Optional[str] = ""
+    city: Optional[str] = ""
+    address_country: Optional[str] = "NL"
 
 
 class CustomerUpdate(BaseModel):
@@ -133,6 +165,12 @@ class CustomerUpdate(BaseModel):
     phone: Optional[str] = None
     vehicle: Optional[str] = None
     address: Optional[str] = None
+    postcode: Optional[str] = None
+    house_number: Optional[str] = None
+    house_number_addition: Optional[str] = None
+    street: Optional[str] = None
+    city: Optional[str] = None
+    address_country: Optional[str] = None
 
 class Vehicle(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -291,9 +329,32 @@ async def list_suppliers(user: dict = Depends(get_current_user)):
     rows = await db.suppliers.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     return rows
 
+def _compose_address(d: dict) -> str:
+    """Build a single-line display address from structured parts. Falls back to
+    whatever the user typed in the free-form `address` field if the parts are empty."""
+    street = (d.get("street") or "").strip()
+    hn = (d.get("house_number") or "").strip()
+    hna = (d.get("house_number_addition") or "").strip()
+    pc = (d.get("postcode") or "").strip().upper()
+    city = (d.get("city") or "").strip()
+    country = (d.get("address_country") or "").strip()
+    line1 = " ".join(x for x in [street, (hn + (hna and (" " + hna) or "")).strip()] if x).strip()
+    line2 = " ".join(x for x in [pc, city] if x).strip()
+    parts = [p for p in [line1, line2, country if country and country != "NL" else ""] if p]
+    return ", ".join(parts)
+
+
+def _with_composed_address(payload_dict: dict) -> dict:
+    """If the caller passed structured parts but left `address` blank, auto-fill it."""
+    has_parts = any(payload_dict.get(k) for k in ("street", "house_number", "postcode", "city"))
+    if has_parts and not (payload_dict.get("address") or "").strip():
+        payload_dict["address"] = _compose_address(payload_dict)
+    return payload_dict
+
+
 @api_router.post("/suppliers", response_model=Supplier)
 async def create_supplier(payload: SupplierCreate, user: dict = Depends(get_current_user)):
-    obj = Supplier(**payload.model_dump())
+    obj = Supplier(**_with_composed_address(payload.model_dump()))
     await db.suppliers.insert_one(obj.model_dump())
     return obj
 
@@ -308,6 +369,11 @@ async def update_supplier(supplier_id: str, payload: SupplierUpdate, user: dict 
     updates = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
+    # If structured address parts changed but `address` was not explicitly set, refresh it.
+    if any(k in updates for k in ("street", "house_number", "house_number_addition", "postcode", "city", "address_country")) and "address" not in updates:
+        current = await db.suppliers.find_one({"id": supplier_id}, {"_id": 0}) or {}
+        merged = {**current, **updates}
+        updates["address"] = _compose_address(merged)
     r = await db.suppliers.update_one({"id": supplier_id}, {"$set": updates})
     if r.matched_count == 0:
         raise HTTPException(status_code=404, detail="Supplier not found")
@@ -321,7 +387,7 @@ async def list_customers(user: dict = Depends(get_current_user)):
 
 @api_router.post("/customers", response_model=Customer)
 async def create_customer(payload: CustomerCreate, user: dict = Depends(get_current_user)):
-    obj = Customer(**payload.model_dump())
+    obj = Customer(**_with_composed_address(payload.model_dump()))
     await db.customers.insert_one(obj.model_dump())
     return obj
 
@@ -337,6 +403,10 @@ async def update_customer(customer_id: str, payload: CustomerUpdate, user: dict 
     updates = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
+    if any(k in updates for k in ("street", "house_number", "house_number_addition", "postcode", "city", "address_country")) and "address" not in updates:
+        current = await db.customers.find_one({"id": customer_id}, {"_id": 0}) or {}
+        merged = {**current, **updates}
+        updates["address"] = _compose_address(merged)
     r = await db.customers.update_one({"id": customer_id}, {"$set": updates})
     if r.matched_count == 0:
         raise HTTPException(status_code=404, detail="Customer not found")
@@ -2425,6 +2495,110 @@ async def report_profit(start: Optional[str] = None, end: Optional[str] = None, 
         "by_item": items_list,
         "by_category": cat_list,
     }
+
+# =========================
+# Public lookups (address, vehicle catalog) — used by the front-end forms
+# =========================
+_POSTCODE_CACHE: dict[str, dict] = {}
+_MAKES_CACHE: dict[str, list] = {}
+_MODELS_CACHE: dict[str, list] = {}
+
+@api_router.get("/lookup/postcode")
+async def lookup_postcode(postcode: str, number: Optional[str] = None):
+    """Look up a Dutch postcode (+ optional house number) using the official
+    PDOK Locatieserver (free, no API key)."""
+    pc = (postcode or "").strip().replace(" ", "").upper()
+    if not pc:
+        raise HTTPException(status_code=400, detail="postcode is required")
+    cache_key = f"{pc}|{(number or '').strip()}"
+    if cache_key in _POSTCODE_CACHE:
+        return _POSTCODE_CACHE[cache_key]
+    q = f"postcode:{pc}"
+    if number and number.strip():
+        q += f" and huisnummer:{number.strip()}"
+    url = "https://api.pdok.nl/bzk/locatieserver/search/v3_1/free"
+    params = {"q": q, "fq": "type:adres", "rows": 1, "fl": "weergavenaam,straatnaam,woonplaatsnaam,postcode,huisnummer,huisnummertoevoeging,provincienaam,centroide_ll"}
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.get(url, params=params)
+            r.raise_for_status()
+            data = r.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Postcode service unavailable: {e}")
+    docs = ((data.get("response") or {}).get("docs") or [])
+    if not docs:
+        raise HTTPException(status_code=404, detail="Postcode not found")
+    d = docs[0]
+    result = {
+        "postcode": d.get("postcode") or pc,
+        "street": d.get("straatnaam") or "",
+        "city": d.get("woonplaatsnaam") or "",
+        "province": d.get("provincienaam") or "",
+        "house_number": str(d.get("huisnummer") or number or ""),
+        "house_number_addition": d.get("huisnummertoevoeging") or "",
+        "display": d.get("weergavenaam") or "",
+    }
+    _POSTCODE_CACHE[cache_key] = result
+    return result
+
+
+@api_router.get("/lookup/vehicle-makes")
+async def lookup_vehicle_makes():
+    """Return a searchable list of car makes from NHTSA vPIC (free, no key)."""
+    if "all" in _MAKES_CACHE:
+        return {"makes": _MAKES_CACHE["all"]}
+    url = "https://vpic.nhtsa.dot.gov/api/vehicles/GetMakesForVehicleType/car?format=json"
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            data = r.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Vehicle catalog unavailable: {e}")
+    seen: set = set()
+    makes: list = []
+    for row in (data.get("Results") or []):
+        name = (row.get("MakeName") or "").strip()
+        if not name: continue
+        key = name.lower()
+        if key in seen: continue
+        seen.add(key)
+        makes.append({"name": name.title() if name.isupper() else name})
+    makes.sort(key=lambda x: x["name"].lower())
+    _MAKES_CACHE["all"] = makes
+    return {"makes": makes}
+
+
+@api_router.get("/lookup/vehicle-models")
+async def lookup_vehicle_models(make: str):
+    """Return models for a given make (NHTSA vPIC, cached)."""
+    m = (make or "").strip()
+    if not m:
+        raise HTTPException(status_code=400, detail="make is required")
+    key = m.lower()
+    if key in _MODELS_CACHE:
+        return {"models": _MODELS_CACHE[key]}
+    url = f"https://vpic.nhtsa.dot.gov/api/vehicles/GetModelsForMake/{httpx.URL(m).path}?format=json"
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            data = r.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Vehicle catalog unavailable: {e}")
+    seen: set = set()
+    models: list = []
+    for row in (data.get("Results") or []):
+        name = (row.get("Model_Name") or "").strip()
+        if not name: continue
+        k2 = name.lower()
+        if k2 in seen: continue
+        seen.add(k2)
+        models.append({"name": name})
+    models.sort(key=lambda x: x["name"].lower())
+    _MODELS_CACHE[key] = models
+    return {"models": models}
+
 
 app.include_router(api_router)
 
