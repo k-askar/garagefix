@@ -26,6 +26,7 @@ const DEFAULT_FORM = {
   invoice_show_qr: true,
   invoice_header_align: "left",
   invoice_currency_symbol_pos: "suffix",
+  invoice_template: "classic",
 };
 
 // Same yellow-plate mock used in printInvoice; here for the preview only.
@@ -245,7 +246,7 @@ export default function Settings() {
                   <Input value={form.bic} onChange={(e) => set("bic", e.target.value)} placeholder="ABNANL2A" className="font-mono uppercase" data-testid="settings-bic" />
                 </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-1.5">
                   <Label>Header alignment</Label>
                   <Select value={form.invoice_header_align || "left"} onValueChange={(v) => set("invoice_header_align", v)}>
@@ -254,6 +255,17 @@ export default function Settings() {
                       <SelectItem value="left">Left (default)</SelectItem>
                       <SelectItem value="center">Center</SelectItem>
                       <SelectItem value="right">Right</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Invoice template</Label>
+                  <Select value={form.invoice_template || "classic"} onValueChange={(v) => set("invoice_template", v)}>
+                    <SelectTrigger data-testid="settings-invoice-template"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="classic">Classic</SelectItem>
+                      <SelectItem value="minimal">Minimal</SelectItem>
+                      <SelectItem value="bold">Bold</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

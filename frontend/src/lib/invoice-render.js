@@ -133,6 +133,50 @@ async function sepaQrDataUrl(inv, settings) {
 }
 
 /* ------------------------- main renderer ------------------------- */
+/* Per-template style bundle: colors, borders and header layout. */
+function templateStyles(name, accent) {
+  switch (name) {
+    case "minimal":
+      return {
+        bodyCss: `padding:36px;color:#111;max-width:720px;margin:0 auto;background:#fff;
+          font-family:'Helvetica Neue',Arial,sans-serif;font-weight:300;-webkit-print-color-adjust:exact;print-color-adjust:exact`,
+        headerCss: `border-bottom:1px solid #eaeaea;padding-bottom:14px`,
+        h1Css: `font-size:18px;margin:0;font-weight:400;letter-spacing:.02em`,
+        thBg: "#fafafa", thColor: "#666",
+        badgeCss: `background:transparent;color:${accent};border:1px solid ${accent};font-weight:600`,
+        accentRule: `border-top:1px solid ${accent};margin:14px 0`,
+        totalHighlight: "",
+        bankBlockBg: "#fbfbfb",
+      };
+    case "bold":
+      return {
+        bodyCss: `padding:0;color:#111;max-width:720px;margin:0 auto;background:#fff;
+          font-family:-apple-system,'Helvetica Neue',Arial,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact`,
+        headerCss: `background:${accent};color:#fff;padding:26px 32px;margin-bottom:0`,
+        h1Css: `font-size:26px;margin:0;font-weight:900;letter-spacing:-.01em;color:#fff`,
+        thBg: `${accent}22`, thColor: "#333",
+        badgeCss: `background:#fff;color:${accent};font-weight:800`,
+        accentRule: `height:6px;background:${accent};border:none;margin:0`,
+        totalHighlight: `background:${accent}12;padding:10px 14px;border-radius:6px;display:inline-block;margin-top:6px`,
+        bankBlockBg: `${accent}0d`,
+        wrapPadding: "0 32px 32px",
+      };
+    case "classic":
+    default:
+      return {
+        bodyCss: `padding:32px;color:#111;max-width:720px;margin:0 auto;background:#fff;
+          font-family:-apple-system,Helvetica,Arial,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact`,
+        headerCss: ``,
+        h1Css: `font-size:20px;margin:0`,
+        thBg: "#f5f5f5", thColor: "#111",
+        badgeCss: `background:${accent};color:#fff`,
+        accentRule: `border:none;border-top:2px solid ${accent};margin:16px 0`,
+        totalHighlight: "",
+        bankBlockBg: "#fafafa",
+      };
+  }
+}
+
 /**
  * @returns {Promise<string>} full HTML document ready to open in a new window
  *   or feed into html2canvas.
@@ -140,6 +184,7 @@ async function sepaQrDataUrl(inv, settings) {
 export async function renderInvoiceHtml(inv, settings) {
   const s = settings || {};
   const accent = s.invoice_accent_color || "#0EA5E9";
+  const tpl = templateStyles(s.invoice_template || "classic", accent);
   const showPlate = s.show_plate_badge !== false;
   const showQr = s.invoice_show_qr !== false;
   const headerAlign = s.invoice_header_align || "left";
@@ -160,7 +205,7 @@ export async function renderInvoiceHtml(inv, settings) {
   const paidLabel = inv.status === "paid" ? "PAID" : "INVOICE";
 
   const bankBlock = (s.iban || s.bank_name || s.bic) ? `
-    <div style="margin-top:14px;padding:10px 12px;border:1px solid #eee;border-radius:6px;background:#fafafa;
+    <div style="margin-top:14px;padding:10px 12px;border:1px solid #eee;border-radius:6px;background:${tpl.bankBlockBg};
                 display:flex;justify-content:space-between;gap:16px;align-items:center;">
       <div style="font-size:11px;color:#333;line-height:1.5">
         <div style="font-size:9px;color:#888;letter-spacing:.1em;text-transform:uppercase">Payment details</div>
@@ -186,7 +231,7 @@ export async function renderInvoiceHtml(inv, settings) {
     <div style="display:flex;gap:12px;align-items:flex-start">
       ${logoData ? `<img src="${logoData}" alt="logo" style="height:52px;width:auto;object-fit:contain"/>` : ""}
       <div>
-        <h1>${esc(s.name || "Garage")}</h1>
+        <h1 class="doc-h1">${esc(s.name || "Garage")}</h1>
         <div class="muted">${esc(s.address || "").replace(/\n/g, "<br/>")}</div>
         <div class="muted">${esc(s.phone || "")}${s.email ? " · " + esc(s.email) : ""}</div>
         ${s.tax_id ? `<div class="muted">BTW: ${esc(s.tax_id)}</div>` : ""}
@@ -197,30 +242,34 @@ export async function renderInvoiceHtml(inv, settings) {
   const alignJustify =
     headerAlign === "center" ? "center" :
     headerAlign === "right" ? "flex-end" : "space-between";
-  const headerBlock = headerAlign === "left"
+  const headerInner = headerAlign === "left"
     ? `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">${headerLeft}${headerRight}</div>`
     : `<div style="display:flex;flex-direction:column;align-items:${headerAlign === "center" ? "center" : "flex-end"};gap:10px;text-align:${headerAlign}">${headerLeft}${headerRight}</div>`;
+  const headerBlock = `<div class="doc-header">${headerInner}</div>`;
+  const wrapOpen = tpl.wrapPadding ? `<div style="padding:${tpl.wrapPadding}">` : "";
+  const wrapClose = tpl.wrapPadding ? `</div>` : "";
 
   return `<!doctype html><html><head><meta charset="utf-8"/><title>${esc(inv.invoice_number)}</title>
     <style>
-      body{font-family:-apple-system,Helvetica,Arial,sans-serif;padding:32px;color:#111;max-width:720px;margin:0 auto;background:#fff;
-           -webkit-print-color-adjust:exact;print-color-adjust:exact}
-      h1{font-size:20px;margin:0}
+      body{${tpl.bodyCss}}
+      .doc-header{${tpl.headerCss}}
+      .doc-h1{${tpl.h1Css}}
       .muted{color:#666;font-size:12px}
       table{width:100%;border-collapse:collapse;margin-top:16px}
       th,td{padding:8px;border-bottom:1px solid #eee;text-align:left;font-size:13px;vertical-align:top}
-      th{background:#f5f5f5}
+      th{background:${tpl.thBg};color:${tpl.thColor}}
       .right{text-align:right}
-      .badge{display:inline-block;padding:2px 10px;border-radius:999px;background:${accent};color:#fff;font-size:10px;letter-spacing:.1em;
+      .badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:10px;letter-spacing:.1em;${tpl.badgeCss};
              -webkit-print-color-adjust:exact;print-color-adjust:exact}
-      .badge.paid{background:#22c55e}
+      .badge.paid{background:#22c55e;color:#fff}
       .totrow{font-size:15px;font-weight:700}
-      hr.accent{border:none;border-top:2px solid ${accent};margin:16px 0}
+      hr.accent{${tpl.accentRule}}
       .terms{margin-top:16px;font-size:10px;color:#666;white-space:pre-line;border-top:1px solid #eee;padding-top:8px}
       @media print{*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}}
     </style></head><body>
     ${headerBlock}
     <hr class="accent"/>
+    ${wrapOpen}
     <div class="muted" style="text-transform:uppercase;letter-spacing:.1em;font-size:10px">Bill to</div>
     <div style="font-size:15px;font-weight:600;margin-top:4px">${esc(inv.customer_name || "Walk-in customer")}</div>
     <table><thead><tr>
@@ -230,12 +279,13 @@ export async function renderInvoiceHtml(inv, settings) {
     <div style="margin-top:16px;text-align:right">
       <div class="muted">Subtotal: ${fmtMoney(inv.subtotal, s)}</div>
       ${inv.tax ? `<div class="muted">BTW: ${fmtMoney(inv.tax, s)}</div>` : ""}
-      <div class="totrow" style="margin-top:4px">Total: ${fmtMoney(inv.total, s)}</div>
+      <div class="totrow" style="margin-top:4px"><span style="${tpl.totalHighlight}">Total: ${fmtMoney(inv.total, s)}</span></div>
     </div>
     ${inv.note ? `<p class="muted" style="margin-top:20px">${noteWithPlate(inv.note, showPlate)}</p>` : ""}
     ${bankBlock}
     <p class="muted" style="margin-top:8px">Payment due within ${s.payment_terms_days || 14} days${inv.due_date ? ` (by ${esc(inv.due_date)})` : ""}.</p>
     ${s.invoice_terms ? `<div class="terms">${esc(s.invoice_terms)}</div>` : ""}
     <p class="muted" style="margin-top:24px;text-align:center">${esc(s.footer_note || "Thank you!")}</p>
+    ${wrapClose}
     </body></html>`;
 }

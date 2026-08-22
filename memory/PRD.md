@@ -120,7 +120,7 @@
 - **A11y**: `DialogDescription` added to the email dialog to clear the Radix warning.
 - Verified end-to-end by testing_agent (iteration_11) + self-verification: backend 14/14, frontend all critical scenarios green.
 
-### Iteration 13 (Feb 2026) — Invoice PDF + Email + SEPA QR overhaul
+### Iteration 14 (Feb 2026) — Data safety + editable directory
 - **Appointment Conflict Guard** (Calendar):
   - New `GET /api/appointments/conflicts?mechanic_id&start&duration_min&exclude` endpoint
   - New-appointment dialog now debounces a conflict check on every mechanic / date-time / duration change

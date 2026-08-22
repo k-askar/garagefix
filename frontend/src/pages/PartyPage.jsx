@@ -12,6 +12,7 @@ import { Plus, Trash2, Printer, FileDown, FileText, Eye, Pencil } from "lucide-r
 import { toast } from "sonner";
 import { useLang } from "@/i18n";
 import { downloadListReportPdf, printListReport, downloadCustomerHistoryPdf, printCustomerHistory } from "@/lib/reports";
+import PlateBadge from "@/components/PlateBadge";
 
 export default function PartyPage({ kind }) {
   const qc = useQueryClient();
@@ -21,11 +22,11 @@ export default function PartyPage({ kind }) {
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState(null);   // when set, the same dialog is used to update
   const [form, setForm] = useState({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "" });
-  const [vehForm2, setVehForm2] = useState({ make: "", model: "", year: "", plate: "", color: "", km: "" });
+  const [vehForm2, setVehForm2] = useState({ make: "", model: "", year: "", plate: "", color: "", km: "", country: "NL", apk_expiry: "", next_oil_change_km: "" });
   const [exporting, setExporting] = useState(false);
   const [historyId, setHistoryId] = useState(null);
   const [downloadingHistoryId, setDownloadingHistoryId] = useState(null);
-  const [vehForm, setVehForm] = useState({ make: "", model: "", year: "", plate: "", color: "", km: "", vin: "", notes: "" });
+  const [vehForm, setVehForm] = useState({ make: "", model: "", year: "", plate: "", color: "", km: "", vin: "", notes: "", country: "NL", apk_expiry: "", next_oil_change_km: "" });
   const [showAddVeh, setShowAddVeh] = useState(false);
 
   const { data: rows = [] } = useQuery({ queryKey: [kind], queryFn: () => api.get(`/${kind}`).then((r) => r.data) });
@@ -182,8 +183,33 @@ export default function PartyPage({ kind }) {
                     <div className="space-y-1.5"><Label className="text-xs">{t("model")}</Label><Input value={vehForm2.model} onChange={(e) => setVehForm2({ ...vehForm2, model: e.target.value })} placeholder="e.g. Golf, 320i" data-testid="new-cust-veh-model" /></div>
                     <div className="space-y-1.5"><Label className="text-xs">{t("year")}</Label><Input value={vehForm2.year} onChange={(e) => setVehForm2({ ...vehForm2, year: e.target.value })} placeholder="2020" /></div>
                     <div className="space-y-1.5"><Label className="text-xs">{t("plateNumber")}</Label><Input value={vehForm2.plate} onChange={(e) => setVehForm2({ ...vehForm2, plate: e.target.value })} placeholder="NL-XX-00" data-testid="new-cust-veh-plate" /></div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">{t("country")}</Label>
+                      <select value={vehForm2.country} onChange={(e) => setVehForm2({ ...vehForm2, country: e.target.value })} className="w-full h-10 rounded-md border border-input bg-transparent px-3 text-sm" data-testid="new-cust-veh-country">
+                        <option value="NL">🇳🇱 Netherlands</option>
+                        <option value="DE">🇩🇪 Germany</option>
+                        <option value="FR">🇫🇷 France</option>
+                        <option value="BE">🇧🇪 Belgium</option>
+                        <option value="IT">🇮🇹 Italy</option>
+                        <option value="ES">🇪🇸 Spain</option>
+                        <option value="PL">🇵🇱 Poland</option>
+                        <option value="TR">🇹🇷 Turkey</option>
+                        <option value="MA">🇲🇦 Morocco</option>
+                        <option value="SY">🇸🇾 Syria</option>
+                        <option value="LB">🇱🇧 Lebanon</option>
+                        <option value="JO">🇯🇴 Jordan</option>
+                        <option value="IQ">🇮🇶 Iraq</option>
+                        <option value="EG">🇪🇬 Egypt</option>
+                        <option value="SA">🇸🇦 Saudi Arabia</option>
+                        <option value="AE">🇦🇪 UAE</option>
+                        <option value="GB">🇬🇧 UK</option>
+                        <option value="OTHER">Other</option>
+                      </select>
+                    </div>
                     <div className="space-y-1.5"><Label className="text-xs">{t("color")}</Label><Input value={vehForm2.color} onChange={(e) => setVehForm2({ ...vehForm2, color: e.target.value })} /></div>
                     <div className="space-y-1.5"><Label className="text-xs">{t("odometer")}</Label><Input value={vehForm2.km} onChange={(e) => setVehForm2({ ...vehForm2, km: e.target.value })} placeholder="km" /></div>
+                    <div className="space-y-1.5"><Label className="text-xs">{t("apkExpiry")}</Label><Input type="date" value={vehForm2.apk_expiry} onChange={(e) => setVehForm2({ ...vehForm2, apk_expiry: e.target.value })} data-testid="new-cust-veh-apk" /></div>
+                    <div className="space-y-1.5"><Label className="text-xs">{t("nextOilChangeKm")}</Label><Input type="number" value={vehForm2.next_oil_change_km} onChange={(e) => setVehForm2({ ...vehForm2, next_oil_change_km: e.target.value })} placeholder="e.g. 145000" data-testid="new-cust-veh-oil" /></div>
                   </div>
                   <p className="text-[10px] text-muted-foreground">{t("addMoreVehiclesHint")}</p>
                 </div>
@@ -312,8 +338,30 @@ export default function PartyPage({ kind }) {
                         <Input value={vehForm.model} onChange={(e) => setVehForm({ ...vehForm, model: e.target.value })} placeholder={t("model")} data-testid="veh-model" />
                         <Input value={vehForm.year} onChange={(e) => setVehForm({ ...vehForm, year: e.target.value })} placeholder={t("year")} />
                         <Input value={vehForm.plate} onChange={(e) => setVehForm({ ...vehForm, plate: e.target.value })} placeholder={t("plateNumber")} data-testid="veh-plate" />
+                        <select value={vehForm.country} onChange={(e) => setVehForm({ ...vehForm, country: e.target.value })} className="h-10 rounded-md border border-input bg-transparent px-3 text-sm" data-testid="veh-country">
+                          <option value="NL">🇳🇱 NL</option>
+                          <option value="DE">🇩🇪 DE</option>
+                          <option value="FR">🇫🇷 FR</option>
+                          <option value="BE">🇧🇪 BE</option>
+                          <option value="IT">🇮🇹 IT</option>
+                          <option value="ES">🇪🇸 ES</option>
+                          <option value="PL">🇵🇱 PL</option>
+                          <option value="TR">🇹🇷 TR</option>
+                          <option value="MA">🇲🇦 MA</option>
+                          <option value="SY">🇸🇾 SY</option>
+                          <option value="LB">🇱🇧 LB</option>
+                          <option value="JO">🇯🇴 JO</option>
+                          <option value="IQ">🇮🇶 IQ</option>
+                          <option value="EG">🇪🇬 EG</option>
+                          <option value="SA">🇸🇦 SA</option>
+                          <option value="AE">🇦🇪 AE</option>
+                          <option value="GB">🇬🇧 GB</option>
+                          <option value="OTHER">Other</option>
+                        </select>
                         <Input value={vehForm.color} onChange={(e) => setVehForm({ ...vehForm, color: e.target.value })} placeholder={t("color")} />
                         <Input value={vehForm.km} onChange={(e) => setVehForm({ ...vehForm, km: e.target.value })} placeholder={t("odometer")} />
+                        <Input type="date" value={vehForm.apk_expiry} onChange={(e) => setVehForm({ ...vehForm, apk_expiry: e.target.value })} placeholder={t("apkExpiry")} title={t("apkExpiry")} data-testid="veh-apk" />
+                        <Input type="number" value={vehForm.next_oil_change_km} onChange={(e) => setVehForm({ ...vehForm, next_oil_change_km: e.target.value })} placeholder={t("nextOilChangeKm")} title={t("nextOilChangeKm")} data-testid="veh-oil" />
                         <Input value={vehForm.vin} onChange={(e) => setVehForm({ ...vehForm, vin: e.target.value })} placeholder={t("vin")} />
                         <Input value={vehForm.notes} onChange={(e) => setVehForm({ ...vehForm, notes: e.target.value })} placeholder={t("note")} />
                       </div>
@@ -337,7 +385,13 @@ export default function PartyPage({ kind }) {
                             <div className="min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <div className="font-display text-base font-bold">{[v.make, v.model, v.year].filter(Boolean).join(" ") || "—"}</div>
-                                {v.plate && <Badge variant="outline" className="font-mono text-[10px]">{v.plate}</Badge>}
+                                {v.plate && <PlateBadge plate={v.plate} country={v.country || "NL"} size="xs" />}
+                                {v.apk_expiry && (
+                                  <Badge variant="outline" className="text-[10px] font-mono" title={`APK expiry: ${v.apk_expiry}`}>APK · {v.apk_expiry}</Badge>
+                                )}
+                                {v.next_oil_change_km && (
+                                  <Badge variant="outline" className="text-[10px] font-mono" title={`Next oil change at ${v.next_oil_change_km} km`}>OIL · {v.next_oil_change_km} km</Badge>
+                                )}
                                 {!registered && <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[10px]">{t("walkInVehicle")}</Badge>}
                               </div>
                               <div className="text-[11px] text-muted-foreground font-mono mt-1 flex gap-3 flex-wrap">

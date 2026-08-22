@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Bell, Send, Plus, Trash2 } from "lucide-react";
+import { Bell, Send, Plus, Trash2, RefreshCw, Wrench, Droplet, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 function todayISO(offset = 0) { const d = new Date(); d.setDate(d.getDate() + offset); return d.toISOString().slice(0, 10); }
@@ -18,9 +18,22 @@ function todayISO(offset = 0) { const d = new Date(); d.setDate(d.getDate() + of
 export default function Reminders() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [form, setForm] = useState({ customer_id: "", reason: "Oil & filter service", due_date: todayISO(30), due_km: "", car_plate: "", car_make: "", car_model: "" });
   const { data: rows = [] } = useQuery({ queryKey: ["reminders"], queryFn: () => api.get("/reminders").then(r => r.data) });
   const { data: customers = [] } = useQuery({ queryKey: ["cus"], queryFn: () => api.get("/customers").then(r => r.data) });
+
+  const scanVehicles = async () => {
+    setScanning(true);
+    try {
+      const { data } = await api.post("/reminders/scan-vehicles");
+      const c = data.created || {};
+      if (data.total === 0) toast.info(`No new reminders (scanned ${data.scanned} vehicles)`);
+      else toast.success(`Created ${c.apk || 0} APK + ${c.oil || 0} oil reminder(s)`);
+      qc.invalidateQueries({ queryKey: ["reminders"] });
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setScanning(false); }
+  };
 
   const save = async (e) => {
     e.preventDefault();
@@ -53,9 +66,14 @@ export default function Reminders() {
           <p className="text-muted-foreground mt-2">Auto-nudge customers a few days before their next service. Sent by email at 09:00 UTC daily.</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button className="rounded-full bg-primary hover:bg-primary/90" data-testid="reminder-new-button"><Plus className="h-4 w-4 mr-2" /> New reminder</Button>
-          </DialogTrigger>
+          <div className="flex gap-2">
+            <Button variant="outline" className="rounded-full" onClick={scanVehicles} disabled={scanning} data-testid="reminders-scan-vehicles">
+              <RefreshCw className={`h-4 w-4 mr-2 ${scanning ? "animate-spin" : ""}`} /> {scanning ? "Scanning..." : "Scan vehicles (APK + oil)"}
+            </Button>
+            <DialogTrigger asChild>
+              <Button className="rounded-full bg-primary hover:bg-primary/90" data-testid="reminder-new-button"><Plus className="h-4 w-4 mr-2" /> New reminder</Button>
+            </DialogTrigger>
+          </div>
           <DialogContent className="max-w-lg">
             <DialogHeader><DialogTitle className="font-display">Schedule service reminder</DialogTitle></DialogHeader>
             <form onSubmit={save} className="space-y-4">
@@ -94,12 +112,20 @@ export default function Reminders() {
       <Card className="border-border overflow-x-auto">
         <Table>
           <TableHeader><TableRow className="hover:bg-transparent">
-            <TableHead>Due</TableHead><TableHead>Customer</TableHead><TableHead>Vehicle</TableHead>
+            <TableHead>Type</TableHead><TableHead>Due</TableHead><TableHead>Customer</TableHead><TableHead>Vehicle</TableHead>
             <TableHead>Reason</TableHead><TableHead>Status</TableHead><TableHead className="text-right w-40">Actions</TableHead>
           </TableRow></TableHeader>
           <TableBody>
-            {rows.map(r => (
-              <TableRow key={r.id}>
+            {rows.map(r => {
+              const kind = r.kind || "service";
+              const Icon = kind === "apk" ? ShieldCheck : kind === "oil" ? Droplet : Wrench;
+              const kindColor =
+                kind === "apk" ? "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30" :
+                kind === "oil" ? "bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30" :
+                "bg-primary/15 text-primary border-primary/30";
+              return (
+              <TableRow key={r.id} data-testid={`reminder-row-${r.id}`}>
+                <TableCell><Badge className={`${kindColor} uppercase text-[10px]`}><Icon className="h-3 w-3 mr-1" />{kind}</Badge></TableCell>
                 <TableCell className="font-mono text-xs">{r.due_date}{r.due_km ? ` · ${r.due_km} km` : ""}</TableCell>
                 <TableCell>
                   <div>{r.customer_name}</div>
@@ -119,8 +145,8 @@ export default function Reminders() {
                   </div>
                 </TableCell>
               </TableRow>
-            ))}
-            {!rows.length && <TableRow><TableCell colSpan={6} className="text-center py-16 text-muted-foreground">No reminders scheduled.</TableCell></TableRow>}
+            );})}
+            {!rows.length && <TableRow><TableCell colSpan={7} className="text-center py-16 text-muted-foreground">No reminders scheduled.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </Card>
