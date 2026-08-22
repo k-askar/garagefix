@@ -544,6 +544,7 @@ export default function Repairs() {
   const [form, setForm] = useState({
     customer_id: "", customer_name: "", customer_phone: "",
     car_make: "", car_model: "", car_year: "", car_plate: "", car_color: "", car_km: "",
+    car_country: "NL", car_apk_expiry: "", car_next_oil_change_km: "",
     mechanic_id: "", complaint: "", notes: "",
   });
 
@@ -570,7 +571,7 @@ export default function Repairs() {
       });
       toast.success(`Card ${data.card_number} created`);
       setShowNew(false);
-      setForm({ customer_id: "", customer_name: "", customer_phone: "", car_make: "", car_model: "", car_year: "", car_plate: "", car_color: "", car_km: "", mechanic_id: "", complaint: "", notes: "" });
+      setForm({ customer_id: "", customer_name: "", customer_phone: "", car_make: "", car_model: "", car_year: "", car_plate: "", car_color: "", car_km: "", car_country: "NL", car_apk_expiry: "", car_next_oil_change_km: "", mechanic_id: "", complaint: "", notes: "" });
       qc.invalidateQueries();
       setOpenCardId(data.id);
     } catch (e) { toast.error(formatApiError(e)); }
@@ -733,6 +734,27 @@ export default function Repairs() {
               </Select>
             </div>
             <div className="space-y-1.5"><Label>Customer complaint</Label><Textarea rows={3} value={form.complaint} onChange={(e) => setForm({ ...form, complaint: e.target.value })} placeholder="e.g. Brake pedal soft, pulls to the right..." data-testid="new-repair-complaint" /></div>
+            <div className="grid grid-cols-3 gap-3 pt-2 border-t border-border">
+              <div className="space-y-1.5">
+                <Label className="text-xs">{t("country")}</Label>
+                <select value={form.car_country} onChange={(e) => setForm({ ...form, car_country: e.target.value })} className="w-full h-10 rounded-md border border-input bg-transparent px-3 text-sm" data-testid="new-repair-country">
+                  <option value="NL">🇳🇱 NL</option><option value="DE">🇩🇪 DE</option><option value="FR">🇫🇷 FR</option>
+                  <option value="BE">🇧🇪 BE</option><option value="IT">🇮🇹 IT</option><option value="ES">🇪🇸 ES</option>
+                  <option value="PL">🇵🇱 PL</option><option value="TR">🇹🇷 TR</option><option value="MA">🇲🇦 MA</option>
+                  <option value="SY">🇸🇾 SY</option><option value="LB">🇱🇧 LB</option><option value="JO">🇯🇴 JO</option>
+                  <option value="IQ">🇮🇶 IQ</option><option value="EG">🇪🇬 EG</option><option value="SA">🇸🇦 SA</option>
+                  <option value="AE">🇦🇪 AE</option><option value="GB">🇬🇧 GB</option><option value="OTHER">Other</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">{t("apkExpiry")}</Label>
+                <Input type="date" value={form.car_apk_expiry} onChange={(e) => setForm({ ...form, car_apk_expiry: e.target.value })} data-testid="new-repair-apk" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">{t("nextOilChangeKm")}</Label>
+                <Input type="number" value={form.car_next_oil_change_km} onChange={(e) => setForm({ ...form, car_next_oil_change_km: e.target.value })} placeholder="e.g. 145000" data-testid="new-repair-next-oil" />
+              </div>
+            </div>
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={() => setShowNew(false)}>Cancel</Button>
               <Button type="submit" className="rounded-full bg-primary" data-testid="new-repair-submit">Open card</Button>

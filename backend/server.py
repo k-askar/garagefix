@@ -1669,6 +1669,9 @@ class RepairCard(BaseModel):
     car_plate: str = ""
     car_color: str = ""
     car_km: str = ""
+    car_country: str = "NL"
+    car_apk_expiry: Optional[str] = None
+    car_next_oil_change_km: Optional[int] = None
     vehicle_id: Optional[str] = None
     mechanic_id: Optional[str] = None
     mechanic_name: str = ""
@@ -1708,6 +1711,9 @@ class RepairCreate(BaseModel):
     car_plate: str = ""
     car_color: str = ""
     car_km: str = ""
+    car_country: str = "NL"
+    car_apk_expiry: Optional[str] = None
+    car_next_oil_change_km: Optional[int] = None
     vehicle_id: Optional[str] = None
     mechanic_id: Optional[str] = None
     complaint: str = ""
@@ -1723,6 +1729,9 @@ class RepairUpdate(BaseModel):
     car_plate: Optional[str] = None
     car_color: Optional[str] = None
     car_km: Optional[str] = None
+    car_country: Optional[str] = None
+    car_apk_expiry: Optional[str] = None
+    car_next_oil_change_km: Optional[int] = None
     mechanic_id: Optional[str] = None
     complaint: Optional[str] = None
     diagnosis: Optional[str] = None
@@ -1967,14 +1976,19 @@ async def create_repair(payload: RepairCreate, user: dict = Depends(get_current_
     veh_data = {
         "car_make": payload.car_make, "car_model": payload.car_model, "car_year": payload.car_year,
         "car_plate": payload.car_plate, "car_color": payload.car_color, "car_km": payload.car_km,
+        "car_country": payload.car_country or "NL",
+        "car_apk_expiry": payload.car_apk_expiry,
+        "car_next_oil_change_km": payload.car_next_oil_change_km,
     }
     if payload.vehicle_id:
         v = await db.vehicles.find_one({"id": payload.vehicle_id}, {"_id": 0})
         if v:
             for src, dst in [("make", "car_make"), ("model", "car_model"), ("year", "car_year"),
-                             ("plate", "car_plate"), ("color", "car_color"), ("km", "car_km")]:
+                             ("plate", "car_plate"), ("color", "car_color"), ("km", "car_km"),
+                             ("country", "car_country"), ("apk_expiry", "car_apk_expiry"),
+                             ("next_oil_change_km", "car_next_oil_change_km")]:
                 if not veh_data[dst]:
-                    veh_data[dst] = v.get(src, "") or ""
+                    veh_data[dst] = v.get(src, "") or veh_data[dst]
     mechanic_name = ""
     if payload.mechanic_id:
         m = await db.users.find_one({"id": payload.mechanic_id}, {"_id": 0})
@@ -1986,6 +2000,8 @@ async def create_repair(payload: RepairCreate, user: dict = Depends(get_current_
         customer_phone=customer_phone,
         car_make=veh_data["car_make"], car_model=veh_data["car_model"], car_year=veh_data["car_year"],
         car_plate=veh_data["car_plate"], car_color=veh_data["car_color"], car_km=veh_data["car_km"],
+        car_country=veh_data["car_country"], car_apk_expiry=veh_data["car_apk_expiry"],
+        car_next_oil_change_km=veh_data["car_next_oil_change_km"],
         vehicle_id=payload.vehicle_id,
         mechanic_id=payload.mechanic_id, mechanic_name=mechanic_name,
         complaint=payload.complaint, notes=payload.notes,

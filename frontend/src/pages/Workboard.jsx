@@ -63,29 +63,51 @@ function LoadBar({ hours, capacity = 8 }) {
   );
 }
 
+/* Check if a card has an alert-worthy vehicle condition (expired/soon APK or oil overdue). */
+function vehicleAlert(card) {
+  const alerts = [];
+  const today = new Date().toISOString().slice(0, 10);
+  const soon = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  const apk = card.car_apk_expiry;
+  if (apk) {
+    if (apk < today) alerts.push({ kind: "apk", level: "critical", text: `APK expired ${apk}` });
+    else if (apk <= soon) alerts.push({ kind: "apk", level: "warn", text: `APK ends ${apk}` });
+  }
+  const nextOil = Number(card.car_next_oil_change_km || 0);
+  const curKm = parseInt(String(card.car_km || "0").replace(/[^0-9]/g, ""), 10) || 0;
+  if (nextOil > 0 && curKm > 0) {
+    if (curKm >= nextOil) alerts.push({ kind: "oil", level: "critical", text: `Oil ${curKm - nextOil}km overdue` });
+    else if (nextOil - curKm <= 500) alerts.push({ kind: "oil", level: "warn", text: `Oil due in ${nextOil - curKm}km` });
+  }
+  return alerts;
+}
+
 /* ---------- draggable job card ---------- */
 function CardChip({ card, onDragStart, onOpen, onSendBack, compact = false }) {
   const veh = [card.car_make, card.car_model].filter(Boolean).join(" ") || "Vehicle TBD";
+  const alerts = vehicleAlert(card);
+  const worst = alerts.reduce((a, x) => (x.level === "critical" ? "critical" : a), alerts.length ? "warn" : "");
+  const alertRing =
+    worst === "critical" ? "ring-2 ring-rose-500 animate-pulse shadow-[0_0_12px_rgba(244,63,94,0.6)]" :
+    worst === "warn" ? "ring-1 ring-amber-500/70" : "";
   const priorityRing =
-    card.priority === "high"
-      ? "ring-1 ring-rose-500/60"
-      : card.priority === "low"
-      ? "ring-1 ring-slate-500/40"
-      : "";
+    !worst && card.priority === "high" ? "ring-1 ring-rose-500/60" :
+    !worst && card.priority === "low" ? "ring-1 ring-slate-500/40" : "";
   return (
     <div
       draggable
       onDragStart={(e) => onDragStart(e, card)}
       onClick={onOpen}
-      className={`group cursor-grab active:cursor-grabbing rounded-md border border-border bg-card p-2.5 hover:border-primary/40 hover:bg-accent/40 transition-all ${priorityRing}`}
+      className={`group cursor-grab active:cursor-grabbing rounded-md border border-border bg-card p-2.5 hover:border-primary/40 hover:bg-accent/40 transition-all ${alertRing} ${priorityRing}`}
       data-testid={`workboard-chip-${card.card_number}`}
+      title={alerts.map(a => a.text).join(" · ")}
     >
       <div className="flex items-center gap-2 min-w-0">
         <Wrench className="h-3.5 w-3.5 shrink-0 text-primary" />
         <div className="min-w-0 flex-1">
           <div className="text-xs font-medium truncate">{card.card_number} · {veh}</div>
           <div className="text-[10px] font-mono text-muted-foreground truncate flex items-center gap-1.5">
-            {card.car_plate && <PlateBadge plate={card.car_plate} size="xxs" />}
+            {card.car_plate && <PlateBadge plate={card.car_plate} country={card.car_country || "NL"} size="xxs" />}
             <span className="truncate">{card.customer_name || "Walk-in"}</span>
           </div>
         </div>
@@ -101,6 +123,17 @@ function CardChip({ card, onDragStart, onOpen, onSendBack, compact = false }) {
           <Badge className={STATUS_STYLE[card.status] + " text-[9px] px-1.5 h-4"}>
             {card.status.replace("_", " ")}
           </Badge>
+          {alerts.map((a, i) => (
+            <Badge
+              key={i}
+              className={`text-[9px] px-1.5 h-4 ${a.level === "critical"
+                ? "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/50"
+                : "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/40"}`}
+              data-testid={`workboard-alert-${a.kind}-${card.card_number}`}
+            >
+              {a.kind === "apk" ? "APK" : "OIL"} · {a.text.split(" ").slice(-1)[0]}
+            </Badge>
+          ))}
           {onSendBack && (
             <button
               onClick={(e) => { e.stopPropagation(); onSendBack(card); }}
