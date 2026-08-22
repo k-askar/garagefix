@@ -289,7 +289,26 @@ export default function Invoices() {
                   {inv.status === "paid"
                     ? <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">Paid</Badge>
                     : overdueIds.has(inv.id)
-                      ? <Badge className="bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/40 hover:bg-rose-500/15" data-testid={`invoice-overdue-${inv.invoice_number}`}><AlertTriangle className="h-3 w-3 mr-1" />Overdue</Badge>
+                      ? (
+                        <div className="flex flex-col gap-1 items-start">
+                          <Badge className="bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/40 hover:bg-rose-500/15" data-testid={`invoice-overdue-${inv.invoice_number}`}><AlertTriangle className="h-3 w-3 mr-1" />Overdue</Badge>
+                          {inv.reminder_stage > 0 && (
+                            <span
+                              className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border ${
+                                inv.reminder_stage === 1 ? "border-sky-500/40 text-sky-700 dark:text-sky-300 bg-sky-500/10" :
+                                inv.reminder_stage === 2 ? "border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10" :
+                                "border-rose-500/50 text-rose-700 dark:text-rose-300 bg-rose-500/10"
+                              }`}
+                              data-testid={`invoice-reminder-stage-${inv.invoice_number}`}
+                              title={inv.reminder_sent_at ? `Last sent: ${new Date(inv.reminder_sent_at).toLocaleString()}` : ""}
+                            >
+                              {inv.reminder_stage === 1 && "Notice 1 · friendly"}
+                              {inv.reminder_stage === 2 && "Notice 2 · firm"}
+                              {inv.reminder_stage === 3 && "Notice 3 · final"}
+                            </span>
+                          )}
+                        </div>
+                      )
                       : <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/15">Due</Badge>}
                 </TableCell>
                 <TableCell className="text-muted-foreground text-xs font-mono">

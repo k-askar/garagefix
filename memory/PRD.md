@@ -103,7 +103,22 @@
 - **Repairs job-card header band** switched from stark `bg-black/95` to `bg-secondary` (theme-aware) in both list card and dialog editor.
 - Verified by testing_agent iteration_7 (toggle mechanism) + iteration_8 (WCAG contrast sweep in both modes).
 
-### Iteration 11 (Workboard — Feb 2026)
+### Iteration 12 (Feb 2026) — Scheduling guard + Escalating reminders
+- **Appointment Conflict Guard** (Calendar):
+  - New `GET /api/appointments/conflicts?mechanic_id&start&duration_min&exclude` endpoint
+  - New-appointment dialog now debounces a conflict check on every mechanic / date-time / duration change
+  - Amber warning banner lists overlapping appointments; save still allowed with a confirm prompt
+  - Non-blocking by design — owner can override for emergencies
+- **Auto Reminder Cadence** (Invoices):
+  - Invoice model gains `reminder_stage` (0-3) and `reminder_history[]`
+  - New helper `_overdue_stage_for(days, current_stage)` decides the next escalation step
+  - 3 tones with escalating language + color accent:
+    - Day 1 → **Friendly reminder** (sky blue)
+    - Day 7 → **Second notice · firm** (amber)
+    - Day 14 → **Final notice** (rose)
+  - `POST /cron/overdue-invoices` and `POST /invoices/overdue/send-reminders` both drive off the new stage helper
+  - Invoices table shows a colored "Notice 1 / 2 / 3" pill under the Overdue badge with a tooltip of the last-sent timestamp
+  - 10 stage-picker unit cases pass; conflict endpoint verified via curl (overlap=1, no-overlap=0, exclude-self=0)
 - New `/workboard` page: week view (Mon–Sun) × mechanics grid with a right-side "Unassigned tasks" column
 - Native HTML5 drag & drop: pull a card from the pool onto any mechanic × day cell (auto-defaults to 1h if no estimate set)
 - Estimated hours picker on every card: 1h / 2h / 4h / 8h presets + custom input
@@ -123,10 +138,8 @@
 - Loyalty Credit (€ discount after N paid invoices) — P1
 - SMS fallback via Twilio when a customer has no email — P1
 - iDEAL / SEPA QR on paper invoice — P2
-- Auto reminder cadence (day 1 / 7 / 14 escalation) — P2
 - Ordered-parts dashboard (cross-workshop) — P3
-- Appointment conflict detection (mechanic double-booking) — P3
-- Refactor `server.py` (~2560 lines) into APIRouter modules per domain
+- Refactor `server.py` (~2600 lines) into APIRouter modules per domain
 
 ## Files of note
 - `/app/backend/server.py`

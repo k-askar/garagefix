@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatApiError, formatEUR } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Plus, CalendarDays, Car, User, Wrench, Trash2, FileText, ArrowRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, CalendarDays, Car, User, Wrench, Trash2, FileText, ArrowRight, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import SearchableSelect from "@/components/SearchableSelect";
@@ -60,6 +60,8 @@ export default function CalendarPage() {
     scheduled_at: isoLocal(new Date(Date.now() + 60 * 60 * 1000)),
     duration_min: 60, service_type: "", notes: "",
   });
+  const [conflicts, setConflicts] = useState([]);
+  const [checkingConflicts, setCheckingConflicts] = useState(false);
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
@@ -100,6 +102,7 @@ export default function CalendarPage() {
   const save = async (e) => {
     e.preventDefault();
     if (!form.scheduled_at) return toast.error(t("pickDateTime"));
+    if (conflicts.length > 0 && !window.confirm(t("apptConflictConfirm", { n: conflicts.length }))) return;
     try {
       await api.post("/appointments", {
         customer_id: form.customer_id || null,
@@ -112,10 +115,32 @@ export default function CalendarPage() {
       });
       toast.success(t("appointmentCreated"));
       setShowNew(false);
+      setConflicts([]);
       setForm({ customer_id: "", vehicle_id: "", mechanic_id: "", scheduled_at: isoLocal(new Date()), duration_min: 60, service_type: "", notes: "" });
       qc.invalidateQueries();
     } catch (err) { toast.error(formatApiError(err)); }
   };
+
+  /* Check conflicts whenever mechanic / date / duration changes in the dialog */
+  useEffect(() => {
+    if (!showNew || !form.mechanic_id || !form.scheduled_at) {
+      setConflicts([]);
+      return;
+    }
+    let cancelled = false;
+    setCheckingConflicts(true);
+    const iso = new Date(form.scheduled_at).toISOString();
+    const params = new URLSearchParams({
+      mechanic_id: form.mechanic_id,
+      start: iso,
+      duration_min: String(Number(form.duration_min) || 60),
+    });
+    api.get(`/appointments/conflicts?${params.toString()}`)
+      .then(r => { if (!cancelled) setConflicts(r.data?.conflicts || []); })
+      .catch(() => { if (!cancelled) setConflicts([]); })
+      .finally(() => { if (!cancelled) setCheckingConflicts(false); });
+    return () => { cancelled = true; };
+  }, [showNew, form.mechanic_id, form.scheduled_at, form.duration_min]);
 
   const del = async (id) => {
     if (!window.confirm(t("deleteAppointmentConfirm"))) return;
@@ -358,6 +383,35 @@ export default function CalendarPage() {
                   </SelectContent>
                 </Select>
               </div>
+            )}
+            {conflicts.length > 0 && (
+              <div className="rounded-md border border-amber-500/60 bg-amber-500/10 p-3" data-testid="appt-conflict-banner">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-700 dark:text-amber-400" />
+                  <div className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                    {t("apptConflictTitle", { n: conflicts.length })}
+                  </div>
+                </div>
+                <ul className="space-y-1 text-xs">
+                  {conflicts.slice(0, 4).map(c => (
+                    <li key={c.id} className="font-mono text-amber-900 dark:text-amber-200 flex items-center gap-2">
+                      <span>{c.scheduled_at.slice(0, 10)} · {c.scheduled_at.slice(11, 16)}</span>
+                      <span className="text-muted-foreground">·</span>
+                      <span className="truncate">{c.customer_name || t("walkIn")} — {c.service_type}</span>
+                      <span className="text-muted-foreground">({c.duration_min}m)</span>
+                    </li>
+                  ))}
+                  {conflicts.length > 4 && (
+                    <li className="text-xs text-muted-foreground">+ {conflicts.length - 4}</li>
+                  )}
+                </ul>
+                <div className="text-[10px] font-mono uppercase tracking-widest text-amber-700 dark:text-amber-400 mt-2">
+                  {t("apptConflictHint")}
+                </div>
+              </div>
+            )}
+            {checkingConflicts && (
+              <div className="text-[10px] font-mono text-muted-foreground">{t("apptConflictChecking")}</div>
             )}
             <div className="space-y-1.5">
               <Label>{t("notes")}</Label>

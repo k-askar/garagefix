@@ -385,6 +385,54 @@ async def list_appointments(start: Optional[str] = None, end: Optional[str] = No
         q["scheduled_at"] = rng
     return await db.appointments.find(q, {"_id": 0}).sort("scheduled_at", 1).to_list(2000)
 
+
+def _parse_dt(s: str) -> Optional[datetime]:
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+
+
+@api_router.get("/appointments/conflicts")
+async def find_appointment_conflicts(
+    mechanic_id: str,
+    start: str,
+    duration_min: int = 60,
+    exclude: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Return every appointment that overlaps the given mechanic slot.
+    Used by the calendar's new-appointment dialog to warn about double-booking."""
+    if not mechanic_id:
+        return {"conflicts": []}
+    start_dt = _parse_dt(start)
+    if not start_dt:
+        raise HTTPException(status_code=400, detail="Invalid start datetime")
+    end_dt = start_dt + timedelta(minutes=max(1, int(duration_min or 60)))
+    # Pull that mechanic's appointments in a wide day window; refine in memory.
+    day_lo = (start_dt - timedelta(days=1)).isoformat()
+    day_hi = (end_dt + timedelta(days=1)).isoformat()
+    q = {
+        "mechanic_id": mechanic_id,
+        "status": {"$nin": ["cancelled", "completed"]},
+        "scheduled_at": {"$gte": day_lo, "$lte": day_hi},
+    }
+    rows = await db.appointments.find(q, {"_id": 0}).to_list(500)
+    conflicts = []
+    for r in rows:
+        if exclude and r.get("id") == exclude:
+            continue
+        r_start = _parse_dt(r.get("scheduled_at", ""))
+        if not r_start:
+            continue
+        r_end = r_start + timedelta(minutes=int(r.get("duration_min") or 60))
+        if r_start < end_dt and r_end > start_dt:
+            conflicts.append(r)
+    return {"conflicts": conflicts, "count": len(conflicts)}
+
+
 @api_router.post("/appointments", response_model=Appointment)
 async def create_appointment(payload: AppointmentCreate, user: dict = Depends(get_current_user)):
     try:
@@ -1022,6 +1070,8 @@ class Invoice(BaseModel):
     payment_terms_days: int = 14
     due_date: Optional[str] = None              # YYYY-MM-DD — created_at + payment_terms_days
     reminder_sent_at: Optional[str] = None
+    reminder_stage: int = 0                     # 0=none, 1=friendly (day1), 2=firm (day7), 3=final (day14)
+    reminder_history: List[dict] = []           # [{stage, sent_at, days_overdue}]
     created_by: str = ""
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     paid_at: Optional[str] = None
@@ -1050,36 +1100,106 @@ async def list_overdue_invoices(user: dict = Depends(get_current_user)):
             r["days_overdue"] = 0
     return rows
 
-def _overdue_email_html(inv, garage_name, iban):
-    days = inv.get("days_overdue", 0)
+def _overdue_stage_for(days: int, current_stage: int) -> int:
+    """Which reminder tone should we send next?  0 means "nothing yet"."""
+    if days >= 14 and current_stage < 3:
+        return 3
+    if days >= 7 and current_stage < 2:
+        return 2
+    if days >= 1 and current_stage < 1:
+        return 1
+    return 0
+
+
+_OVERDUE_TONE = {
+    1: {
+        "subject": "Friendly reminder — invoice {inv}",
+        "heading": "Friendly reminder — {inv}",
+        "greeting": "Hi {name},",
+        "body": ("Just a gentle nudge — invoice <strong>{inv}</strong> for "
+                 "<strong>{amount:.2f} €</strong> was due on <strong>{due}</strong> "
+                 "and is now <strong>{days} day{s} overdue</strong>.  "
+                 "If it slipped your mind, please settle when you get a moment."),
+        "cta": "Thanks in advance for your quick action.",
+        "accent": "#0ea5e9",
+    },
+    2: {
+        "subject": "Second notice — invoice {inv} is now {days} days overdue",
+        "heading": "Second notice — {inv}",
+        "greeting": "Hi {name},",
+        "body": ("We haven't received payment for invoice <strong>{inv}</strong> "
+                 "(<strong>{amount:.2f} €</strong>), which was due on <strong>{due}</strong> "
+                 "and is now <strong>{days} days overdue</strong>.  "
+                 "Please arrange payment this week to keep the account in good standing."),
+        "cta": "Kindly reply if you need a payment plan or a copy of the invoice.",
+        "accent": "#f59e0b",
+    },
+    3: {
+        "subject": "FINAL NOTICE — invoice {inv} is {days} days overdue",
+        "heading": "Final notice — {inv}",
+        "greeting": "Dear {name},",
+        "body": ("This is our <strong>final reminder</strong> for invoice "
+                 "<strong>{inv}</strong> in the amount of <strong>{amount:.2f} €</strong>, "
+                 "which was due on <strong>{due}</strong> and is now "
+                 "<strong>{days} days overdue</strong>.  "
+                 "If payment is not received within the next 7 days, we will forward the "
+                 "account to collections and further costs may apply."),
+        "cta": "We very much prefer to resolve this amicably — please reply today.",
+        "accent": "#e11d48",
+    },
+}
+
+
+def _overdue_email_html(inv, garage_name, iban, stage: int = 1):
+    tone = _OVERDUE_TONE.get(stage, _OVERDUE_TONE[1])
+    days = int(inv.get("days_overdue") or 0)
+    body = tone["body"].format(
+        inv=escape(inv["invoice_number"]),
+        amount=inv["total"],
+        due=escape(inv.get("due_date") or ""),
+        days=days,
+        s="s" if days != 1 else "",
+    )
+    iban_line = (f'<p>Bank transfer to <strong>{escape(iban)}</strong>.</p>' if iban else '')
     return (f'<table role="presentation" width="100%"><tr><td style="padding:24px;'
             f'font-family:Arial,sans-serif;color:#111;max-width:560px">'
-            f'<h2 style="margin:0 0 12px">Payment overdue — {escape(inv["invoice_number"])}</h2>'
-            f'<p>Hi {escape(inv.get("customer_name") or "there")},</p>'
-            f'<p>Our records show invoice <strong>{escape(inv["invoice_number"])}</strong> for '
-            f'<strong>{inv["total"]:.2f} €</strong> was due on <strong>{escape(inv.get("due_date") or "")}</strong> '
-            f'and is now <strong>{days} day{"s" if days != 1 else ""} overdue</strong>.</p>'
-            f'<p>Please settle at your earliest convenience'
-            f'{" — bank transfer to <strong>" + escape(iban) + "</strong>" if iban else ""}. '
-            f'If you have already paid, kindly ignore this reminder.</p>'
+            f'<div style="border-left:4px solid {tone["accent"]};padding-left:12px;margin-bottom:16px">'
+            f'<h2 style="margin:0;color:{tone["accent"]}">{tone["heading"].format(inv=escape(inv["invoice_number"]))}</h2>'
+            f'</div>'
+            f'<p>{tone["greeting"].format(name=escape(inv.get("customer_name") or "there"))}</p>'
+            f'<p>{body}</p>'
+            f'{iban_line}'
+            f'<p>{tone["cta"]}</p>'
             f'<p style="font-size:12px;color:#888;margin-top:24px">Sent by {escape(garage_name)}.</p>'
             f'</td></tr></table>')
 
-async def _send_overdue_email(inv):
+
+async def _send_overdue_email(inv, stage: Optional[int] = None):
     if not inv.get("customer_id"):
         return False
     c = await db.customers.find_one({"id": inv["customer_id"]}, {"_id": 0})
     if not c or not c.get("email"):
         return False
+    days = int(inv.get("days_overdue") or 0)
+    current_stage = int(inv.get("reminder_stage") or 0)
+    picked_stage = stage if stage is not None else _overdue_stage_for(days, current_stage)
+    if picked_stage == 0:
+        return False
     s = await db.settings.find_one({"_id": "garage"}, {"_id": 0}) or {}
     garage_name = s.get("name") or "PitStock Garage"
     iban = s.get("iban") or ""
-    html = _overdue_email_html(inv, garage_name, iban)
+    tone = _OVERDUE_TONE.get(picked_stage, _OVERDUE_TONE[1])
+    subject = tone["subject"].format(inv=inv["invoice_number"], days=days)
+    html = _overdue_email_html(inv, garage_name, iban, picked_stage)
     try:
-        await send_email(to=c["email"],
-                         subject=f"Payment overdue — invoice {inv['invoice_number']}",
-                         html=html)
-        await db.invoices.update_one({"id": inv["id"]}, {"$set": {"reminder_sent_at": datetime.now(timezone.utc).isoformat()}})
+        await send_email(to=c["email"], subject=subject, html=html)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        entry = {"stage": picked_stage, "sent_at": now_iso, "days_overdue": days}
+        await db.invoices.update_one(
+            {"id": inv["id"]},
+            {"$set": {"reminder_sent_at": now_iso, "reminder_stage": picked_stage},
+             "$push": {"reminder_history": entry}},
+        )
         return True
     except Exception as e:
         logger.error(f"overdue email failed for {inv['invoice_number']}: {e}")
@@ -1093,14 +1213,19 @@ async def send_overdue_reminders(user: dict = Depends(get_current_user)):
         "due_date": {"$ne": None, "$lt": today},
     }, {"_id": 0}).to_list(1000)
     sent = 0
+    stages_sent = {1: 0, 2: 0, 3: 0}
     for r in rows:
         try:
             r["days_overdue"] = (datetime.now(timezone.utc).date() - datetime.strptime(r["due_date"], "%Y-%m-%d").date()).days
         except Exception:
             r["days_overdue"] = 0
-        if await _send_overdue_email(r):
+        next_stage = _overdue_stage_for(r["days_overdue"], int(r.get("reminder_stage") or 0))
+        if next_stage == 0:
+            continue
+        if await _send_overdue_email(r, stage=next_stage):
             sent += 1
-    return {"checked": len(rows), "sent": sent, "skipped_no_email": len(rows) - sent}
+            stages_sent[next_stage] = stages_sent.get(next_stage, 0) + 1
+    return {"checked": len(rows), "sent": sent, "skipped": len(rows) - sent, "by_stage": stages_sent}
 
 @api_router.post("/cron/overdue-invoices")
 async def cron_overdue_invoices(background: BackgroundTasks, authorization: Optional[str] = Header(default=None)):
@@ -1109,20 +1234,26 @@ async def cron_overdue_invoices(background: BackgroundTasks, authorization: Opti
     if not secrets.compare_digest(authorization[7:], WEBHOOK_CRON_SECRET or ""):
         raise HTTPException(status_code=401, detail="Bad token")
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # Pull EVERY unpaid + past-due invoice; the stage helper decides who is due next.
     rows = await db.invoices.find({
         "status": {"$ne": "paid"},
         "due_date": {"$ne": None, "$lt": today},
-        "$or": [{"reminder_sent_at": None},
-                {"reminder_sent_at": {"$lt": (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()}}],
-    }, {"_id": 0}).to_list(1000)
+    }, {"_id": 0}).to_list(2000)
 
     async def _run():
+        queued = 0
         for r in rows:
             try:
                 r["days_overdue"] = (datetime.now(timezone.utc).date() - datetime.strptime(r["due_date"], "%Y-%m-%d").date()).days
             except Exception:
                 r["days_overdue"] = 0
-            await _send_overdue_email(r)
+            # Only actually send if we've hit a new escalation stage.
+            next_stage = _overdue_stage_for(r["days_overdue"], int(r.get("reminder_stage") or 0))
+            if next_stage == 0:
+                continue
+            await _send_overdue_email(r, stage=next_stage)
+            queued += 1
+        logger.info(f"cron/overdue-invoices: escalated {queued} invoices")
 
     background.add_task(_run)
     return {"queued": len(rows)}
