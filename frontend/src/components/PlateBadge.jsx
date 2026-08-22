@@ -8,6 +8,7 @@ import React from "react";
 export default function PlateBadge({ plate, size = "sm", className = "" }) {
   if (!plate) return <span className="text-muted-foreground">—</span>;
   const sizes = {
+    xxs: "text-[9px] px-1.5 py-[1px]",
     xs: "text-xs px-2 py-[3px]",
     sm: "text-sm px-3 py-1",
     md: "text-base px-4 py-1.5",

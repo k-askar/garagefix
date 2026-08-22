@@ -103,14 +103,30 @@
 - **Repairs job-card header band** switched from stark `bg-black/95` to `bg-secondary` (theme-aware) in both list card and dialog editor.
 - Verified by testing_agent iteration_7 (toggle mechanism) + iteration_8 (WCAG contrast sweep in both modes).
 
+### Iteration 11 (Workboard — Feb 2026)
+- New `/workboard` page: week view (Mon–Sun) × mechanics grid with a right-side "Unassigned tasks" column
+- Native HTML5 drag & drop: pull a card from the pool onto any mechanic × day cell (auto-defaults to 1h if no estimate set)
+- Estimated hours picker on every card: 1h / 2h / 4h / 8h presets + custom input
+- Per-day load bar (0–100 %+, colored green/amber/rose) shows if a mechanic is empty, healthy, or overbooked
+- Per-mechanic weekly load bar (0–40 h) with availability dot (green/amber/rose)
+- Conflict guard: prompts before letting a mechanic exceed 8 h in a single day
+- Priority cycling (normal → high → low) with a red ring + flame icon for "high"
+- Sidebar search across card #, customer, plate, make, model
+- Status filter tabs: Active (default) / Open / In progress / All
+- Week navigation (prev / today / next), RTL-aware chevrons
+- Presenter mode toggle: compacts chips + auto-refreshes every 30 s for TV/big-screen display
+- Full AR / NL / EN translations
+- Backend additions: `RepairCard.estimated_hours`, `.scheduled_date`, `.priority`;
+  new endpoint `POST /api/repairs/{id}/assign` (idempotent, patch-style)
+
 ## Roadmap / Backlog
-- Time tracking for labor (mechanics clock in/out on repair cards) — P1
-- SMS fallback via Twilio when a customer has no email — P2
-- Photo attachments for cars (vehicle damage/status on repair card) — P2
-- Loyalty credit for returning customers (€ off after N paid invoices) — P2
-- Refactor `server.py` (~1550 lines) into APIRouter modules per domain
-- Replace per-method balance N+1 with a single Mongo `$group` aggregation
-- Void/reverse ledger entries for invoice/PO corrections (soft-delete)
+- Loyalty Credit (€ discount after N paid invoices) — P1
+- SMS fallback via Twilio when a customer has no email — P1
+- iDEAL / SEPA QR on paper invoice — P2
+- Auto reminder cadence (day 1 / 7 / 14 escalation) — P2
+- Ordered-parts dashboard (cross-workshop) — P3
+- Appointment conflict detection (mechanic double-booking) — P3
+- Refactor `server.py` (~2560 lines) into APIRouter modules per domain
 
 ## Files of note
 - `/app/backend/server.py`

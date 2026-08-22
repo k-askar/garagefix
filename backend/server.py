@@ -1392,6 +1392,10 @@ class RepairCard(BaseModel):
     status: Literal["open", "in_progress", "completed"] = "open"
     notes: str = ""
     invoice_id: Optional[str] = None
+    # Workboard planning fields
+    estimated_hours: float = 0.0            # planned effort (1 / 2 / 4 / 8 or custom)
+    scheduled_date: Optional[str] = None    # YYYY-MM-DD (day the card sits on the workboard)
+    priority: Literal["low", "normal", "high"] = "normal"
     created_by: str = ""
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     completed_at: Optional[str] = None
@@ -1430,6 +1434,16 @@ class RepairUpdate(BaseModel):
     tax_rate: Optional[float] = None
     notes: Optional[str] = None
     status: Optional[Literal["open", "in_progress", "completed"]] = None
+    estimated_hours: Optional[float] = None
+    scheduled_date: Optional[str] = None
+    priority: Optional[Literal["low", "normal", "high"]] = None
+
+class RepairAssign(BaseModel):
+    """Workboard drag-and-drop payload. Any field is optional."""
+    mechanic_id: Optional[str] = None       # empty string / None → unassign
+    scheduled_date: Optional[str] = None    # YYYY-MM-DD; None → keep, "" → clear
+    estimated_hours: Optional[float] = None
+    priority: Optional[Literal["low", "normal", "high"]] = None
 
 class AddPart(BaseModel):
     item_id: str
@@ -1699,6 +1713,35 @@ async def update_repair(rid: str, payload: RepairUpdate, user: dict = Depends(ge
     merged = {**card, **updates}
     merged = _recalc_repair(merged)
     updates.update(_recalc_fields(merged))
+    await db.repairs.update_one({"id": rid}, {"$set": updates})
+    return await db.repairs.find_one({"id": rid}, {"_id": 0})
+
+@api_router.post("/repairs/{rid}/assign", response_model=RepairCard)
+async def assign_repair(rid: str, payload: RepairAssign, user: dict = Depends(get_current_user)):
+    """Workboard drag-and-drop: move a job card between mechanics / days and set effort."""
+    card = await db.repairs.find_one({"id": rid}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+    updates: dict = {}
+    body = payload.model_dump(exclude_unset=True)
+    if "mechanic_id" in body:
+        mid = body["mechanic_id"] or None
+        updates["mechanic_id"] = mid
+        if mid:
+            m = await db.users.find_one({"id": mid}, {"_id": 0})
+            updates["mechanic_name"] = (m or {}).get("name") or (m or {}).get("email", "") if m else ""
+        else:
+            updates["mechanic_name"] = ""
+    if "scheduled_date" in body:
+        updates["scheduled_date"] = body["scheduled_date"] or None
+    if "estimated_hours" in body and body["estimated_hours"] is not None:
+        try:
+            updates["estimated_hours"] = max(0.0, float(body["estimated_hours"]))
+        except (TypeError, ValueError):
+            pass
+    if "priority" in body and body["priority"]:
+        updates["priority"] = body["priority"]
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
     await db.repairs.update_one({"id": rid}, {"$set": updates})
     return await db.repairs.find_one({"id": rid}, {"_id": 0})
 
