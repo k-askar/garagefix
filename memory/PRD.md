@@ -168,11 +168,21 @@
 - 🧠 Uses Emergent LLM key via `emergentintegrations.LlmChat` + `ImageContent(image_base64=…)`.
 - 🌐 30 new i18n keys added to en/nl/ar for the A4 flow.
 
+## Iteration 17 (Feb 2026) — Cash Register redesigned as unified ledger
+- 🧾 New `GET /api/ledger` — every `payment_entry` (invoice payments, POs, manual movements) as one queryable stream with filters: `date_from`, `date_to`, `method_type` (cash / bank / card / other), `direction` (in / out), `ref_type` (invoice / po / manual / opening), and free-text `q` search on customer / note / reference number. Returns filtered entries + a per-method summary (opening + in + out = live balance).
+- 💼 Cash Register rewritten around this endpoint:
+  - Top KPI row: one card per active payment method (Cash / Bank / Card / Other) with live balance, all-time IN and OUT.
+  - Filter bar: date-range + section + direction + ref-type + search + "Clear filters", showing counter + running net.
+  - Grouped sections — every method type gets its own table so **cash movements and bank movements are visually separated** (bank card also clarified as *Bank transfer* vs *Card / ATM* by the method's `type`).
+  - Invoice rows are clickable → open the related invoice (`/invoices?open=INV-…`).
+  - Manual movement panel still available at the bottom.
+- 🌐 27 new i18n keys added to en/nl/ar (workshopBooks, cash / bank / card / other, section, net, from, to, entries, searchLedgerPh, etc.).
+
 ## Roadmap / Backlog
 - Full translation pass for Repairs card modal + Invoice preview labels — P1
 - SMS fallback via Twilio when a customer has no email — P1
 - Ordered-parts dashboard (cross-workshop) — P3
-- Refactor `server.py` (~3600 lines) into APIRouter modules per domain
+- Refactor `server.py` (~3650 lines) into APIRouter modules per domain
 
 ## Iteration 13 (Feb 2026) — Loyalty rewards + Car Passport QR
 ### Loyalty rewards

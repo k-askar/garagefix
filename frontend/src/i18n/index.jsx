@@ -340,6 +340,15 @@ const DICT = {
     ocrNoPlateFound: "AI could not find a plate — pick the card manually",
     ocrUnsupportedFormat: "Please pick a JPG, PNG or WebP photo",
     orBarcodeScan: "OR — barcode / typed code",
+    // --- Ledger / Cash Register redesign ---
+    workshopBooks: "WORKSHOP BOOKS",
+    cashRegisterSub: "Every euro that moved through the workshop — cash, bank transfer or card — as a live ledger.",
+    section: "Section", net: "Net", all: "All", from: "From", to: "To",
+    entries: "entries", searchLedgerPh: "search invoice / customer / note…",
+    clearFilters: "Clear filters", cash: "Cash", bank: "Bank transfer", card: "Card / ATM", other: "Other",
+    reference: "Reference", counterpart: "Party / customer", type: "Type",
+    noLedgerEntries: "No entries match your filters.",
+    noPaymentMethods: "No payment methods yet — add one in Accounts.",
     deleted: "Deleted",
   },
   nl: {
@@ -655,6 +664,15 @@ const DICT = {
     ocrNoPlateFound: "AI vond geen kenteken — kies zelf de werkbon",
     ocrUnsupportedFormat: "Kies een JPG-, PNG- of WebP-foto",
     orBarcodeScan: "OF — streepjescode / handmatige code",
+    // --- Ledger ---
+    workshopBooks: "WERKPLAATS BOEKHOUDING",
+    cashRegisterSub: "Elke euro die door de werkplaats stroomde — kas, bankoverschrijving of kaart — als live grootboek.",
+    section: "Sectie", net: "Netto", all: "Alle", from: "Van", to: "Tot",
+    entries: "boekingen", searchLedgerPh: "zoek factuur / klant / notitie…",
+    clearFilters: "Filters wissen", cash: "Kas", bank: "Bankoverschrijving", card: "Kaart / PIN", other: "Overig",
+    reference: "Referentie", counterpart: "Partij / klant", type: "Type",
+    noLedgerEntries: "Geen boekingen voor uw filters.",
+    noPaymentMethods: "Nog geen betaalmethoden — voeg er één toe in Rekeningen.",
   },
   ar: {
     dashboard: "لوحة القيادة", inventory: "المخزون", movement: "دخول / خروج المخزون",
@@ -971,6 +989,15 @@ const DICT = {
     ocrNoPlateFound: "لم يجد الذكاء الاصطناعي رقم لوحة — اختر البطاقة يدوياً",
     ocrUnsupportedFormat: "يرجى اختيار صورة بصيغة JPG أو PNG أو WebP",
     orBarcodeScan: "أو — باركود / كود يدوي",
+    // --- Ledger ---
+    workshopBooks: "دفاتر الورشة",
+    cashRegisterSub: "كل يورو دخل أو خرج من الورشة — كاش، تحويل بنكي، أو كرت — كسجل حي.",
+    section: "القسم", net: "الصافي", all: "الكل", from: "من", to: "إلى",
+    entries: "قيد", searchLedgerPh: "ابحث فاتورة / عميل / ملاحظة…",
+    clearFilters: "مسح الفلاتر", cash: "كاش", bank: "تحويل بنكي", card: "كرت / صراف", other: "أخرى",
+    reference: "المرجع", counterpart: "الطرف / العميل", type: "النوع",
+    noLedgerEntries: "لا توجد قيود مطابقة للفلاتر.",
+    noPaymentMethods: "لا توجد طرق دفع بعد — أضف واحدة من قائمة الحسابات.",
   },
 };
 

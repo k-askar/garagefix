@@ -2965,6 +2965,67 @@ async def delete_reminder(rid: str, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 # --- Cash Register / Daily Till ---
+@api_router.get("/ledger")
+async def ledger(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    method_type: Optional[str] = None,
+    direction: Optional[str] = None,
+    ref_type: Optional[str] = None,
+    q: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Unified ledger: every payment_entry row (invoice, PO, manual) with filters."""
+    await _seed_payment_methods()
+    query: dict = {}
+    if date_from or date_to:
+        cond: dict = {}
+        if date_from: cond["$gte"] = date_from + "T00:00:00+00:00"
+        if date_to:   cond["$lte"] = date_to   + "T23:59:59+00:00"
+        query["created_at"] = cond
+    if direction in ("in", "out"): query["direction"] = direction
+    if ref_type: query["reference_type"] = ref_type
+
+    entries = await db.payment_entries.find(query, {"_id": 0}).sort("created_at", 1).to_list(20000)
+    methods = {m["id"]: m for m in await db.payment_methods.find({}, {"_id": 0}).to_list(200)}
+    if method_type:
+        allowed = {mid for mid, m in methods.items() if m.get("type") == method_type}
+        entries = [e for e in entries if e.get("method_id") in allowed]
+    ql = (q or "").strip().lower()
+    if ql:
+        entries = [e for e in entries if any(ql in str(e.get(k, "")).lower()
+                                              for k in ("counterpart", "note", "reference_no", "method_name"))]
+    for e in entries:
+        m = methods.get(e.get("method_id")) or {}
+        e["method_type"] = m.get("type") or "other"
+
+    all_entries = await db.payment_entries.find({}, {"_id": 0}).to_list(50000)
+    summary = []
+    for mid, m in methods.items():
+        ein  = round(sum(x["amount"] for x in all_entries if x["method_id"] == mid and x["direction"] == "in"), 2)
+        eout = round(sum(x["amount"] for x in all_entries if x["method_id"] == mid and x["direction"] == "out"), 2)
+        summary.append({
+            "id": mid, "name": m.get("name") or "",
+            "type": m.get("type") or "other",
+            "active": bool(m.get("active", True)),
+            "opening_balance": round(float(m.get("opening_balance") or 0), 2),
+            "in_total": ein, "out_total": eout,
+            "balance": round(float(m.get("opening_balance") or 0) + ein - eout, 2),
+            "note": m.get("note") or "",
+        })
+    order = ["cash", "bank", "card", "other"]
+    summary.sort(key=lambda s: (order.index(s["type"]) if s["type"] in order else 9, s["name"]))
+    in_total  = round(sum(e["amount"] for e in entries if e["direction"] == "in"), 2)
+    out_total = round(sum(e["amount"] for e in entries if e["direction"] == "out"), 2)
+    return {
+        "entries": entries,
+        "in_total": in_total, "out_total": out_total,
+        "net": round(in_total - out_total, 2),
+        "count": len(entries),
+        "methods": summary,
+    }
+
+
 @api_router.get("/cash-register")
 async def cash_register(date: Optional[str] = None, user: dict = Depends(get_current_user)):
     d = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
