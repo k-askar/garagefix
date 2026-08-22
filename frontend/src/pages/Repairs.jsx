@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Car, Wrench, Plus, Trash2, CheckCircle2, FileText, Printer, User, Gauge, X, ClipboardList, FileDown, MessageCircle, Play, Square, Timer } from "lucide-react";
+import { Car, Wrench, Plus, Trash2, CheckCircle2, FileText, Printer, User, Gauge, X, ClipboardList, FileDown, MessageCircle, Play, Square, Timer, Lock, Unlock, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { useLang } from "@/i18n";
@@ -227,6 +227,23 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
   const [saving, setSaving] = useState(false);
   const [addItem, setAddItem] = useState("");
   const [addQty, setAddQty] = useState(1);
+  // Identity fields (customer + vehicle) are LOCKED by default to prevent
+  // accidental edits. The owner can click the padlock to unlock.
+  const [locked, setLocked] = useState(true);
+  const linkedCustomer = customers.find(c => c.id === card.customer_id);
+  const customerOutOfSync = !!linkedCustomer && (
+    (linkedCustomer.name || "") !== (data.customer_name || "") ||
+    (linkedCustomer.phone || "") !== (data.customer_phone || "")
+  );
+  const syncFromCustomer = () => {
+    if (!linkedCustomer) return;
+    set("customer_name", linkedCustomer.name || "");
+    set("customer_phone", linkedCustomer.phone || "");
+    toast.success(t("customerSynced"));
+  };
+  const logoSrc = settings?.logo_url?.startsWith("/api/")
+    ? `${process.env.REACT_APP_BACKEND_URL}${settings.logo_url}`
+    : (settings?.logo_url || "/logo-shawish.png");
 
   const set = (k, v) => setData(d => ({ ...d, [k]: v }));
 
@@ -278,7 +295,7 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
         <div className="rounded-lg bg-secondary border border-primary/20 p-4 flex items-center justify-between gap-4 mb-4">
-          <img src={settings?.logo_url || "/logo-shawish.png"} alt="logo" className="h-14 w-auto object-contain" data-testid="repair-editor-logo" />
+          <img src={logoSrc} alt="logo" className="h-14 w-auto object-contain" data-testid="repair-editor-logo" onError={(e) => { e.currentTarget.src = "/logo-shawish.png"; }} />
           <div className="text-right">
             <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-primary">Job card</div>
             <div className="font-mono text-primary text-sm">{data.card_number}</div>
@@ -293,30 +310,67 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
         </DialogHeader>
 
         <div className="space-y-6">
+          {/* Lock toolbar for identity fields */}
+          <div className="flex items-center justify-between gap-2 flex-wrap rounded-md border border-border bg-muted/30 px-3 py-2" data-testid="repair-identity-lock-bar">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {locked ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />}
+              <span>{locked ? t("identityLocked") : t("identityUnlocked")}</span>
+              {linkedCustomer && (
+                <Badge variant="outline" className="ms-2 font-mono text-[10px]">
+                  <User className="h-3 w-3 mr-1" />{linkedCustomer.name}
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {customerOutOfSync && (
+                <Button size="sm" variant="outline" className="rounded-full h-7 text-[11px]" onClick={syncFromCustomer} data-testid="repair-sync-customer">
+                  <RefreshCw className="h-3 w-3 mr-1" />{t("syncFromRecord")}
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant={locked ? "outline" : "default"}
+                className="rounded-full h-7 text-[11px]"
+                onClick={() => {
+                  if (locked) {
+                    if (window.confirm(t("unlockConfirm"))) setLocked(false);
+                  } else {
+                    setLocked(true);
+                  }
+                }}
+                data-testid="repair-lock-toggle"
+              >
+                {locked ? <><Unlock className="h-3 w-3 mr-1" />{t("unlock")}</> : <><Lock className="h-3 w-3 mr-1" />{t("lockAgain")}</>}
+              </Button>
+            </div>
+          </div>
+
           {/* Customer + Car header cards */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Card className="p-5 border-border card-hover">
+            <Card className={`p-5 border-border card-hover ${locked ? "bg-muted/10" : ""}`}>
               <div className="flex items-center gap-2 mb-3">
                 <User className="h-4 w-4 text-primary" />
                 <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Customer</div>
+                {locked && <Lock className="h-3 w-3 ms-auto text-muted-foreground/70" />}
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5 col-span-2"><Label className="text-xs">Name</Label><Input value={data.customer_name || ""} onChange={(e) => set("customer_name", e.target.value)} data-testid="repair-customer-name" /></div>
-                <div className="space-y-1.5 col-span-2"><Label className="text-xs">Phone</Label><Input value={data.customer_phone || ""} onChange={(e) => set("customer_phone", e.target.value)} data-testid="repair-customer-phone" /></div>
+                <div className="space-y-1.5 col-span-2"><Label className="text-xs">Name</Label><Input value={data.customer_name || ""} readOnly={locked} disabled={locked} onChange={(e) => set("customer_name", e.target.value)} data-testid="repair-customer-name" /></div>
+                <div className="space-y-1.5 col-span-2"><Label className="text-xs">Phone</Label><Input value={data.customer_phone || ""} readOnly={locked} disabled={locked} onChange={(e) => set("customer_phone", e.target.value)} data-testid="repair-customer-phone" /></div>
               </div>
             </Card>
-            <Card className="p-5 border-border card-hover">
+            <Card className={`p-5 border-border card-hover ${locked ? "bg-muted/10" : ""}`}>
               <div className="flex items-center gap-2 mb-3">
                 <Car className="h-4 w-4 text-primary" />
                 <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Vehicle</div>
+                {locked && <Lock className="h-3 w-3 ms-auto text-muted-foreground/70" />}
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5"><Label className="text-xs">Make</Label><Input value={data.car_make || ""} onChange={(e) => set("car_make", e.target.value)} data-testid="repair-car-make" /></div>
-                <div className="space-y-1.5"><Label className="text-xs">Model</Label><Input value={data.car_model || ""} onChange={(e) => set("car_model", e.target.value)} data-testid="repair-car-model" /></div>
-                <div className="space-y-1.5"><Label className="text-xs">Year</Label><Input value={data.car_year || ""} onChange={(e) => set("car_year", e.target.value)} data-testid="repair-car-year" /></div>
-                <div className="space-y-1.5"><Label className="text-xs">Plate</Label><Input value={data.car_plate || ""} onChange={(e) => set("car_plate", e.target.value)} data-testid="repair-car-plate" /></div>
-                <div className="space-y-1.5"><Label className="text-xs">Color</Label><Input value={data.car_color || ""} onChange={(e) => set("car_color", e.target.value)} /></div>
-                <div className="space-y-1.5"><Label className="text-xs">Odometer (km)</Label><Input value={data.car_km || ""} onChange={(e) => set("car_km", e.target.value)} /></div>
+                <div className="space-y-1.5"><Label className="text-xs">Make</Label><Input value={data.car_make || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_make", e.target.value)} data-testid="repair-car-make" /></div>
+                <div className="space-y-1.5"><Label className="text-xs">Model</Label><Input value={data.car_model || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_model", e.target.value)} data-testid="repair-car-model" /></div>
+                <div className="space-y-1.5"><Label className="text-xs">Year</Label><Input value={data.car_year || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_year", e.target.value)} data-testid="repair-car-year" /></div>
+                <div className="space-y-1.5"><Label className="text-xs">Plate</Label><Input value={data.car_plate || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_plate", e.target.value)} data-testid="repair-car-plate" /></div>
+                <div className="space-y-1.5"><Label className="text-xs">Color</Label><Input value={data.car_color || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_color", e.target.value)} /></div>
+                <div className="space-y-1.5"><Label className="text-xs">Odometer (km)</Label><Input value={data.car_km || ""} readOnly={locked} disabled={locked} onChange={(e) => set("car_km", e.target.value)} /></div>
               </div>
             </Card>
           </div>

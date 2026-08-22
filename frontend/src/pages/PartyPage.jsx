@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Trash2, Printer, FileDown, FileText, Eye } from "lucide-react";
+import { Plus, Trash2, Printer, FileDown, FileText, Eye, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { useLang } from "@/i18n";
 import { downloadListReportPdf, printListReport, downloadCustomerHistoryPdf, printCustomerHistory } from "@/lib/reports";
@@ -19,6 +19,7 @@ export default function PartyPage({ kind }) {
   const isSup = kind === "suppliers";
   const label = isSup ? t("supplier") : t("customer");
   const [open, setOpen] = useState(false);
+  const [editId, setEditId] = useState(null);   // when set, the same dialog is used to update
   const [form, setForm] = useState({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "" });
   const [vehForm2, setVehForm2] = useState({ make: "", model: "", year: "", plate: "", color: "", km: "" });
   const [exporting, setExporting] = useState(false);
@@ -59,20 +60,42 @@ export default function PartyPage({ kind }) {
   const save = async (e) => {
     e.preventDefault();
     try {
-      const summaryVehicle = isSup ? "" : [vehForm2.make, vehForm2.model, vehForm2.year, vehForm2.plate].filter(Boolean).join(" ");
-      const { data: created } = await api.post(`/${kind}`, { ...form, vehicle: summaryVehicle || form.vehicle });
-      // If customer + at least make/plate provided, register the vehicle as a first-class record
-      if (!isSup && (vehForm2.make || vehForm2.plate)) {
-        try {
-          await api.post(`/customers/${created.id}/vehicles`, vehForm2);
-        } catch (err) { /* silent — customer is saved even if vehicle fails */ }
+      if (editId) {
+        // UPDATE
+        const patch = { ...form };
+        if (isSup) delete patch.vehicle;
+        await api.put(`/${kind}/${editId}`, patch);
+        toast.success(t("updated"));
+      } else {
+        const summaryVehicle = isSup ? "" : [vehForm2.make, vehForm2.model, vehForm2.year, vehForm2.plate].filter(Boolean).join(" ");
+        const { data: created } = await api.post(`/${kind}`, { ...form, vehicle: summaryVehicle || form.vehicle });
+        if (!isSup && (vehForm2.make || vehForm2.plate)) {
+          try {
+            await api.post(`/customers/${created.id}/vehicles`, vehForm2);
+          } catch (err) { /* silent — customer is saved even if vehicle fails */ }
+        }
+        toast.success(`${label} added`);
       }
-      toast.success(`${label} added`);
       setForm({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "" });
       setVehForm2({ make: "", model: "", year: "", plate: "", color: "", km: "" });
+      setEditId(null);
       setOpen(false);
       qc.invalidateQueries({ queryKey: [kind] });
     } catch (e) { toast.error(formatApiError(e)); }
+  };
+
+  const openEdit = (row) => {
+    setEditId(row.id);
+    setForm({
+      name: row.name || "",
+      email: row.email || "",
+      phone: row.phone || "",
+      address: row.address || "",
+      contact: row.contact || "",
+      vehicle: row.vehicle || "",
+    });
+    setVehForm2({ make: "", model: "", year: "", plate: "", color: "", km: "" });
+    setOpen(true);
   };
 
   const del = async (id) => {
@@ -140,18 +163,18 @@ export default function PartyPage({ kind }) {
           <Button variant="outline" className="rounded-full" onClick={() => exportReport("pdf")} disabled={exporting} data-testid={`${kind}-pdf-button`}>
             <FileDown className="h-4 w-4 mr-2" /> {exporting ? t("loading") : t("pdf")}
           </Button>
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditId(null); setForm({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "" }); } }}>
             <DialogTrigger asChild>
               <Button className="rounded-full bg-primary hover:bg-primary/90" data-testid={`add-${kind}-button`}>
                 <Plus className="h-4 w-4 mr-2" /> {isSup ? t("newSupplier") : t("newCustomer")}
               </Button>
             </DialogTrigger>
           <DialogContent>
-            <DialogHeader><DialogTitle className="font-display">Add {label}</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle className="font-display">{editId ? (isSup ? t("editSupplier") : t("editCustomer")) : `Add ${label}`}</DialogTitle></DialogHeader>
             <form onSubmit={save} className="space-y-4">
               <div className="space-y-1.5"><Label>{t("name")}</Label><Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid={`${kind}-name`} /></div>
               {isSup && <div className="space-y-1.5"><Label>{t("contactPerson")}</Label><Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} /></div>}
-              {!isSup && (
+              {!isSup && !editId && (
                 <div className="space-y-2 p-3 rounded-md border border-border bg-muted/20">
                   <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("vehicle")} · {t("optional")}</div>
                   <div className="grid grid-cols-2 gap-2">
@@ -207,6 +230,7 @@ export default function PartyPage({ kind }) {
                         <Button size="icon" variant="ghost" disabled={downloadingHistoryId === r.id} onClick={() => downloadCustomerPdf(r.id)} data-testid={`pdf-customer-${r.id}`} title={t("customerReport")}><FileText className="h-4 w-4 text-primary" /></Button>
                       </>
                     )}
+                    <Button size="icon" variant="ghost" onClick={() => openEdit(r)} data-testid={`edit-${kind}-${r.id}`} title={isSup ? t("editSupplier") : t("editCustomer")}><Pencil className="h-4 w-4 text-primary" /></Button>
                     <Button size="icon" variant="ghost" onClick={() => del(r.id)} data-testid={`del-${kind}-${r.id}`}><Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" /></Button>
                   </div>
                 </TableCell>

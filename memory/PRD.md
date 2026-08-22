@@ -103,7 +103,12 @@
 - **Repairs job-card header band** switched from stark `bg-black/95` to `bg-secondary` (theme-aware) in both list card and dialog editor.
 - Verified by testing_agent iteration_7 (toggle mechanism) + iteration_8 (WCAG contrast sweep in both modes).
 
-### Iteration 13 (Feb 2026) — Invoice PDF + Email + SEPA QR overhaul
+### Iteration 14 (Feb 2026) — Data safety + editable directory
+- **Locked identity fields on job cards**: customer name/phone + all vehicle inputs (make, model, year, plate, color, odometer) are now `readOnly` + disabled by default so a slip of the keyboard can't wipe them. A padlock toolbar at the top of the card shows the current state, holds an "Unlock" button (with a confirmation prompt), and re-locks after the owner is done.
+- **Dynamic link to the customer record**: if a job card is linked to a customer (`customer_id`), the lock bar shows a chip with the linked customer's current name. When that record's name or phone diverges from what's saved on the card, an amber "Sync from customer record" button appears — one click pulls the freshest data into the card. Backend also auto-pushes name/phone updates to every **open (non-invoiced)** repair card of the same customer via `PUT /api/customers/{id}`.
+- **Editable Customers & Suppliers**: added a pencil "Edit" button to each row that reuses the same dialog in edit mode. New backend endpoints `PUT /api/customers/{id}` and `PUT /api/suppliers/{id}` with partial-update semantics (404 when missing, 400 when empty body). Verified end-to-end with curl.
+- **Fixed missing logo in job-card modal**: URLs that start with `/api/` are now prefixed with `REACT_APP_BACKEND_URL` and fall back to the bundled `/logo-shawish.png` on error.
+- Full AR / NL / EN i18n for the new controls and confirmations.
 - **Fixed logo missing on print/PDF**: `/api/settings/logo-file` is now PUBLIC (`<img>` tags cannot send Authorization headers). Frontend also inlines the logo as a base64 data URI via `logoAsDataUrl()` so it always renders inside html2canvas snapshots.
 - **Fixed PDF-download page-shrink bug**: rewrote `pdf.js` to render inside a hidden same-origin iframe instead of appending to `document.body`. Parent page's `scrollHeight` stays identical before / during / after export (verified 1068 → 1068).
 - **Compact NL license plate**: dropped from 22 px / 6-18 padding to a proportional 12 px pill with a mini blue "NL" strip, matching the on-screen `PlateBadge`.
@@ -115,7 +120,7 @@
 - **A11y**: `DialogDescription` added to the email dialog to clear the Radix warning.
 - Verified end-to-end by testing_agent (iteration_11) + self-verification: backend 14/14, frontend all critical scenarios green.
 
-### Iteration 12 (Feb 2026) — Scheduling guard + Escalating reminders
+### Iteration 13 (Feb 2026) — Invoice PDF + Email + SEPA QR overhaul
 - **Appointment Conflict Guard** (Calendar):
   - New `GET /api/appointments/conflicts?mechanic_id&start&duration_min&exclude` endpoint
   - New-appointment dialog now debounces a conflict check on every mechanic / date-time / duration change

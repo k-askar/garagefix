@@ -102,6 +102,14 @@ class SupplierCreate(BaseModel):
     phone: Optional[str] = ""
     address: Optional[str] = ""
 
+
+class SupplierUpdate(BaseModel):
+    name: Optional[str] = None
+    contact: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+
 class Customer(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
@@ -117,6 +125,14 @@ class CustomerCreate(BaseModel):
     phone: Optional[str] = ""
     vehicle: Optional[str] = ""
     address: Optional[str] = ""
+
+
+class CustomerUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    vehicle: Optional[str] = None
+    address: Optional[str] = None
 
 class Vehicle(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -277,6 +293,17 @@ async def delete_supplier(supplier_id: str, user: dict = Depends(get_current_use
     await db.suppliers.delete_one({"id": supplier_id})
     return {"ok": True}
 
+
+@api_router.put("/suppliers/{supplier_id}", response_model=Supplier)
+async def update_supplier(supplier_id: str, payload: SupplierUpdate, user: dict = Depends(get_current_user)):
+    updates = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    r = await db.suppliers.update_one({"id": supplier_id}, {"$set": updates})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+    return await db.suppliers.find_one({"id": supplier_id}, {"_id": 0})
+
 # --- Customers ---
 @api_router.get("/customers", response_model=List[Customer])
 async def list_customers(user: dict = Depends(get_current_user)):
@@ -294,6 +321,30 @@ async def delete_customer(customer_id: str, user: dict = Depends(get_current_use
     await db.customers.delete_one({"id": customer_id})
     await db.vehicles.delete_many({"customer_id": customer_id})
     return {"ok": True}
+
+
+@api_router.put("/customers/{customer_id}", response_model=Customer)
+async def update_customer(customer_id: str, payload: CustomerUpdate, user: dict = Depends(get_current_user)):
+    updates = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    r = await db.customers.update_one({"id": customer_id}, {"$set": updates})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    updated = await db.customers.find_one({"id": customer_id}, {"_id": 0})
+    # Propagate the freshest name/phone to any open (not-yet-invoiced) repair cards
+    # that reference this customer, so the workshop always sees the latest info.
+    open_updates = {}
+    if updates.get("name"):
+        open_updates["customer_name"] = updated["name"]
+    if "phone" in updates:
+        open_updates["customer_phone"] = updated.get("phone") or ""
+    if open_updates:
+        await db.repairs.update_many(
+            {"customer_id": customer_id, "invoice_id": None},
+            {"$set": open_updates},
+        )
+    return updated
 
 # --- Vehicles (linked to customers) ---
 @api_router.get("/customers/{cid}/vehicles", response_model=List[Vehicle])
