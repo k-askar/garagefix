@@ -25,6 +25,8 @@ import Accounts from "@/pages/Accounts";
 import CalendarPage from "@/pages/Calendar";
 import Workboard from "@/pages/Workboard";
 import CarPassport from "@/pages/CarPassport";
+import BayBoard from "@/pages/BayBoard";
+import DeliveryScan from "@/pages/DeliveryScan";
 import "@/App.css";
 
 function ProtectedShell() {
@@ -70,6 +72,8 @@ function App() {
               <Route path="/accounts" element={<Accounts />} />
               <Route path="/calendar" element={<CalendarPage />} />
               <Route path="/workboard" element={<Workboard />} />
+              <Route path="/bay-board" element={<BayBoard />} />
+              <Route path="/delivery-scan" element={<DeliveryScan />} />
               <Route path="/invoices" element={<Invoices />} />
               <Route path="/purchase-orders" element={<OwnerRoute><PurchaseOrders /></OwnerRoute>} />
               <Route path="/staff" element={<OwnerRoute><Staff /></OwnerRoute>} />

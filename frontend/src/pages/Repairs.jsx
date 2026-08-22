@@ -35,43 +35,11 @@ function repairLabels(t) {
     mechanic: t("mechanic"), status: t("status"), complaint: t("customerComplaint"),
     diagnosis: t("diagnosis"), workDone: t("workPerformed"), part: t("part"),
     qty: t("qty"), unitPrice: t("unitPrice"), total: t("total"), noParts: t("noParts") || "—",
+    special: t("specialOrdered") || "SPECIAL",
     partsTotal: t("parts"), labor: t("labor"), grandTotal: t("grandTotal"),
     plate: t("plate"), km: t("km"),
     timeClock: t("timeClock"), startedAt: t("startedAt"), stopped: t("stopped"), duration: t("duration"),
   };
-}
-
-function printJobCard(card, settings) {
-  const w = window.open("", "_blank", "width=720,height=900");
-  if (!w) return;
-  const rows = (card.parts_used || []).map(p =>
-    `<tr><td>${p.name}<div style="font-size:10px;color:#888">${p.sku}</div></td><td class="right">${p.quantity}</td><td class="right">${formatEUR(p.unit_price)}</td><td class="right">${formatEUR(p.total)}</td></tr>`).join("");
-  w.document.write(`<!doctype html><html><head><title>${card.card_number}</title>
-    <style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;padding:32px;color:#111;max-width:720px;margin:0 auto}h1{font-size:22px;margin:0}.muted{color:#666;font-size:12px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}.box{border:1px solid #eee;border-radius:8px;padding:12px}.lbl{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#666}.val{font-size:14px;font-weight:600;margin-top:2px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{padding:8px;border-bottom:1px solid #eee;text-align:left;font-size:13px}th{background:#f5f5f5}.right{text-align:right}.badge{display:inline-block;padding:2px 10px;border-radius:999px;background:#0ea5e9;color:#fff;font-size:10px;letter-spacing:.1em}</style>
-    </head><body>
-    <div style="display:flex;justify-content:space-between;align-items:start">
-      <div><h1>${settings?.name || "Garage"}</h1><div class="muted">${settings?.address || ""}</div><div class="muted">${settings?.phone || ""}</div></div>
-      <div style="text-align:right"><span class="badge">JOB CARD</span><div style="font-size:14px;margin-top:6px;font-weight:700">${card.card_number}</div><div class="muted">${new Date(card.created_at).toLocaleDateString("en-GB")}</div></div>
-    </div>
-    <div class="grid">
-      <div class="box"><div class="lbl">Customer</div><div class="val">${card.customer_name || "—"}</div><div class="muted">${card.customer_phone || ""}</div></div>
-      <div class="box"><div class="lbl">Vehicle</div><div class="val">${[card.car_make, card.car_model, card.car_year].filter(Boolean).join(" ")}</div><div class="muted">Plate: ${card.car_plate || "—"} · ${card.car_color || ""} · ${card.car_km ? card.car_km + " km" : ""}</div></div>
-      <div class="box"><div class="lbl">Mechanic</div><div class="val">${card.mechanic_name || "—"}</div></div>
-      <div class="box"><div class="lbl">Status</div><div class="val">${STATUS_LABEL[card.status] || card.status}</div></div>
-    </div>
-    ${card.complaint ? `<div style="margin-top:16px"><div class="lbl">Customer complaint</div><p>${card.complaint}</p></div>` : ""}
-    ${card.diagnosis ? `<div style="margin-top:8px"><div class="lbl">Diagnosis</div><p>${card.diagnosis}</p></div>` : ""}
-    ${card.work_done ? `<div style="margin-top:8px"><div class="lbl">Work performed</div><p>${card.work_done}</p></div>` : ""}
-    <table><thead><tr><th>Part</th><th class="right">Qty</th><th class="right">Unit price</th><th class="right">Total</th></tr></thead>
-    <tbody>${rows || `<tr><td colspan="4" style="text-align:center;color:#888;padding:16px">No parts</td></tr>`}</tbody></table>
-    <div style="margin-top:16px;text-align:right">
-      <div class="muted">Parts total: ${formatEUR(card.parts_total)}</div>
-      <div class="muted">Labor: ${formatEUR(card.labor_charge)}</div>
-      <div style="font-size:16px;font-weight:700;margin-top:4px">Grand total: ${formatEUR(card.grand_total)}</div>
-    </div>
-    </body></html>`);
-  w.document.close();
-  setTimeout(() => w.print(), 300);
 }
 
 function fmtDuration(mins) {
@@ -562,6 +530,7 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
               header: `Job card ${data.card_number}`,
               lines: [`${[data.car_make, data.car_model, data.car_year].filter(Boolean).join(" ")} · ${data.car_plate || ""}`,
                       ...(data.parts_used || []).map(p => `• ${p.name} × ${p.quantity} — ${p.total.toFixed(2)}€`),
+                      ...(data.special_parts || []).map(p => `• ${p.name}${p.part_number ? ` (${p.part_number})` : ""} × ${p.quantity} — ${(p.total || 0).toFixed(2)}€`),
                       data.labor_charge ? `• Labor — ${Number(data.labor_charge).toFixed(2)}€` : ""],
               total: data.grand_total,
             })} data-testid="repair-whatsapp-button">

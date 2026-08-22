@@ -16,8 +16,9 @@ import PlateBadge from "@/components/PlateBadge";
 import AddressFields from "@/components/AddressFields";
 import VehicleMakeModelYear from "@/components/VehicleMakeModelYear";
 import CarPassportQrDialog from "@/components/CarPassportQrDialog";
+import CsvImportDialog from "@/components/CsvImportDialog";
 import { Progress } from "@/components/ui/progress";
-import { QrCode, Gift } from "lucide-react";
+import { QrCode, Gift, Upload } from "lucide-react";
 
 export default function PartyPage({ kind }) {
   const qc = useQueryClient();
@@ -34,6 +35,7 @@ export default function PartyPage({ kind }) {
   const [vehForm, setVehForm] = useState({ make: "", model: "", year: "", plate: "", color: "", km: "", vin: "", notes: "", country: "NL", apk_expiry: "", next_oil_change_km: "" });
   const [showAddVeh, setShowAddVeh] = useState(false);
   const [passportVehicle, setPassportVehicle] = useState(null);
+  const [csvOpen, setCsvOpen] = useState(false);
 
   const { data: loyalty } = useQuery({
     queryKey: ["customer-loyalty", historyId],
@@ -182,6 +184,11 @@ export default function PartyPage({ kind }) {
           <Button variant="outline" className="rounded-full" onClick={() => exportReport("pdf")} disabled={exporting} data-testid={`${kind}-pdf-button`}>
             <FileDown className="h-4 w-4 mr-2" /> {exporting ? t("loading") : t("pdf")}
           </Button>
+          {!isSup && (
+            <Button variant="outline" className="rounded-full" onClick={() => setCsvOpen(true)} data-testid="customers-csv-import">
+              <Upload className="h-4 w-4 mr-2" /> Import CSV
+            </Button>
+          )}
           <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditId(null); setForm({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL" }); } }}>
             <DialogTrigger asChild>
               <Button className="rounded-full bg-primary hover:bg-primary/90" data-testid={`add-${kind}-button`}>
@@ -581,11 +588,18 @@ export default function PartyPage({ kind }) {
         </Dialog>
       )}
       {!isSup && (
-        <CarPassportQrDialog
-          vehicle={passportVehicle}
-          open={!!passportVehicle}
-          onOpenChange={(v) => { if (!v) setPassportVehicle(null); }}
-        />
+        <>
+          <CarPassportQrDialog
+            vehicle={passportVehicle}
+            open={!!passportVehicle}
+            onOpenChange={(v) => { if (!v) setPassportVehicle(null); }}
+          />
+          <CsvImportDialog
+            open={csvOpen}
+            onOpenChange={setCsvOpen}
+            onDone={() => { qc.invalidateQueries({ queryKey: ["customers"] }); qc.invalidateQueries({ queryKey: [kind] }); }}
+          />
+        </>
       )}
     </div>
   );

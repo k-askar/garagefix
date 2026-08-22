@@ -3259,6 +3259,169 @@ api_router.include_router(_backup_router)
 from extras import register as _register_extras  # noqa: E402
 api_router.include_router(_register_extras(db, get_current_user, require_owner))
 
+# =========================
+# Fleet CSV Import  +  Live Bay Board  +  Delivery-note scan
+# =========================
+import csv as _csv, io as _io
+
+@api_router.post("/import/vehicles-csv")
+async def import_vehicles_csv(payload: dict, user: dict = Depends(get_current_user)):
+    """Bulk-import vehicles from a raw CSV string."""
+    raw = (payload.get("csv") or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty CSV")
+    reader = _csv.DictReader(_io.StringIO(raw))
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="CSV has no header row")
+    norm = {h: (h or "").strip().lower().replace(" ", "_") for h in reader.fieldnames}
+    created_customers = 0; reused_customers = 0; created_vehicles = 0; errors = []
+    seen_customers: dict = {}
+    for idx, raw_row in enumerate(reader, start=2):
+        row = {norm[k]: (v or "").strip() for k, v in raw_row.items()}
+        cname = row.get("customer_name") or ""
+        cphone = row.get("customer_phone") or ""
+        plate = row.get("plate") or ""
+        if not (cname or plate):
+            errors.append(f"Row {idx}: skipped (no customer_name or plate)"); continue
+        cid = None
+        cust_key = (cname.lower(), cphone)
+        if cust_key in seen_customers:
+            cid = seen_customers[cust_key]
+        elif cname:
+            existing = None
+            if cphone:
+                existing = await db.customers.find_one({"name": cname, "phone": cphone}, {"_id": 0, "id": 1})
+            if not existing:
+                existing = await db.customers.find_one({"name": cname}, {"_id": 0, "id": 1})
+            if existing:
+                cid = existing["id"]; reused_customers += 1
+            else:
+                new = Customer(name=cname, phone=cphone, email=row.get("customer_email") or "")
+                await db.customers.insert_one(new.model_dump())
+                cid = new.id; created_customers += 1
+            seen_customers[cust_key] = cid
+        if not cid:
+            errors.append(f"Row {idx}: could not link to a customer"); continue
+        # Dedupe: skip if this customer already has a vehicle with the same normalised plate.
+        nplate = plate.upper().replace("-", "").replace(" ", "").strip()
+        if nplate:
+            dup = await db.vehicles.find_one(
+                {"customer_id": cid, "$expr": {"$eq": [
+                    {"$replaceAll": {"input": {"$replaceAll": {"input": {"$toUpper": "$plate"}, "find": "-", "replacement": ""}}, "find": " ", "replacement": ""}},
+                    nplate,
+                ]}},
+                {"_id": 0, "id": 1}
+            )
+            if dup:
+                errors.append(f"Row {idx}: skipped duplicate plate {plate}")
+                continue
+        oil = row.get("next_oil_change_km")
+        try: oil_int = int(oil) if oil else None
+        except (TypeError, ValueError): oil_int = None
+        veh = Vehicle(
+            customer_id=cid, make=row.get("make", ""), model=row.get("model", ""),
+            year=row.get("year", ""), plate=plate, color=row.get("color", ""),
+            km=row.get("km", ""), country=(row.get("country") or "NL").upper()[:3],
+            apk_expiry=(row.get("apk_expiry") or None),
+            next_oil_change_km=oil_int, vin=row.get("vin", ""), notes=row.get("notes", ""),
+        )
+        await db.vehicles.insert_one(veh.model_dump())
+        created_vehicles += 1
+    return {
+        "created_customers": created_customers,
+        "reused_customers": reused_customers,
+        "created_vehicles": created_vehicles,
+        "errors": errors[:20],
+    }
+
+
+@api_router.get("/bay-board")
+async def bay_board(user: dict = Depends(get_current_user)):
+    """Live-status snapshot of every open/in-progress job card for the workshop TV."""
+    cards = await db.repairs.find(
+        {"status": {"$in": ["open", "in_progress"]}},
+        {"_id": 0}
+    ).sort("created_at", 1).to_list(500)
+    now = datetime.now(timezone.utc)
+    out = []
+    for c in cards:
+        started_at = c.get("created_at")
+        try:
+            started_dt = datetime.fromisoformat(started_at.replace("Z", "+00:00")) if started_at else now
+        except Exception:
+            started_dt = now
+        hours_in_shop = round((now - started_dt).total_seconds() / 3600.0, 1)
+        running_log = next((tl for tl in (c.get("time_logs") or []) if not tl.get("stopped_at")), None)
+        live_since = running_log.get("started_at") if running_log else None
+        total_min = sum(float(tl.get("minutes") or 0) for tl in (c.get("time_logs") or []) if tl.get("stopped_at"))
+        out.append({
+            "id": c["id"], "card_number": c.get("card_number"),
+            "customer_name": c.get("customer_name") or "",
+            "car_make": c.get("car_make") or "", "car_model": c.get("car_model") or "",
+            "car_year": c.get("car_year") or "", "car_plate": c.get("car_plate") or "",
+            "car_country": c.get("car_country") or "NL",
+            "status": c.get("status"), "mechanic_name": c.get("mechanic_name") or "",
+            "created_at": started_at,
+            "hours_in_shop": hours_in_shop,
+            "clocked_minutes": round(total_min, 1),
+            "live_since": live_since,
+            "special_parts_pending": sum(1 for sp in (c.get("special_parts") or []) if sp.get("status") == "ordered"),
+            "complaint": (c.get("complaint") or "")[:80],
+            "estimated_hours": c.get("estimated_hours") or 0,
+            "priority": c.get("priority") or "normal",
+        })
+    return {"cards": out, "generated_at": now.isoformat()}
+
+
+def _norm_plate(s: str) -> str:
+    return (s or "").upper().replace("-", "").replace(" ", "").strip()
+
+# Strict — require at least one hyphen or space between blocks so we don't
+# accidentally lift "23 plat" out of a supplier's description text.
+_PLATE_RE = re.compile(r"\b([A-Z]{1,3}[- ][A-Z0-9]{1,4}[- ][A-Z0-9]{1,4})\b")
+
+
+@api_router.post("/special-parts/scan-delivery")
+async def scan_delivery(payload: dict, user: dict = Depends(get_current_user)):
+    """Scan a delivery-note barcode / typed text."""
+    text = (payload.get("code") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Empty code")
+    # Uppercase before regex so lowercase barcode/OCR text still matches.
+    text_upper = text.upper()
+    plate = ""
+    m = _PLATE_RE.search(text_upper)
+    if m:
+        plate = m.group(1)
+    else:
+        cleaned = _norm_plate(text)
+        if 3 <= len(cleaned) <= 10 and any(ch.isalpha() for ch in cleaned) and any(ch.isdigit() for ch in cleaned):
+            plate = text.upper()
+    matches = []
+    if plate:
+        nplate = _norm_plate(plate)
+        cards = await db.repairs.find(
+            {"status": {"$in": ["open", "in_progress"]}},
+            {"_id": 0, "id": 1, "card_number": 1, "car_plate": 1, "car_make": 1, "car_model": 1, "customer_name": 1, "special_parts": 1}
+        ).to_list(300)
+        for c in cards:
+            if _norm_plate(c.get("car_plate", "")) == nplate:
+                matches.append({
+                    "id": c["id"], "card_number": c.get("card_number"),
+                    "car_plate": c.get("car_plate"),
+                    "car_make": c.get("car_make"), "car_model": c.get("car_model"),
+                    "customer_name": c.get("customer_name"),
+                    "pending_special_parts": sum(1 for sp in (c.get("special_parts") or []) if sp.get("status") == "ordered"),
+                })
+    if not matches:
+        cards = await db.repairs.find(
+            {"status": {"$in": ["open", "in_progress"]}},
+            {"_id": 0, "id": 1, "card_number": 1, "car_plate": 1, "car_make": 1, "car_model": 1, "customer_name": 1}
+        ).sort("created_at", -1).limit(50).to_list(50)
+        return {"matched": False, "detected_plate": plate, "candidates": cards}
+    return {"matched": True, "detected_plate": plate, "matches": matches}
+
+
 # Re-include the router now that new routes have been declared.
 app.router.routes = [r for r in app.router.routes if not (getattr(r, 'path', '') or '').startswith('/api')]
 app.include_router(api_router)

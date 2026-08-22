@@ -80,14 +80,17 @@ export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels =
     jobCard: "JOB CARD", customer: "Customer", vehicle: "Vehicle",
     mechanic: "Mechanic", status: "Status", complaint: "Customer complaint",
     diagnosis: "Diagnosis", workDone: "Work performed", part: "Part",
-    qty: "Qty", unitPrice: "Unit price", total: "Total", noParts: "No parts",
+    qty: "Qty", unitPrice: "Unit price", total: "Total", noParts: "No parts", special: "SPECIAL",
     partsTotal: "Parts total", labor: "Labor", grandTotal: "Grand total",
     plate: "Plate", km: "km",
     timeClock: "Labor time clock", startedAt: "Started", stopped: "Stopped", duration: "Duration",
     ...labels,
   };
-  const rows = (card.parts_used || []).map(p =>
-    `<tr><td>${p.name}<div style="font-size:10px;color:#888;direction:ltr">${p.sku}</div></td><td class="right">${p.quantity}</td><td class="right">${formatEUR(p.unit_price)}</td><td class="right">${formatEUR(p.total)}</td></tr>`).join("");
+  const stockRows = (card.parts_used || []).map(p =>
+    `<tr><td>${p.name}<div style="font-size:10px;color:#888;direction:ltr">${p.sku || ""}</div></td><td class="right">${p.quantity}</td><td class="right">${formatEUR(p.unit_price)}</td><td class="right">${formatEUR(p.total)}</td></tr>`).join("");
+  const specialRows = (card.special_parts || []).map(p =>
+    `<tr><td>${p.name} <span style="font-size:9px;background:#f5e7c5;color:#8a6d1a;padding:1px 6px;border-radius:6px;margin-inline-start:4px">${l.special || 'SPECIAL'}</span><div style="font-size:10px;color:#888;direction:ltr">${p.part_number || ""}${p.supplier_name ? " · " + p.supplier_name : ""}</div></td><td class="right">${p.quantity}</td><td class="right">${formatEUR(p.unit_price)}</td><td class="right">${formatEUR(p.total)}</td></tr>`).join("");
+  const rows = stockRows + specialRows;
   const bodyFont = dir === "rtl" ? "'Cairo','Amiri',system-ui,sans-serif" : "-apple-system,Helvetica,Arial,sans-serif";
   const alignEnd = dir === "rtl" ? "left" : "right";
   const logo = settings.logo_url || "/logo-shawish.png";

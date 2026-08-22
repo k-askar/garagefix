@@ -151,12 +151,16 @@
 - Backend additions: `RepairCard.estimated_hours`, `.scheduled_date`, `.priority`;
   new endpoint `POST /api/repairs/{id}/assign` (idempotent, patch-style)
 
+## Iteration 14 (Feb 2026) — Special-parts bug fix + Delivery scan + CSV Fleet Import + Bay Board
+- 🐛 **Bug fixed**: Special-order parts (added via SpecialPartsPanel) were **missing from the printed/PDF/WhatsApp** job card because `printJobCard()` in `Repairs.jsx` and `buildRepairCardHtml()` in `lib/reports.js` only iterated `card.parts_used`. Both now merge `parts_used + special_parts` and tag special ones with a **SPECIAL** pill. WhatsApp share message also lists them.
+- 📦 **Delivery-note scan** (`/delivery-scan`): mechanic aims camera at supplier's packing slip → backend `_PLATE_RE` extracts the plate → auto-matches open card if a plate is found, otherwise shows a picker of open cards. New `POST /api/special-parts/scan-delivery` and a new frontend page. Add-part status defaults to `arrived` since the parcel is physically in the shop.
+- 📊 **Live Bay Board** (`/bay-board`): TV-friendly grid of every open/in-progress card with time-in-shop, live clock counter, priority flame, on-order badge, mechanic assignment, and full-screen toggle. Refreshes every 30 s.
+- 📥 **CSV Fleet Import**: paste or upload a CSV of plates + APK dates → backend `POST /api/import/vehicles-csv` bulk-creates customers + vehicles, deduping by (name, phone). Downloadable template. New `CsvImportDialog` button on Customers page.
+
 ## Roadmap / Backlog
 - SMS fallback via Twilio when a customer has no email — P1
-- Live Bay Board (big-screen live status of open cards) — P3
 - Ordered-parts dashboard (cross-workshop) — P3
-- CSV Bulk Import (vehicles/customers) — P2
-- Refactor `server.py` (~3300 lines) into APIRouter modules per domain
+- Refactor `server.py` (~3400 lines) into APIRouter modules per domain
 
 ## Iteration 13 (Feb 2026) — Loyalty rewards + Car Passport QR
 ### Loyalty rewards

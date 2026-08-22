@@ -1,0 +1,52 @@
+{
+  "summary": "Iteration 12 — verified the special-parts print/PDF/WhatsApp/invoice bug fix plus the 3 new features (delivery-note scan, CSV fleet import, Live Bay Board). Backend: 16/16 new pytest cases pass (/api/bay-board, /api/import/vehicles-csv, /api/special-parts/scan-delivery, special_parts -> invoice lines, auth guards, error paths). Frontend (Playwright on preview URL): PRIMARY BUG IS FIXED — the print popup for JOB-260822-E142 now renders 1 table row 'Brake pads BMW E90' with the SPECIAL pill + part number 34116794300 and no longer shows 'No parts'; the PDF button downloads JOB-260822-E142.pdf (137 KB) with zero JS errors; the WhatsApp link contains 'Brake%20pads%20BMW%20E90'. Delivery scan matched B-XX-1234 -> JOB-260820-8729 (Matched badge + auto-opened add form), added the part with a success toast and reset the form; the no-match path shows the 'No auto-match' badge with a pickable open-card list. Bay Board renders the card row with card_number/plate/customer/status/unassigned/in-shop/clocked and correct KPIs (Open 1, In progress 0, Clock running 0, Parts on order 0). CSV import created 2 vehicles + 1 customer, list refreshed without reload, customer report showed both vehicles with APK dates. Two real defects found in the new CSV import + scan matching (below).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/import/vehicles-csv", "issue": "No dedupe on plate. Importing the same CSV twice creates duplicate vehicles for the same customer (verified: customer TEST_Dup Fleet ended with vehicles ['NL-DUP-1','NL-DUP-1'] after two identical imports, both responses reported created_vehicles=1). A garage owner who re-uploads a corrected fleet file will silently double their fleet. Suggest upsert on normalised plate (+ report 'updated_vehicles' / 'skipped_duplicates')."},
+      {"endpoint": "POST /api/import/vehicles-csv", "issue": "Customer matching falls back to name-only lookup (db.customers.find_one({'name': cname})) when the phone lookup misses, so a CSV row can silently attach vehicles to an unrelated existing customer with the same name."},
+      {"endpoint": "POST /api/special-parts/scan-delivery", "issue": "Plate regex _PLATE_RE is uppercase-only and the input text is never .upper()'d. 'bon 12345 plate b-xx-1234 brake' returns detected_plate='' / matched=false (a bare lowercase 'b-xx-1234' does work via the short-string fallback). Barcode/OCR text is often lowercase — uppercase the text before matching."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Repairs card footer — WhatsApp share", "issue": "Message total uses data.grand_total (75,00 €) while the card UI shows 'Total incl. BTW 90,75 €'. Customer receives a tax-exclusive total. Consider sending total_with_tax (or labelling it excl. BTW).", "selector": "[data-testid=\"repair-whatsapp-button\"]", "priority": "MEDIUM"},
+      {"component": "Customer report header (imported customers)", "issue": "VEHICLE box shows '—' and 'First visit: — / Last visit: —' even though 'Vehicles · 2' with both plates is listed right below (customer.vehicle summary string not populated by the CSV import).", "selector": "[data-testid=\"customer-history-dialog\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Job card — Special-order parts form", "issues": ["'Expected date' uses a raw native <input type=date> (mm/dd/yyyy + browser picker) instead of the shadcn calendar used elsewhere; also renders US date order in an EU/NL app."]},
+      {"screen": "/delivery-scan and /bay-board", "issues": ["Both new pages are English-only (headings, labels, badges, toasts) while the app supports NL/AR with RTL — Arabic users get untranslated screens.", "Bay Board rows are click-through to /repairs but do not deep-link to the specific card, so on a TV/tablet the mechanic still has to find the card manually."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration12.py",
+    "/app/backend/tests/cleanup_iter12.py",
+    "/app/test_reports/pytest/iteration12.xml"
+  ],
+  "action_items": [
+    "CSV import: dedupe by normalised plate (update instead of insert) so re-importing a fleet file does not duplicate vehicles.",
+    "CSV import: tighten customer matching (name+phone, or require phone/email) instead of the name-only fallback.",
+    "scan-delivery: uppercase the scanned text before applying _PLATE_RE so lowercase barcode/typed text still matches.",
+    "WhatsApp job-card share: send the tax-inclusive total (or label it 'excl. BTW').",
+    "i18n: translate /delivery-scan and /bay-board (and support RTL) for NL/AR.",
+    "Optional: populate customer.vehicle summary during CSV import so the customer-report header is not '—'.",
+    "Housekeeping: remove the now-unused printJobCard() duplicate in Repairs.jsx (lines 45-80) — printing goes through printRepairCard/buildRepairCardHtml; the dead copy will drift."
+  ],
+  "critical_code_review_comments": [
+    "reports.js buildRepairCardHtml now merges stockRows + specialRows into one table — verified live in the print popup; keep this as the single source for print/PDF and delete the duplicated template in Repairs.jsx to avoid future divergence (that duplication is exactly what caused the original 'No parts' bug).",
+    "pdf.js downloadHtmlAsPdf(html, filename) ignores the third `{dir}` argument passed from reports.js — dead parameter, harmless today but misleading.",
+    "/api/import/vehicles-csv inserts row-by-row with an await per row and no bulk write; a 500-row fleet file will be slow — consider insert_many batching.",
+    "/api/bay-board recomputes hours_in_shop from created_at with a try/except that silently falls back to 'now' on a bad timestamp (would show 0h instead of surfacing the data problem).",
+    "server.py is 3453 lines — the new CSV/bay-board/scan block should move to a module like extras.py (which already exists for this purpose).",
+    "Auth playbook: bcrypt hashes are $2b$12$ (correct) and login returns {token,user} in the body — there are NO httpOnly cookies and NO brute-force lockout (6 consecutive wrong passwords all returned 401 and the correct password still worked immediately). CORS_ORIGINS='*' with allow_credentials=True is an invalid combination per the CORS spec; harmless with bearer tokens but should be an explicit origin list."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration12.py", "/app/backend/tests/cleanup_iter12.py"],
+  "success_rate": {"backend": "100% (16/16 new cases)", "frontend": "100% of requested scenarios passed (8/8); 2 cosmetic/logic nits reported"},
+  "seed_data_creation": "All test artifacts cleaned up via /app/backend/tests/cleanup_iter12.py (E2E Bulk / E2E Bulk2 customers + NL-BULK-1/2/9 vehicles, TEST_Dup Fleet, TEST_ repairs/invoices, and the 'TEST_scanned part UI' special part added to JOB-260820-8729). Verified 0 TEST_/E2E-Bulk docs remain. NOTE: older leftovers from previous iterations are still in the customer list and pollute the UI: 'CSV Test Owner', 'Test PC', 'E2E Reminder', 'UI Customer'.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@garage.com / admin123 (owner) — valid",
+  "context_for_next_testing_agent": "Primary special-parts regression is covered: open /repairs, click [data-testid=repair-card-JOB-260822-E142], then page.context.expect_page() around [data-testid=repair-print-button] and assert the popup HTML contains 'Brake pads BMW E90' + 'SPECIAL' and NOT 'No parts'. For the WhatsApp link, override window.open in page.evaluate before clicking (whatsappShare calls window.open directly). Backend suite: /app/backend/tests/test_iteration12.py (16 cases, all green; the bay-board count test is a subset check because parallel xdist workers create cards). Open items handed to the dev agent: CSV plate dedupe, CSV name-only customer fallback, lowercase plate scan, WhatsApp tax-exclusive total, i18n on the two new pages.",
+  "rca_of_the_issue": "Original bug: Repairs.jsx had its own inline job-card HTML template (printJobCard) that only rendered parts_used, while the footer Print/PDF buttons call printRepairCard/downloadRepairCardPdf from lib/reports.js. buildRepairCardHtml now builds rows = stockRows + specialRows, so special_parts appear in print, PDF (same template rasterised through the sandbox iframe) and the wa.me message (Repairs.jsx spreads data.special_parts into the lines array). Backend invoice creation already copied special_parts into invoice.lines — confirmed by a fresh card -> special part -> POST /repairs/{id}/invoice test."
+}
