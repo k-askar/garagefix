@@ -29,6 +29,7 @@ import BayBoard from "@/pages/BayBoard";
 import DeliveryScan from "@/pages/DeliveryScan";
 import PasswordSetup from "@/pages/PasswordSetup";
 import SuperAdmin from "@/pages/SuperAdmin";
+import MyProfile from "@/pages/MyProfile";
 import "@/App.css";
 
 function ProtectedShell() {
@@ -88,6 +89,7 @@ function App() {
               <Route path="/staff" element={<OwnerRoute><Staff /></OwnerRoute>} />
               <Route path="/settings" element={<OwnerRoute><Settings /></OwnerRoute>} />
               <Route path="/super-admin" element={<SuperAdminRoute><SuperAdmin /></SuperAdminRoute>} />
+              <Route path="/my-profile" element={<MyProfile />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

@@ -18,6 +18,13 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-25j — My Profile page (self-service name + email editing)
+- **`PUT /api/auth/me/profile`** — accepts `{name?, email?, current_password}`. Verifies current password (rejects hijacked sessions), rejects email clashes globally (409), issues a fresh JWT after email changes so the token payload stays in sync, and stamps `profile_changed_at`. Works for super_admin, owner and staff alike (uses `_raw_db`).
+- **`MyProfile.jsx` page** at `/my-profile` — avatar + role badge, editable name + email, "Save changes" opens a confirmation dialog that re-asks for the current password before persisting. Also embeds `ChangePasswordDialog` for a one-stop account panel. Role-specific banner reminds super_admin to rotate off the `platform123` seed.
+- **`AuthContext.setUser`** exposed — MyProfile pushes the fresh user back into context + localStorage so the sidebar name + JWT refresh instantly without a re-login.
+- **Sidebar** — added "My profile" link (with `UserCog` icon) above "Change password" for every logged-in user. Translated EN "My profile" / NL "Mijn profiel" / AR "ملفي الشخصي".
+- Verified 7 backend edge cases (wrong pwd, clash, valid rename, valid email change, new-email login works, old-email fails, restore) + full-page UI screenshot.
+
 ### Session 2026-02-25i — Self-service change password
 - **`POST /api/auth/change-password`** — requires the current password to prevent session-hijack tampering; rejects same-as-current and passwords under 6 chars; stamps `password_changed_at` on success. Uses `_raw_db` so it works for super_admin (no tenant context) and any per-tenant user alike.
 - **`ChangePasswordDialog` component** (Sidebar footer, above "Sign out") — 3-field form with show/hide toggle, translated for EN / NL / AR (`t("changePassword")`). Visible for **every** logged-in user (super_admin, owner, staff) so the platform owner can rotate off the default `platform123` seed in production without a redeploy, and staff can change theirs after using the setup-link email.

@@ -28,6 +28,14 @@ export function AuthProvider({ children }) {
     return data.user;
   };
 
+  // Expose setUser so pages like MyProfile can push the updated user object
+  // back into context after editing their name / email.
+  const updateUser = (u) => {
+    if (!u) return;
+    localStorage.setItem("garage_user", JSON.stringify(u));
+    setUser(u);
+  };
+
   const register = async (payload) => {
     const { data } = await api.post("/auth/register", payload);
     localStorage.setItem("garage_token", data.token);
@@ -55,7 +63,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthCtx.Provider value={{ user, ready, login, register, logout, hasPermission }}>
+    <AuthCtx.Provider value={{ user, ready, login, register, logout, hasPermission, setUser: updateUser }}>
       {children}
     </AuthCtx.Provider>
   );

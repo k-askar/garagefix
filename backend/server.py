@@ -494,6 +494,54 @@ async def login(payload: UserLogin):
     }}
 
 
+class ProfileUpdateBody(BaseModel):
+    name:             Optional[str] = None
+    email:            Optional[EmailStr] = None
+    current_password: str = Field(min_length=1)
+
+
+@api_router.put("/auth/me/profile")
+async def update_my_profile(payload: ProfileUpdateBody, user: dict = Depends(get_current_user)):
+    """Let a logged-in user rotate their own name / email.  Requires the
+    current password (via re-auth) so a stolen session can't hijack the account
+    by silently swapping the login email.  Email must remain globally unique."""
+    doc = await _raw_db.users.find_one({"id": user["id"]})
+    if not doc or not doc.get("password_hash"):
+        raise HTTPException(status_code=400, detail="Account has no password set")
+    if not verify_password(payload.current_password, doc["password_hash"]):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    updates = {}
+    if payload.name is not None and payload.name.strip() and payload.name.strip() != doc.get("name"):
+        updates["name"] = payload.name.strip()
+    if payload.email is not None:
+        new_email = payload.email.lower().strip()
+        if new_email != (doc.get("email") or "").lower():
+            clash = await _raw_db.users.find_one({"email": new_email, "id": {"$ne": user["id"]}})
+            if clash:
+                raise HTTPException(status_code=409, detail="Another account already uses this email")
+            updates["email"] = new_email
+    if not updates:
+        return {"ok": True, "no_change": True, "user": {
+            "id": doc["id"], "email": doc["email"], "name": doc["name"], "role": doc["role"],
+            "permissions": doc.get("permissions") or [],
+        }}
+    updates["profile_changed_at"] = datetime.now(timezone.utc).isoformat()
+    await _raw_db.users.update_one({"id": user["id"]}, {"$set": updates})
+    fresh = await _raw_db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
+    # Re-issue the JWT so the token payload matches the new email/role after
+    # an email change — otherwise the client keeps sending the old email in
+    # the JWT which is harmless but confusing in server logs.
+    new_token = create_access_token(fresh["id"], fresh["email"], fresh["role"], fresh.get("tenant_id"))
+    return {
+        "ok": True,
+        "token": new_token,
+        "user": {
+            "id": fresh["id"], "email": fresh["email"], "name": fresh["name"], "role": fresh["role"],
+            "permissions": fresh.get("permissions") or [],
+        },
+    }
+
+
 class ChangePasswordBody(BaseModel):
     current_password: str = Field(min_length=1)
     new_password:     str = Field(min_length=6)

@@ -121,6 +121,19 @@ export default function DashboardLayout({ children }) {
             <div className="text-sm font-medium truncate">{user?.name}</div>
             <div className="text-xs font-mono text-muted-foreground uppercase tracking-widest">{user?.role}</div>
           </div>
+          <NavLink
+            to="/my-profile"
+            data-testid="nav-my-profile"
+            onClick={() => setOpen(false)}
+            className={({ isActive }) => cn(
+              "flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors",
+              isActive
+                ? "bg-primary/15 text-primary"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent"
+            )}
+          >
+            <UserCog className="h-4 w-4" /> {t("myProfile")}
+          </NavLink>
           <ChangePasswordDialog triggerLabel={t("changePassword")} />
           <Button
             variant="ghost"
