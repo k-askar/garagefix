@@ -66,24 +66,214 @@ async function renderHtmlToCanvas(html) {
   }
 }
 
-/** Turn a rasterised canvas into a jsPDF instance (A4 portrait, multi-page). */
+/**
+ * Return true when the horizontal band [top, bottom) of the source canvas
+ * contains ANY non-white pixel — used to decide whether a would-be page
+ * actually has content worth printing.  Reads the region in 300-row chunks
+ * to stay memory-friendly on tall docs.
+ */
+function bandHasInk(canvas, top, bottom) {
+  const w = canvas.width;
+  const t = Math.max(0, Math.floor(top));
+  const b = Math.min(canvas.height, Math.ceil(bottom));
+  if (b <= t) return false;
+  // Require a meaningful amount of ink (not just anti-aliasing tails).
+  // 0.05% of the band's area, minimum 40 dark pixels — anything less is
+  // considered "empty enough to skip".
+  const bandArea = w * (b - t);
+  const inkNeeded = Math.max(40, Math.round(bandArea * 0.0005));
+  try {
+    const ctx = canvas.getContext("2d");
+    const chunk = 300;
+    let dark = 0;
+    for (let y0 = t; y0 < b; y0 += chunk) {
+      const y1 = Math.min(b, y0 + chunk);
+      const data = ctx.getImageData(0, y0, w, y1 - y0).data;
+      for (let i = 0; i < data.length; i += 4) {
+        // Real ink is reasonably dark — threshold 215 catches text, borders,
+        // coloured headers, QR codes, plate strips, etc., while filtering
+        // out light anti-aliasing tails on white backgrounds.
+        if (data[i] < 215 || data[i + 1] < 215 || data[i + 2] < 215) {
+          dark++;
+          if (dark >= inkNeeded) return true;
+        }
+      }
+    }
+  } catch (_) {
+    // If we can't inspect the canvas, err on the side of keeping the page.
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Scan the source canvas from the bottom upwards and return the Y where the
+ * last non-white pixel lives.  Used to trim trailing whitespace so we don't
+ * create an empty page 2 just because <body> was reported taller than its
+ * actual content.
+ */
+function findLastContentRow(canvas) {
+  const w = canvas.width;
+  const h = canvas.height;
+  try {
+    const ctx = canvas.getContext("2d");
+    const chunk = 400;
+    let bottom = h;
+    while (bottom > 0) {
+      const top = Math.max(0, bottom - chunk);
+      const data = ctx.getImageData(0, top, w, bottom - top).data;
+      for (let y = bottom - top - 1; y >= 0; y--) {
+        const rowStart = y * w * 4;
+        let hasInk = false;
+        for (let x = 0; x < w; x += 3) {
+          const idx = rowStart + x * 4;
+          if (data[idx] < 235 || data[idx + 1] < 235 || data[idx + 2] < 235) {
+            hasInk = true;
+            break;
+          }
+        }
+        if (hasInk) return top + y;
+      }
+      bottom = top;
+    }
+  } catch (_) {
+    /* CORS or memory issue — return original height. */
+  }
+  return h;
+}
+
+/**
+ * Search backwards from `targetY` within `searchBack` px for the nearest
+ * horizontal row that is (almost) entirely white — that's a safe place to
+ * cut the canvas without slicing through text or coloured blocks.
+ * Returns `targetY` when no suitable blank row is found.
+ */
+function findNearestBlankRow(canvas, targetY, searchBack) {
+  const w = canvas.width;
+  const startY = Math.min(canvas.height - 1, Math.max(0, targetY));
+  const endY = Math.max(0, startY - searchBack);
+  if (endY >= startY) return targetY;
+  try {
+    const ctx = canvas.getContext("2d");
+    const stripe = ctx.getImageData(0, endY, w, startY - endY).data;
+    // Walk from the intended cut upward — the first blank row is the best cut.
+    for (let y = startY - endY - 1; y >= 0; y--) {
+      let whiteCount = 0;
+      const rowStart = y * w * 4;
+      for (let x = 0; x < w; x++) {
+        const idx = rowStart + x * 4;
+        const r = stripe[idx];
+        const g = stripe[idx + 1];
+        const b = stripe[idx + 2];
+        // Treat near-white as blank (JPEG/anti-aliasing tolerant).
+        if (r > 245 && g > 245 && b > 245) whiteCount++;
+      }
+      if (whiteCount / w > 0.995) return endY + y;
+    }
+  } catch (_) {
+    /* CORS-tainted canvas or huge image — fall through to naive slice. */
+  }
+  return targetY;
+}
+
+/**
+ * Turn a rasterised canvas into a jsPDF instance (A4 portrait, multi-page).
+ * Each page is a *clipped* slice of the source canvas so no content crosses
+ * a page boundary — no more duplicated footer / half-cut text.
+ */
 function canvasToPdf(canvas) {
   const pdf = new jsPDF({ orientation: "p", unit: "pt", format: "a4" });
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
   const marginX = 20;
+  const marginY = 20;
   const imgW = pageW - marginX * 2;
-  const imgH = (canvas.height * imgW) / canvas.width;
-  const img = canvas.toDataURL("image/png");
-  let position = 20;
-  let heightLeft = imgH;
-  pdf.addImage(img, "PNG", marginX, position, imgW, imgH, undefined, "FAST");
-  heightLeft -= pageH - 40;
-  while (heightLeft > 0) {
-    position = 20 - (imgH - heightLeft);
-    pdf.addPage();
-    pdf.addImage(img, "PNG", marginX, position, imgW, imgH, undefined, "FAST");
-    heightLeft -= pageH - 40;
+  const contentH = pageH - marginY * 2;
+
+  // Canvas pixels → PDF points scale (both dimensions share it).
+  const scale = imgW / canvas.width;
+  const fullPageCanvasPx = contentH / scale;
+  // How far above the naive cut we allow the algorithm to look for whitespace.
+  const searchBack = Math.round(fullPageCanvasPx * 0.18);
+  // Trim trailing whitespace so a small extra body-padding never becomes an
+  // empty page 2.  Add a tiny breathing gap after the last row of ink.
+  const lastRow = findLastContentRow(canvas);
+  const totalCanvasH = Math.min(canvas.height, lastRow + 6);
+
+  // Fast-path: when the whole document is only slightly taller than an A4
+  // (up to 10 %), squeeze the whole thing onto one page instead of breaking
+  // through a text line and leaving descenders on a ghost page 2.  A tiny
+  // vertical compression is invisible in an invoice and completely fixes
+  // the "Thank you for choosing us! duplicated across pages" bug.
+  if (totalCanvasH > fullPageCanvasPx && totalCanvasH <= fullPageCanvasPx * 1.1) {
+    const sliceCanvas = document.createElement("canvas");
+    sliceCanvas.width = canvas.width;
+    sliceCanvas.height = totalCanvasH;
+    const ctx = sliceCanvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, totalCanvasH);
+    ctx.drawImage(canvas, 0, 0);
+    pdf.addImage(
+      sliceCanvas.toDataURL("image/png"),
+      "PNG",
+      marginX,
+      marginY,
+      imgW,
+      contentH, // fit exactly into the page's content area
+      undefined,
+      "FAST"
+    );
+    return pdf;
+  }
+
+  let renderedH = 0;
+  let pageNum = 0;
+  while (renderedH < totalCanvasH) {
+    const remaining = totalCanvasH - renderedH;
+    // Ignore a sub-pixel tail that would create a nearly-empty extra page.
+    if (pageNum > 0 && remaining < 6) break;
+
+    let sliceH;
+    if (remaining <= fullPageCanvasPx) {
+      sliceH = remaining; // last page — take the rest.
+    } else {
+      const naiveCut = renderedH + fullPageCanvasPx;
+      const smartCut = findNearestBlankRow(canvas, naiveCut, searchBack);
+      // Guard: never advance by less than 60% of a page, otherwise we'd
+      // create an absurd number of tiny pages on dense docs.
+      sliceH = Math.max(smartCut - renderedH, Math.round(fullPageCanvasPx * 0.6));
+      sliceH = Math.min(sliceH, remaining);
+    }
+
+    // Skip any would-be page that is essentially whitespace — protects against
+    // subpixel artifacts / trailing body padding creating ghost pages.
+    if (pageNum > 0 && !bandHasInk(canvas, renderedH, renderedH + sliceH)) {
+      renderedH += sliceH;
+      continue;
+    }
+
+    const sliceCanvas = document.createElement("canvas");
+    sliceCanvas.width = canvas.width;
+    sliceCanvas.height = sliceH;
+    const ctx = sliceCanvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, sliceH);
+    ctx.drawImage(canvas, 0, -renderedH);
+
+    if (pageNum > 0) pdf.addPage();
+    pdf.addImage(
+      sliceCanvas.toDataURL("image/png"),
+      "PNG",
+      marginX,
+      marginY,
+      imgW,
+      sliceH * scale,
+      undefined,
+      "FAST"
+    );
+
+    renderedH += sliceH;
+    pageNum++;
   }
   return pdf;
 }
