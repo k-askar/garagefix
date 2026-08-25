@@ -543,6 +543,15 @@ export default function Inventory() {
     if (!sel.length) return toast.error(t("pickAtLeastOne"));
     printLabels(sel);
   };
+  /* Print a printable sheet of barcodes for every part in the current filter
+     (or the whole inventory when there is no active search). Skips parts
+     that have neither a barcode nor a SKU because there is nothing to stick. */
+  const printAllBarcodes = () => {
+    const source = q || vehicle || cat !== "all" || showLow ? filtered : items;
+    const printable = source.filter(i => i.barcode || i.sku);
+    if (!printable.length) return toast.error(t("noItemsToPrint"));
+    printLabels(printable);
+  };
 
   const exportReport = async (mode) => {
     const args = {
@@ -661,6 +670,9 @@ export default function Inventory() {
                       <Tags className="h-4 w-4 mr-2" /> {t("printNLabels", { n: selected.length })}
                     </Button>
                   )}
+                  <Button variant="outline" size="sm" className="rounded-full border-primary/40 text-primary hover:bg-primary/10" onClick={printAllBarcodes} disabled={!items.length} title={t("printAllBarcodesHint")} data-testid="print-all-barcodes">
+                    <Printer className="h-4 w-4 mr-2" /> {t("printAllBarcodes")}
+                  </Button>
                   <Button variant="outline" size="sm" className="rounded-full" onClick={() => exportReport("pdf")} disabled={exporting} data-testid="inventory-pdf-button">
                     <FileDown className="h-4 w-4 mr-2" /> {exporting ? t("loading") : t("pdf")}
                   </Button>
