@@ -18,6 +18,11 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-25f — PDF attachments on email/WhatsApp + bulk reminder dispatch
+- **Invoice emails now carry the PDF as a real attachment** — `send_email` accepts `attachments=[{filename, content_base64}]` and forwards to the Resend proxy. `InvoiceEmailBody` gained `attachment_base64` + `attachment_filename`. Frontend `sendEmail` renders the invoice via `htmlToPdfBlob` (same look as the "Download PDF" action), base64-encodes the blob, and ships it in the POST body — customers now receive a downloadable file, not just an HTML summary.
+- **WhatsApp share now includes a public PDF link** — new endpoints `POST /api/invoices/{id}/public-pdf` (auth, base64 in) and `GET /api/public/invoice-pdf/{token}` (no auth, 30-day expiry). Frontend WhatsApp button uploads the freshly rendered PDF, gets a public URL back, and drops it into the wa.me message so customers can tap the link to download.
+- **"Send all pending" bulk reminder dispatch** — new `POST /api/reminders/send-all-pending` iterates every pending reminder with an email, dispatches via the existing `_send_reminder` background task, and returns `{queued, skipped, total}`. Reminders page gained a primary button with a live badge showing the pending-with-email count (currently `2`). Skipped counts include reminders without email (WhatsApp them one-by-one from the row action).
+
 ### Session 2026-02-25e — server.py partial refactor into routes/
 - **Extracted 4 self-contained modules from `server.py` → `/app/backend/routes/`** to unblock the "monolithic 4400-line server.py" pain point without touching the higher-risk auth/repairs/invoices core paths. New files:
   - `routes/rdw.py` — `/api/rdw/lookup` (public NL plate open-data)

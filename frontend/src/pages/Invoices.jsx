@@ -17,7 +17,7 @@ import { whatsappShare } from "@/lib/whatsapp";
 import { useLang } from "@/i18n";
 import { downloadInvoicesZip } from "@/lib/invoice-zip";
 import { renderInvoiceHtml } from "@/lib/invoice-render";
-import { downloadHtmlAsPdf, printHtml } from "@/lib/pdf";
+import { downloadHtmlAsPdf, printHtml, htmlToPdfBlob } from "@/lib/pdf";
 import SearchableSelect from "@/components/SearchableSelect";
 
 // Extract a Dutch-style plate (letters/digits joined by hyphens) from a free-text note
@@ -31,6 +31,20 @@ function extractPlate(note) {
 async function printInvoice(inv, settings) {
   const html = await renderInvoiceHtml(inv, settings);
   printHtml(html, { title: inv.invoice_number });
+}
+
+/** Turn a Blob into a base64 string (without the data:… prefix) so we can
+    ship it inside a JSON body to the backend for email attachments etc. */
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const s = String(r.result || "");
+      resolve(s.includes(",") ? s.split(",")[1] : s);
+    };
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
 }
 
 export default function Invoices() {
@@ -124,10 +138,25 @@ export default function Invoices() {
     if (!emailForm.to?.trim()) return toast.error(t("recipientRequired"));
     setSendingEmail(true);
     try {
+      // Render the invoice to a PDF blob so the customer receives a real
+      // attachment they can save/print — same look as the "Download PDF" button.
+      let attachment_base64, attachment_filename;
+      try {
+        const html = await renderInvoiceHtml(emailTarget, settings);
+        const blob = await htmlToPdfBlob(html);
+        attachment_base64 = await blobToBase64(blob);
+        attachment_filename = `${emailTarget.invoice_number}.pdf`;
+      } catch (pdfErr) {
+        // Non-fatal — fall back to the text-only email so the customer at
+        // least gets the invoice details.
+        console.warn("PDF attach failed, sending without PDF:", pdfErr);
+      }
       await api.post(`/invoices/${emailTarget.id}/email`, {
         to: emailForm.to.trim(),
         subject: emailForm.subject?.trim() || undefined,
         message: emailForm.message || undefined,
+        attachment_base64,
+        attachment_filename,
       });
       toast.success(t("sentTo", { to: emailForm.to }));
       setEmailTarget(null);
@@ -336,13 +365,30 @@ export default function Invoices() {
                       data-testid={`invoice-email-${inv.invoice_number}`}
                       onClick={() => openEmail(inv)}
                     ><Mail className="h-4 w-4" /></Button>
-                    <Button size="icon" variant="ghost" className="text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300" onClick={() => {
+                    <Button size="icon" variant="ghost" className="text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300" onClick={async () => {
                       const cust = customers.find(c => c.id === inv.customer_id);
+                      let pdfUrl = "";
+                      // Try to attach a real downloadable PDF link to the WhatsApp
+                      // message so the customer can open the invoice with one tap.
+                      const tid = toast.loading("Preparing PDF...");
+                      try {
+                        const html = await renderInvoiceHtml(inv, settings);
+                        const blob = await htmlToPdfBlob(html);
+                        const b64 = await blobToBase64(blob);
+                        const { data } = await api.post(`/invoices/${inv.id}/public-pdf`, {
+                          content_base64: b64,
+                          filename: `${inv.invoice_number}.pdf`,
+                        });
+                        pdfUrl = data?.url || "";
+                      } catch (err) { console.warn("Public PDF upload failed:", err); }
+                      finally { toast.dismiss(tid); }
                       whatsappShare({
                         phone: cust?.phone, garageName: settings?.name,
                         header: `Invoice ${inv.invoice_number}`,
                         lines: inv.lines.map(l => `• ${l.name} × ${l.quantity} — ${l.total.toFixed(2)}€`),
-                        total: inv.total, note: inv.status === "paid" ? "PAID" : "Please settle at your earliest.",
+                        total: inv.total,
+                        note: inv.status === "paid" ? "PAID" : "Please settle at your earliest.",
+                        url: pdfUrl || undefined,
                       });
                     }} data-testid={`invoice-wa-${inv.invoice_number}`}><MessageCircle className="h-4 w-4" /></Button>
                     {inv.status !== "paid" && <Button size="sm" variant="outline" className="rounded-full" onClick={() => { setPayTarget(inv); setPayMethodId(methods[0]?.id || ""); }} data-testid={`invoice-paid-${inv.invoice_number}`}><CheckCircle2 className="h-3 w-3 mr-1" />Paid</Button>}

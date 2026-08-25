@@ -203,6 +203,23 @@ def register(db, get_current_user, send_email):
         }})
         return {"ok": True}
 
+    @router.post("/reminders/send-all-pending")
+    async def send_all_pending(background: BackgroundTasks, user: dict = Depends(get_current_user)):
+        """Bulk-dispatch every pending reminder whose customer has an email on
+        file. Reminders without email are skipped (owner can WhatsApp those
+        one-by-one from the row action)."""
+        pending = await db.reminders.find(
+            {"status": "pending"}, {"_id": 0, "id": 1, "customer_email": 1}
+        ).to_list(1000)
+        queued, skipped = 0, 0
+        for r in pending:
+            if r.get("customer_email"):
+                background.add_task(_send_reminder, r["id"])
+                queued += 1
+            else:
+                skipped += 1
+        return {"queued": queued, "skipped": skipped, "total": len(pending)}
+
     @router.delete("/reminders/{rid}")
     async def delete_reminder(rid: str, user: dict = Depends(get_current_user)):
         await db.reminders.delete_one({"id": rid})

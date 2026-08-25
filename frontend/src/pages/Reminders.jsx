@@ -85,6 +85,17 @@ export default function Reminders() {
     } catch { /* non-fatal — WhatsApp already opened */ }
   };
 
+  const sendAllPending = async () => {
+    const pendingRows = rows.filter(r => r.status === "pending" && r.customer_email);
+    if (!pendingRows.length) { toast.info("No pending reminders with email addresses"); return; }
+    if (!window.confirm(`Send ${pendingRows.length} pending reminder(s) by email now?`)) return;
+    try {
+      const { data } = await api.post("/reminders/send-all-pending");
+      toast.success(`Queued ${data.queued} · ${data.skipped} skipped (no email)`);
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["reminders"] }), 1500);
+    } catch (e) { toast.error(formatApiError(e)); }
+  };
+
   const del = async (id) => {
     if (!window.confirm("Delete reminder?")) return;
     try { await api.delete(`/reminders/${id}`); toast.success("Deleted"); qc.invalidateQueries({ queryKey: ["reminders"] }); }
@@ -100,9 +111,24 @@ export default function Reminders() {
           <p className="text-muted-foreground mt-2">Auto-nudge customers a few days before their next service. Sent by email at 09:00 UTC daily.</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button variant="outline" className="rounded-full" onClick={scanVehicles} disabled={scanning} data-testid="reminders-scan-vehicles">
               <RefreshCw className={`h-4 w-4 mr-2 ${scanning ? "animate-spin" : ""}`} /> {scanning ? "Scanning..." : "Scan vehicles (APK + oil)"}
+            </Button>
+            <Button
+              variant="outline"
+              className="rounded-full text-primary border-primary/40 hover:bg-primary/10"
+              onClick={sendAllPending}
+              disabled={!rows.some(r => r.status === "pending" && r.customer_email)}
+              data-testid="reminders-send-all-pending"
+            >
+              <Send className="h-4 w-4 mr-2" />
+              Send all pending
+              {rows.filter(r => r.status === "pending" && r.customer_email).length > 0 && (
+                <span className="ml-1.5 inline-flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold">
+                  {rows.filter(r => r.status === "pending" && r.customer_email).length}
+                </span>
+              )}
             </Button>
             <DialogTrigger asChild>
               <Button className="rounded-full bg-primary hover:bg-primary/90" data-testid="reminder-new-button"><Plus className="h-4 w-4 mr-2" /> New reminder</Button>

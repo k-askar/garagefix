@@ -1822,6 +1822,10 @@ class InvoiceEmailBody(BaseModel):
     to: Optional[str] = None  # override customer email, e.g. resend to a different address
     subject: Optional[str] = None
     message: Optional[str] = None  # extra note prepended to the HTML body
+    # When the frontend attaches the rendered PDF the base64 payload is sent
+    # here and forwarded to Resend so customers get a real downloadable file.
+    attachment_base64: Optional[str] = None
+    attachment_filename: Optional[str] = None
 
 
 def _invoice_email_html(inv: dict, settings: dict, note: str = "") -> str:
@@ -1904,12 +1908,76 @@ async def email_invoice(inv_id: str, payload: InvoiceEmailBody = InvoiceEmailBod
     garage_name = settings.get("name") or "PitStock Garage"
     subject = payload.subject or f"Invoice {inv['invoice_number']} from {garage_name}"
     html = _invoice_email_html(inv, settings, payload.message or "")
+    attachments = None
+    if payload.attachment_base64:
+        attachments = [{
+            "filename": payload.attachment_filename or f"{inv['invoice_number']}.pdf",
+            "content_base64": payload.attachment_base64,
+        }]
     try:
-        await send_email(to=to, subject=subject, html=html)
+        await send_email(to=to, subject=subject, html=html, attachments=attachments)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Email failed: {str(e)[:180]}")
     await db.invoices.update_one({"id": inv_id}, {"$set": {"last_emailed_at": datetime.now(timezone.utc).isoformat(), "last_emailed_to": to}})
     return {"ok": True, "to": to}
+
+
+class InvoicePublicPdfBody(BaseModel):
+    content_base64: str
+    filename: Optional[str] = None
+
+
+@api_router.post("/invoices/{inv_id}/public-pdf")
+async def upload_invoice_public_pdf(inv_id: str, payload: InvoicePublicPdfBody, request: Request, user: dict = Depends(get_current_user)):
+    """Store the rendered invoice PDF against a short-lived public token so the
+    customer can be sent a plain URL (e.g. inside a WhatsApp message) that
+    downloads the file without needing to log in. Token expires after 30 days."""
+    inv = await db.invoices.find_one({"id": inv_id}, {"_id": 0, "id": 1, "invoice_number": 1})
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    import base64 as _b64
+    try:
+        raw = _b64.b64decode((payload.content_base64 or "").split(",")[-1])
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 PDF payload")
+    if len(raw) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="PDF too large (max 8 MB)")
+    token = secrets.token_urlsafe(24)
+    filename = payload.filename or f"{inv.get('invoice_number', 'invoice')}.pdf"
+    now = datetime.now(timezone.utc)
+    await db.public_invoice_pdfs.insert_one({
+        "token": token,
+        "invoice_id": inv_id,
+        "filename": filename,
+        "content": raw,
+        "created_at": now.isoformat(),
+        "expires_at": (now + timedelta(days=30)).isoformat(),
+    })
+    # Prefer the configured public URL; fall back to the request host so this
+    # still works in preview environments where APP_PUBLIC_URL isn't set.
+    base = (os.environ.get("APP_PUBLIC_URL") or "").rstrip("/")
+    if not base:
+        base = f"{request.url.scheme}://{request.url.netloc}"
+    return {"url": f"{base}/api/public/invoice-pdf/{token}", "token": token, "filename": filename}
+
+
+@api_router.get("/public/invoice-pdf/{token}")
+async def download_invoice_public_pdf(token: str):
+    """Serve a previously stored invoice PDF over a public link (no auth)."""
+    rec = await db.public_invoice_pdfs.find_one({"token": token})
+    if not rec:
+        raise HTTPException(status_code=404, detail="Link not found or expired")
+    exp = rec.get("expires_at")
+    if exp and exp < datetime.now(timezone.utc).isoformat():
+        raise HTTPException(status_code=410, detail="Link expired")
+    return Response(
+        content=rec["content"],
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{rec.get("filename", "invoice.pdf")}"',
+            "Cache-Control": "private, max-age=300",
+        },
+    )
 
 
 @api_router.get("/customers/{cid}/balance")
@@ -3380,9 +3448,16 @@ def _assert_safe_email(subject, html):
         if not _host_ok(h) or urlparse(low).username is not None:
             raise ValueError(f"Unsafe URL: {url} (G3)")
 
-async def send_email(*, to, subject, html):
+async def send_email(*, to, subject, html, attachments=None):
     _assert_safe_email(subject, html)
     payload = {"to": [to], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME}
+    # attachments: [{"filename": "invoice.pdf", "content_base64": "…"}]  — passed
+    # through to the Resend proxy which forwards to Resend's /emails endpoint.
+    if attachments:
+        payload["attachments"] = [
+            {"filename": a["filename"], "content": a["content_base64"]}
+            for a in attachments if a.get("content_base64") and a.get("filename")
+        ]
     try:
         async with httpx.AsyncClient(timeout=30) as c:
             r = await c.post(f"{EMAIL_BASE_URL}/api/v1/email/send",
