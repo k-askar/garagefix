@@ -28,7 +28,7 @@ export default function PartyPage({ kind }) {
   const label = isSup ? t("supplier") : t("customer");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState(null);   // when set, the same dialog is used to update
-  const [form, setForm] = useState({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL" });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL", customer_type: "individual", company_name: "", kvk_number: "", vat_number: "", contact_person: "" });
   const [vehForm2, setVehForm2] = useState({ make: "", model: "", year: "", plate: "", color: "", km: "", country: "NL", apk_expiry: "", next_oil_change_km: "" });
   const [exporting, setExporting] = useState(false);
   const [historyId, setHistoryId] = useState(null);
@@ -38,6 +38,34 @@ export default function PartyPage({ kind }) {
   const [passportVehicle, setPassportVehicle] = useState(null);
   const [csvOpen, setCsvOpen] = useState(false);
   const [rdwBusy, setRdwBusy] = useState("");   // "new-cust" | "add-veh" | ""
+  const [kvkBusy, setKvkBusy] = useState(false);
+
+  /* Query KvK basisprofiel and merge company + address into the form.
+     Backend returns 501 if KVK_API_KEY isn't set — we surface that clearly. */
+  const kvkLookup = async () => {
+    const cleaned = (form.kvk_number || "").replace(/[^0-9]/g, "");
+    if (cleaned.length !== 8) return toast.error("KvK = 8 cijfers");
+    setKvkBusy(true);
+    try {
+      const { data } = await api.get(`/kvk/lookup?kvk=${cleaned}`);
+      setForm(f => ({
+        ...f,
+        name: data.company_name || f.name,
+        company_name: data.company_name || f.company_name,
+        kvk_number: data.kvk_number,
+        vat_number: data.vat_number || f.vat_number,
+        street: data.street || f.street,
+        house_number: data.house_number || f.house_number,
+        house_number_addition: data.house_number_addition || f.house_number_addition,
+        postcode: data.postcode || f.postcode,
+        city: data.city || f.city,
+        address_country: data.address_country || f.address_country,
+      }));
+      toast.success(`${data.company_name} · KvK ✓`);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "KvK lookup failed");
+    } finally { setKvkBusy(false); }
+  };
 
   /* Query RDW open data and merge the result into a form-state setter.
      Never overwrites existing values with blanks. */
@@ -126,7 +154,7 @@ export default function PartyPage({ kind }) {
         }
         toast.success(`${label} added`);
       }
-      setForm({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL" });
+      setForm({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL", customer_type: "individual", company_name: "", kvk_number: "", vat_number: "", contact_person: "" });
       setVehForm2({ make: "", model: "", year: "", plate: "", color: "", km: "" });
       setEditId(null);
       setOpen(false);
@@ -149,6 +177,11 @@ export default function PartyPage({ kind }) {
       street: row.street || "",
       city: row.city || "",
       address_country: row.address_country || "NL",
+      customer_type: row.customer_type || "individual",
+      company_name: row.company_name || "",
+      kvk_number: row.kvk_number || "",
+      vat_number: row.vat_number || "",
+      contact_person: row.contact_person || "",
     });
     setVehForm2({ make: "", model: "", year: "", plate: "", color: "", km: "" });
     setOpen(true);
@@ -224,7 +257,7 @@ export default function PartyPage({ kind }) {
               <Upload className="h-4 w-4 mr-2" /> Import CSV
             </Button>
           )}
-          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditId(null); setForm({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL" }); } }}>
+          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditId(null); setForm({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL", customer_type: "individual", company_name: "", kvk_number: "", vat_number: "", contact_person: "" }); } }}>
             <DialogTrigger asChild>
               <Button className="rounded-full bg-primary hover:bg-primary/90" data-testid={`add-${kind}-button`}>
                 <Plus className="h-4 w-4 mr-2" /> {isSup ? t("newSupplier") : t("newCustomer")}
@@ -233,7 +266,76 @@ export default function PartyPage({ kind }) {
           <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
             <DialogHeader><DialogTitle className="font-display">{editId ? (isSup ? t("editSupplier") : t("editCustomer")) : `Add ${label}`}</DialogTitle></DialogHeader>
             <form onSubmit={save} className="space-y-4">
-              <div className="space-y-1.5"><Label>{t("name")}</Label><Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid={`${kind}-name`} /></div>
+              {!isSup && (
+                <div className="grid grid-cols-2 gap-2 p-1 bg-muted/40 rounded-full border border-border" data-testid="cust-type-toggle">
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, customer_type: "individual" })}
+                    className={`h-9 rounded-full text-sm font-medium transition-colors ${form.customer_type !== "company" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                    data-testid="cust-type-individual"
+                  >
+                    <span className="inline-flex items-center gap-1.5"><span>👤</span>{t("customerTypeIndividual")}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, customer_type: "company" })}
+                    className={`h-9 rounded-full text-sm font-medium transition-colors ${form.customer_type === "company" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                    data-testid="cust-type-company"
+                  >
+                    <span className="inline-flex items-center gap-1.5"><span>🏢</span>{t("customerTypeCompany")}</span>
+                  </button>
+                </div>
+              )}
+
+              {/* KvK hero for company customers — mirrors the RDW hero look */}
+              {!isSup && form.customer_type === "company" && (
+                <div className="rounded-md border border-emerald-500/40 bg-emerald-500/5 p-3 space-y-2" data-testid="kvk-hero">
+                  <div className="flex items-center gap-2">
+                    <Search className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-emerald-700 dark:text-emerald-400">{t("kvkLookup")}</div>
+                  </div>
+                  <div className="grid grid-cols-12 gap-2 items-end">
+                    <div className="col-span-9 space-y-1">
+                      <Label className="text-[10px]">{t("kvkNumber")}</Label>
+                      <Input
+                        value={form.kvk_number}
+                        onChange={(e) => setForm({ ...form, kvk_number: e.target.value.replace(/[^0-9]/g, "").slice(0, 8) })}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); kvkLookup(); } }}
+                        placeholder="12345678"
+                        className="h-10 font-mono tracking-wider"
+                        data-testid="cust-kvk-input"
+                      />
+                    </div>
+                    <div className="col-span-3">
+                      <Button type="button" className="w-full h-10 rounded-md bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm disabled:opacity-60"
+                        onClick={kvkLookup}
+                        disabled={kvkBusy || !form.kvk_number}
+                        data-testid="cust-kvk-btn"
+                      >
+                        {kvkBusy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Search className="h-4 w-4 mr-1" />}
+                        KvK
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Company-only fields */}
+              {!isSup && form.customer_type === "company" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5"><Label>{t("companyName")}</Label>
+                    <Input required value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value, name: e.target.value })} data-testid="cust-company-name" /></div>
+                  <div className="space-y-1.5"><Label>{t("vatNumber")}</Label>
+                    <Input value={form.vat_number} onChange={(e) => setForm({ ...form, vat_number: e.target.value.toUpperCase() })} placeholder="NL812345678B01" className="font-mono" data-testid="cust-vat-input" /></div>
+                  <div className="space-y-1.5 col-span-2"><Label>{t("contactPerson")}</Label>
+                    <Input value={form.contact_person} onChange={(e) => setForm({ ...form, contact_person: e.target.value })} placeholder={t("contactPersonPlaceholder")} data-testid="cust-contact-person" /></div>
+                </div>
+              )}
+
+              {/* Name — label switches with type */}
+              {(isSup || form.customer_type !== "company") && (
+                <div className="space-y-1.5"><Label>{t("name")}</Label><Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid={`${kind}-name`} /></div>
+              )}
               {isSup && <div className="space-y-1.5"><Label>{t("contactPerson")}</Label><Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} /></div>}
               {!isSup && editId && (
                 <CustomerVehiclesEditor customerId={editId} />
@@ -336,7 +438,21 @@ export default function PartyPage({ kind }) {
           <TableBody>
             {rows.map((r) => (
               <TableRow key={r.id} className={!isSup ? "cursor-pointer hover:bg-accent/40" : ""} onClick={() => !isSup && setHistoryId(r.id)} data-testid={`${kind}-row-${r.id}`}>
-                <TableCell className="font-medium">{r.name}</TableCell>
+                <TableCell className="font-medium">
+                  <div className="flex items-center gap-2">
+                    {!isSup && r.customer_type === "company" && (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono uppercase tracking-widest bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30" title={r.kvk_number ? `KvK ${r.kvk_number}` : "Company"} data-testid={`cust-badge-${r.id}`}>
+                        🏢 {t("customerTypeCompany")}
+                      </span>
+                    )}
+                    <span>{r.name}</span>
+                  </div>
+                  {!isSup && r.customer_type === "company" && (r.kvk_number || r.vat_number) && (
+                    <div className="text-[10px] font-mono text-muted-foreground mt-0.5">
+                      {r.kvk_number ? `KvK ${r.kvk_number}` : ""}{r.kvk_number && r.vat_number ? " · " : ""}{r.vat_number || ""}
+                    </div>
+                  )}
+                </TableCell>
                 <TableCell className="text-muted-foreground">{isSup ? r.contact : r.vehicle}</TableCell>
                 <TableCell className="text-muted-foreground">{r.email}</TableCell>
                 <TableCell className="text-muted-foreground font-mono text-xs">{r.phone}</TableCell>

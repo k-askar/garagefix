@@ -222,6 +222,12 @@ class Customer(BaseModel):
     street: Optional[str] = ""
     city: Optional[str] = ""
     address_country: Optional[str] = "NL"
+    # Company vs private-person split (KvK / VAT + contact person)
+    customer_type: Optional[str] = "individual"  # "individual" | "company"
+    company_name: Optional[str] = ""
+    kvk_number: Optional[str] = ""               # 8-digit Chamber of Commerce number
+    vat_number: Optional[str] = ""               # BTW-nummer, e.g. NL812345678B01
+    contact_person: Optional[str] = ""
     loyalty_redeemed: int = 0            # how many times this customer has consumed a loyalty reward
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -237,6 +243,11 @@ class CustomerCreate(BaseModel):
     street: Optional[str] = ""
     city: Optional[str] = ""
     address_country: Optional[str] = "NL"
+    customer_type: Optional[str] = "individual"
+    company_name: Optional[str] = ""
+    kvk_number: Optional[str] = ""
+    vat_number: Optional[str] = ""
+    contact_person: Optional[str] = ""
 
 
 class CustomerUpdate(BaseModel):
@@ -251,6 +262,11 @@ class CustomerUpdate(BaseModel):
     street: Optional[str] = None
     city: Optional[str] = None
     address_country: Optional[str] = None
+    customer_type: Optional[str] = None
+    company_name: Optional[str] = None
+    kvk_number: Optional[str] = None
+    vat_number: Optional[str] = None
+    contact_person: Optional[str] = None
 
 class Vehicle(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -4053,6 +4069,50 @@ async def ocr_delivery_note(payload: OcrDeliveryPayload, user: dict = Depends(ge
     if out["unit_cost"] and not out["unit_price"]:
         out["unit_price"] = out["unit_cost"]
     return out
+
+
+# =========================
+# RDW (Netherlands) open-data plate lookup
+# =========================
+@api_router.get("/kvk/lookup")
+async def kvk_lookup(kvk: str, user: dict = Depends(get_current_user)):
+    """Look up a Dutch company by its 8-digit KvK number.
+    Uses the official KvK Basisprofielen API when `KVK_API_KEY` is present.
+    Returns 501 with a helpful message when the key hasn't been configured yet,
+    so the frontend can guide the owner to Settings → Integrations."""
+    cleaned = re.sub(r"[^0-9]", "", (kvk or ""))
+    if len(cleaned) != 8:
+        raise HTTPException(status_code=400, detail="KvK number must be 8 digits")
+    api_key = os.environ.get("KVK_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(status_code=501, detail="KVK_API_KEY not configured — set it in backend/.env to enable auto-fill")
+    url = f"https://api.kvk.nl/api/v1/basisprofielen/{cleaned}"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url, headers={"apikey": api_key, "Accept": "application/json"})
+            if r.status_code == 404:
+                raise HTTPException(status_code=404, detail=f"KvK {cleaned} not found")
+            r.raise_for_status()
+            data = r.json()
+    except HTTPException:
+        raise
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"KvK API unreachable: {e}")
+    # Best-effort extraction — the KvK basisprofiel schema nests things a bit.
+    handelsnaam = data.get("handelsnaam") or (data.get("_embedded", {}).get("eigenaar", {}) or {}).get("handelsnaam") or ""
+    addresses = ((data.get("_embedded", {}).get("hoofdvestiging", {}) or {}).get("adressen", []) or [])
+    addr = addresses[0] if addresses else {}
+    return {
+        "kvk_number":  cleaned,
+        "company_name": handelsnaam,
+        "vat_number":  data.get("btwNummer") or "",
+        "street":      addr.get("straatnaam") or "",
+        "house_number": str(addr.get("huisnummer") or ""),
+        "house_number_addition": addr.get("huisnummerToevoeging") or "",
+        "postcode":    addr.get("postcode") or "",
+        "city":        addr.get("plaats") or "",
+        "address_country": "NL",
+    }
 
 
 # =========================
