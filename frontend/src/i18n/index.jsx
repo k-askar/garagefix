@@ -435,6 +435,9 @@ const DICT = {
     noVehiclesYet: "No vehicles linked to this customer yet.",
     unsaved: "UNSAVED",
     vehicleUpdated: "Vehicle updated",
+    // RDW plate lookup
+    rdwLookup: "Auto-fill from RDW (NL plate)",
+    rdwEnterPlate: "Enter a plate first",
     // Staff / permissions
     team: "Team", staffAccounts: "Staff accounts",
     staffSubtitle: "Invite mechanics, give each the exact access they need.",
@@ -910,6 +913,8 @@ const DICT = {
     noVehiclesYet: "Nog geen voertuigen gekoppeld aan deze klant.",
     unsaved: "NIET OPGESLAGEN",
     vehicleUpdated: "Voertuig bijgewerkt",
+    rdwLookup: "Automatisch invullen via RDW",
+    rdwEnterPlate: "Voer eerst een kenteken in",
     byEmployee: "Medewerker",
     searchTxns: "Zoek onderdeel / SKU / medewerker / werkbon…",
     stockIn: "Ingang",
@@ -1349,6 +1354,8 @@ const DICT = {
     noVehiclesYet: "لا توجد سيارات مرتبطة بهذا الزبون بعد.",
     unsaved: "غير محفوظ",
     vehicleUpdated: "تم تعديل السيارة",
+    rdwLookup: "جلب البيانات من RDW (لوحة هولندية)",
+    rdwEnterPlate: "أدخل رقم اللوحة أولاً",
     byEmployee: "الموظف",
     searchTxns: "ابحث قطعة / SKU / موظف / كرت…",
     stockIn: "دخول",

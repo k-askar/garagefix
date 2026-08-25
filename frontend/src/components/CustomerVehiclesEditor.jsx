@@ -5,13 +5,41 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Car, Plus, Save, Trash2, X, ChevronDown, ChevronUp } from "lucide-react";
+import { Car, Plus, Save, Trash2, X, ChevronDown, ChevronUp, Search, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import PlateBadge from "@/components/PlateBadge";
 import { useLang } from "@/i18n";
 
 const COUNTRIES = ["NL", "DE", "BE", "FR", "IT", "ES", "PL", "GB", "TR", "MA", "DZ", "SA", "AE", "EG", "SY", "LB", "JO", "IQ"];
 const EMPTY = { make: "", model: "", year: "", plate: "", color: "", km: "", country: "NL", apk_expiry: "", next_oil_change_km: "", vin: "", notes: "" };
+
+/**
+ * Fetch RDW data for a plate and merge it into the caller's form state.
+ * Returns true when the lookup succeeded so the UI can react (toast, etc.).
+ */
+async function lookupRdwInto(plate, applyPatch, t) {
+  const cleaned = (plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (!cleaned || cleaned.length < 4) {
+    toast.error(t("rdwEnterPlate"));
+    return false;
+  }
+  try {
+    const { data } = await api.get(`/rdw/lookup?plate=${encodeURIComponent(cleaned)}`);
+    // Merge every non-empty field into the form (never overwrite with a blank)
+    const patch = {};
+    ["make", "model", "year", "color", "country", "apk_expiry"].forEach(k => {
+      if (data[k]) patch[k] = data[k];
+    });
+    patch.plate = data.plate;
+    applyPatch(patch);
+    toast.success(`${data.make} ${data.model} ${data.year}`.trim() + " · RDW ✓");
+    return true;
+  } catch (e) {
+    const msg = e?.response?.data?.detail || e?.message || "RDW lookup failed";
+    toast.error(msg);
+    return false;
+  }
+}
 
 /**
  * Inline editor for the vehicles linked to a specific customer.
@@ -27,6 +55,22 @@ export default function CustomerVehiclesEditor({ customerId }) {
   const [adding, setAdding] = useState(false);
   const [newForm, setNewForm] = useState(EMPTY);
   const [busy, setBusy] = useState(false);
+  const [rdwBusy, setRdwBusy] = useState("");     // "" | "new" | vehicleId — which row is currently querying RDW
+
+  const lookupNew = async () => {
+    setRdwBusy("new");
+    try {
+      await lookupRdwInto(newForm.plate, (patch) => setNewForm(f => ({ ...f, ...patch })), t);
+    } finally { setRdwBusy(""); }
+  };
+
+  const lookupRow = async (v) => {
+    setRdwBusy(v.id);
+    try {
+      const draft = drafts[v.id] || { ...v };
+      await lookupRdwInto(draft.plate, (patch) => setDrafts(d => ({ ...d, [v.id]: { ...(d[v.id] || v), ...patch } })), t);
+    } finally { setRdwBusy(""); }
+  };
 
   const { data: vehicles = [], refetch } = useQuery({
     queryKey: ["cust-vehicles", customerId],
@@ -115,7 +159,28 @@ export default function CustomerVehiclesEditor({ customerId }) {
             <div className="space-y-1"><Label className="text-[10px]">{t("make")}</Label><Input value={newForm.make} onChange={(e) => setNewForm({ ...newForm, make: e.target.value })} data-testid="cust-veh-new-make" /></div>
             <div className="space-y-1"><Label className="text-[10px]">{t("model")}</Label><Input value={newForm.model} onChange={(e) => setNewForm({ ...newForm, model: e.target.value })} /></div>
             <div className="space-y-1"><Label className="text-[10px]">{t("year")}</Label><Input value={newForm.year} onChange={(e) => setNewForm({ ...newForm, year: e.target.value })} /></div>
-            <div className="space-y-1"><Label className="text-[10px]">{t("plateNumber")}</Label><Input value={newForm.plate} onChange={(e) => setNewForm({ ...newForm, plate: e.target.value.toUpperCase() })} data-testid="cust-veh-new-plate" /></div>
+            <div className="space-y-1"><Label className="text-[10px]">{t("plateNumber")}</Label>
+              <div className="flex gap-1">
+                <Input
+                  value={newForm.plate}
+                  onChange={(e) => setNewForm({ ...newForm, plate: e.target.value.toUpperCase() })}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); lookupNew(); } }}
+                  data-testid="cust-veh-new-plate"
+                />
+                {newForm.country === "NL" && (
+                  <Button
+                    type="button" size="icon" variant="outline"
+                    className="rounded-full shrink-0 border-orange-500/40 text-orange-600 dark:text-orange-400 hover:bg-orange-500/10"
+                    onClick={lookupNew}
+                    disabled={rdwBusy === "new"}
+                    title={t("rdwLookup")}
+                    data-testid="cust-veh-new-rdw"
+                  >
+                    {rdwBusy === "new" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                  </Button>
+                )}
+              </div>
+            </div>
             <div className="space-y-1">
               <Label className="text-[10px]">{t("country")}</Label>
               <select value={newForm.country} onChange={(e) => setNewForm({ ...newForm, country: e.target.value })} className="w-full h-9 rounded-md border border-input bg-transparent px-2 text-sm">
@@ -172,7 +237,23 @@ export default function CustomerVehiclesEditor({ customerId }) {
                     <div className="space-y-1"><Label className="text-[10px]">{t("make")}</Label><Input value={d.make || ""} onChange={(e) => setDraft(v.id, { make: e.target.value })} /></div>
                     <div className="space-y-1"><Label className="text-[10px]">{t("model")}</Label><Input value={d.model || ""} onChange={(e) => setDraft(v.id, { model: e.target.value })} /></div>
                     <div className="space-y-1"><Label className="text-[10px]">{t("year")}</Label><Input value={d.year || ""} onChange={(e) => setDraft(v.id, { year: e.target.value })} /></div>
-                    <div className="space-y-1"><Label className="text-[10px]">{t("plateNumber")}</Label><Input value={d.plate || ""} onChange={(e) => setDraft(v.id, { plate: e.target.value.toUpperCase() })} /></div>
+                    <div className="space-y-1"><Label className="text-[10px]">{t("plateNumber")}</Label>
+                      <div className="flex gap-1">
+                        <Input value={d.plate || ""} onChange={(e) => setDraft(v.id, { plate: e.target.value.toUpperCase() })} />
+                        {(d.country || "NL") === "NL" && (
+                          <Button
+                            type="button" size="icon" variant="outline"
+                            className="rounded-full shrink-0 border-orange-500/40 text-orange-600 dark:text-orange-400 hover:bg-orange-500/10"
+                            onClick={() => lookupRow(v)}
+                            disabled={rdwBusy === v.id}
+                            title={t("rdwLookup")}
+                            data-testid={`cust-veh-rdw-${v.id}`}
+                          >
+                            {rdwBusy === v.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
                     <div className="space-y-1">
                       <Label className="text-[10px]">{t("country")}</Label>
                       <select value={d.country || "NL"} onChange={(e) => setDraft(v.id, { country: e.target.value })} className="w-full h-9 rounded-md border border-input bg-transparent px-2 text-sm">

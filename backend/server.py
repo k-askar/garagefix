@@ -1035,9 +1035,6 @@ async def root():
 
 # --- Users / Staff (owner only) ---
 @api_router.get("/permissions/catalog")
-async def permissions_catalog(user: dict = Depends(get_current_user)):
-    """Return the grouped permission catalog for the Staff editor UI."""
-    return {"sections": PERMISSION_CATALOG}
 
 
 @api_router.get("/users")
