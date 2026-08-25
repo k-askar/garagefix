@@ -17,7 +17,7 @@ from fastapi.security import HTTPBearer
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
-import httpx, secrets, re, ipaddress
+import asyncio, httpx, secrets, re, ipaddress
 from html import escape
 from html.parser import HTMLParser
 from urllib.parse import urlparse
@@ -4041,17 +4041,32 @@ async def rdw_lookup(plate: str, user: dict = Depends(get_current_user)):
     cleaned = re.sub(r"[^A-Z0-9]", "", (plate or "").upper())
     if len(cleaned) < 4:
         raise HTTPException(status_code=400, detail="Plate too short")
-    url = f"https://opendata.rdw.nl/resource/m9d7-ebf2.json?kenteken={cleaned}"
+    main_url = f"https://opendata.rdw.nl/resource/m9d7-ebf2.json?kenteken={cleaned}"
+    fuel_url = f"https://opendata.rdw.nl/resource/8ys7-d773.json?kenteken={cleaned}"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(url, headers={"Accept": "application/json"})
-            r.raise_for_status()
-            rows = r.json()
+            main_resp, fuel_resp = await asyncio.gather(
+                client.get(main_url, headers={"Accept": "application/json"}),
+                client.get(fuel_url, headers={"Accept": "application/json"}),
+                return_exceptions=True,
+            )
+            if isinstance(main_resp, Exception):
+                raise main_resp
+            main_resp.raise_for_status()
+            rows = main_resp.json()
+            fuel_rows = []
+            if not isinstance(fuel_resp, Exception):
+                try:
+                    fuel_resp.raise_for_status()
+                    fuel_rows = fuel_resp.json() or []
+                except Exception:
+                    fuel_rows = []
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"RDW unreachable: {e}")
     if not rows:
         raise HTTPException(status_code=404, detail=f"Plate {cleaned} not found in RDW")
     row = rows[0]
+    fuel_row = fuel_rows[0] if fuel_rows else {}
     # Format the plate back with the classical Dutch dashes (e.g. KK-555-D)
     def _format_plate(k: str) -> str:
         k = k.upper()
@@ -4080,7 +4095,12 @@ async def rdw_lookup(plate: str, user: dict = Depends(get_current_user)):
         "country":     "NL",
         "apk_expiry":  apk,
         "vehicle_type": row.get("voertuigsoort") or "",
-        "fuel":        row.get("brandstof_omschrijving") or "",
+        "fuel":        (fuel_row.get("brandstof_omschrijving") or row.get("brandstof_omschrijving") or "").title(),
+        "cc":          row.get("cilinderinhoud") or "",
+        "doors":       row.get("aantal_deuren") or "",
+        "seats":       row.get("aantal_zitplaatsen") or "",
+        "chassis_location": row.get("plaats_chassisnummer") or "",
+        "weight":      row.get("massa_ledig_voertuig") or "",
     }
 
 

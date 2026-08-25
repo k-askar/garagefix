@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Trash2, Printer, FileDown, FileText, Eye, Pencil } from "lucide-react";
+import { Plus, Trash2, Printer, FileDown, FileText, Eye, Pencil, Search, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useLang } from "@/i18n";
 import { downloadListReportPdf, printListReport, downloadCustomerHistoryPdf, printCustomerHistory } from "@/lib/reports";
@@ -37,6 +37,32 @@ export default function PartyPage({ kind }) {
   const [showAddVeh, setShowAddVeh] = useState(false);
   const [passportVehicle, setPassportVehicle] = useState(null);
   const [csvOpen, setCsvOpen] = useState(false);
+  const [rdwBusy, setRdwBusy] = useState("");   // "new-cust" | "add-veh" | ""
+
+  /* Query RDW open data and merge the result into a form-state setter.
+     Never overwrites existing values with blanks. */
+  const rdwLookupInto = async (plate, country, applyPatch, key) => {
+    if (country !== "NL") return toast.error("RDW = NL only");
+    const cleaned = (plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!cleaned || cleaned.length < 4) return toast.error(t("rdwEnterPlate"));
+    setRdwBusy(key);
+    try {
+      const { data } = await api.get(`/rdw/lookup?plate=${encodeURIComponent(cleaned)}`);
+      const patch = {};
+      ["make", "model", "year", "color", "country", "apk_expiry"].forEach(k => { if (data[k]) patch[k] = data[k]; });
+      patch.plate = data.plate;
+      const extras = [];
+      if (data.fuel) extras.push(data.fuel);
+      if (data.cc) extras.push(`${data.cc}cc`);
+      if (data.doors) extras.push(`${data.doors}-drs`);
+      if (data.chassis_location) extras.push(`VIN @ ${data.chassis_location}`);
+      if (extras.length) patch.notes = extras.join(" · ");
+      applyPatch(patch);
+      toast.success(`${data.make} ${data.model} ${data.year}`.trim() + " · RDW ✓");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "RDW lookup failed");
+    } finally { setRdwBusy(""); }
+  };
 
   const { data: loyalty } = useQuery({
     queryKey: ["customer-loyalty", historyId],
@@ -215,36 +241,50 @@ export default function PartyPage({ kind }) {
               {!isSup && !editId && (
                 <div className="space-y-2 p-3 rounded-md border border-border bg-muted/20">
                   <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("vehicle")} · {t("optional")}</div>
+
+                  {/* RDW hero — plate + country + big search first */}
+                  <div className="rounded-md border border-orange-500/40 bg-orange-500/5 p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Search className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-orange-700 dark:text-orange-400">{t("rdwLookup")}</div>
+                    </div>
+                    <div className="grid grid-cols-12 gap-2 items-end">
+                      <div className="col-span-4 space-y-1">
+                        <Label className="text-[10px]">{t("country")}</Label>
+                        <select value={vehForm2.country} onChange={(e) => setVehForm2({ ...vehForm2, country: e.target.value })} className="w-full h-10 rounded-md border border-input bg-background px-2 text-sm" data-testid="new-cust-veh-country">
+                          <option value="NL">NL</option><option value="DE">DE</option><option value="BE">BE</option><option value="FR">FR</option>
+                          <option value="IT">IT</option><option value="ES">ES</option><option value="PL">PL</option><option value="TR">TR</option>
+                          <option value="MA">MA</option><option value="SY">SY</option><option value="LB">LB</option><option value="JO">JO</option>
+                          <option value="IQ">IQ</option><option value="EG">EG</option><option value="SA">SA</option><option value="AE">AE</option>
+                          <option value="GB">GB</option><option value="OTHER">Other</option>
+                        </select>
+                      </div>
+                      <div className="col-span-5 space-y-1">
+                        <Label className="text-[10px]">{t("plateNumber")}</Label>
+                        <Input value={vehForm2.plate} onChange={(e) => setVehForm2({ ...vehForm2, plate: e.target.value.toUpperCase() })}
+                          onKeyDown={(e) => { if (e.key === "Enter" && vehForm2.country === "NL") { e.preventDefault(); rdwLookupInto(vehForm2.plate, vehForm2.country, (p) => setVehForm2(f => ({ ...f, ...p })), "new-cust"); } }}
+                          placeholder="12-ABC-3" className="h-10 font-mono tracking-wider" data-testid="new-cust-veh-plate" />
+                      </div>
+                      <div className="col-span-3">
+                        <Button type="button" className="w-full h-10 rounded-md bg-orange-500 hover:bg-orange-600 text-white shadow-sm disabled:opacity-60"
+                          onClick={() => rdwLookupInto(vehForm2.plate, vehForm2.country, (p) => setVehForm2(f => ({ ...f, ...p })), "new-cust")}
+                          disabled={rdwBusy === "new-cust" || vehForm2.country !== "NL" || !vehForm2.plate}
+                          title={vehForm2.country !== "NL" ? "RDW = NL only" : t("rdwLookup")}
+                          data-testid="new-cust-veh-rdw"
+                        >
+                          {rdwBusy === "new-cust" ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Search className="h-4 w-4 mr-1" />}
+                          RDW
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
                   <VehicleMakeModelYear
                     value={{ make: vehForm2.make, model: vehForm2.model, year: vehForm2.year }}
                     onChange={(mmy) => setVehForm2({ ...vehForm2, ...mmy })}
                     testIdPrefix="new-cust-veh"
                   />
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1.5"><Label className="text-xs">{t("plateNumber")}</Label><Input value={vehForm2.plate} onChange={(e) => setVehForm2({ ...vehForm2, plate: e.target.value })} placeholder="NL-XX-00" data-testid="new-cust-veh-plate" /></div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">{t("country")}</Label>
-                      <select value={vehForm2.country} onChange={(e) => setVehForm2({ ...vehForm2, country: e.target.value })} className="w-full h-10 rounded-md border border-input bg-transparent px-3 text-sm" data-testid="new-cust-veh-country">
-                        <option value="NL">🇳🇱 Netherlands</option>
-                        <option value="DE">🇩🇪 Germany</option>
-                        <option value="FR">🇫🇷 France</option>
-                        <option value="BE">🇧🇪 Belgium</option>
-                        <option value="IT">🇮🇹 Italy</option>
-                        <option value="ES">🇪🇸 Spain</option>
-                        <option value="PL">🇵🇱 Poland</option>
-                        <option value="TR">🇹🇷 Turkey</option>
-                        <option value="MA">🇲🇦 Morocco</option>
-                        <option value="SY">🇸🇾 Syria</option>
-                        <option value="LB">🇱🇧 Lebanon</option>
-                        <option value="JO">🇯🇴 Jordan</option>
-                        <option value="IQ">🇮🇶 Iraq</option>
-                        <option value="EG">🇪🇬 Egypt</option>
-                        <option value="SA">🇸🇦 Saudi Arabia</option>
-                        <option value="AE">🇦🇪 UAE</option>
-                        <option value="GB">🇬🇧 UK</option>
-                        <option value="OTHER">Other</option>
-                      </select>
-                    </div>
                     <div className="space-y-1.5"><Label className="text-xs">{t("color")}</Label><Input value={vehForm2.color} onChange={(e) => setVehForm2({ ...vehForm2, color: e.target.value })} /></div>
                     <div className="space-y-1.5"><Label className="text-xs">{t("odometer")}</Label><Input value={vehForm2.km} onChange={(e) => setVehForm2({ ...vehForm2, km: e.target.value })} placeholder="km" /></div>
                     <div className="space-y-1.5"><Label className="text-xs">{t("apkExpiry")}</Label><Input type="date" value={vehForm2.apk_expiry} onChange={(e) => setVehForm2({ ...vehForm2, apk_expiry: e.target.value })} data-testid="new-cust-veh-apk" /></div>
@@ -420,39 +460,53 @@ export default function PartyPage({ kind }) {
 
                   {showAddVeh && (
                     <form onSubmit={addVehicle} className="p-4 border-b border-border bg-muted/20 space-y-3" data-testid="add-vehicle-form">
+                      {/* RDW hero */}
+                      <div className="rounded-md border border-orange-500/40 bg-orange-500/5 p-3 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Search className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-orange-700 dark:text-orange-400">{t("rdwLookup")}</div>
+                        </div>
+                        <div className="grid grid-cols-12 gap-2 items-end">
+                          <div className="col-span-4 space-y-1">
+                            <Label className="text-[10px]">{t("country")}</Label>
+                            <select value={vehForm.country} onChange={(e) => setVehForm({ ...vehForm, country: e.target.value })} className="w-full h-10 rounded-md border border-input bg-background px-2 text-sm" data-testid="veh-country">
+                              <option value="NL">NL</option><option value="DE">DE</option><option value="BE">BE</option><option value="FR">FR</option>
+                              <option value="IT">IT</option><option value="ES">ES</option><option value="PL">PL</option><option value="TR">TR</option>
+                              <option value="MA">MA</option><option value="SY">SY</option><option value="LB">LB</option><option value="JO">JO</option>
+                              <option value="IQ">IQ</option><option value="EG">EG</option><option value="SA">SA</option><option value="AE">AE</option>
+                              <option value="GB">GB</option><option value="OTHER">Other</option>
+                            </select>
+                          </div>
+                          <div className="col-span-5 space-y-1">
+                            <Label className="text-[10px]">{t("plateNumber")}</Label>
+                            <Input value={vehForm.plate} onChange={(e) => setVehForm({ ...vehForm, plate: e.target.value.toUpperCase() })}
+                              onKeyDown={(e) => { if (e.key === "Enter" && vehForm.country === "NL") { e.preventDefault(); rdwLookupInto(vehForm.plate, vehForm.country, (p) => setVehForm(f => ({ ...f, ...p })), "add-veh"); } }}
+                              placeholder="12-ABC-3" className="h-10 font-mono tracking-wider" data-testid="veh-plate" />
+                          </div>
+                          <div className="col-span-3">
+                            <Button type="button" className="w-full h-10 rounded-md bg-orange-500 hover:bg-orange-600 text-white shadow-sm disabled:opacity-60"
+                              onClick={() => rdwLookupInto(vehForm.plate, vehForm.country, (p) => setVehForm(f => ({ ...f, ...p })), "add-veh")}
+                              disabled={rdwBusy === "add-veh" || vehForm.country !== "NL" || !vehForm.plate}
+                              data-testid="veh-rdw">
+                              {rdwBusy === "add-veh" ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Search className="h-4 w-4 mr-1" />}
+                              RDW
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+
                       <VehicleMakeModelYear
                         value={{ make: vehForm.make, model: vehForm.model, year: vehForm.year }}
                         onChange={(mmy) => setVehForm({ ...vehForm, ...mmy })}
                         testIdPrefix="veh"
                       />
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                        <Input value={vehForm.plate} onChange={(e) => setVehForm({ ...vehForm, plate: e.target.value })} placeholder={t("plateNumber")} data-testid="veh-plate" />
-                        <select value={vehForm.country} onChange={(e) => setVehForm({ ...vehForm, country: e.target.value })} className="h-10 rounded-md border border-input bg-transparent px-3 text-sm" data-testid="veh-country">
-                          <option value="NL">🇳🇱 NL</option>
-                          <option value="DE">🇩🇪 DE</option>
-                          <option value="FR">🇫🇷 FR</option>
-                          <option value="BE">🇧🇪 BE</option>
-                          <option value="IT">🇮🇹 IT</option>
-                          <option value="ES">🇪🇸 ES</option>
-                          <option value="PL">🇵🇱 PL</option>
-                          <option value="TR">🇹🇷 TR</option>
-                          <option value="MA">🇲🇦 MA</option>
-                          <option value="SY">🇸🇾 SY</option>
-                          <option value="LB">🇱🇧 LB</option>
-                          <option value="JO">🇯🇴 JO</option>
-                          <option value="IQ">🇮🇶 IQ</option>
-                          <option value="EG">🇪🇬 EG</option>
-                          <option value="SA">🇸🇦 SA</option>
-                          <option value="AE">🇦🇪 AE</option>
-                          <option value="GB">🇬🇧 GB</option>
-                          <option value="OTHER">Other</option>
-                        </select>
                         <Input value={vehForm.color} onChange={(e) => setVehForm({ ...vehForm, color: e.target.value })} placeholder={t("color")} />
                         <Input value={vehForm.km} onChange={(e) => setVehForm({ ...vehForm, km: e.target.value })} placeholder={t("odometer")} />
                         <Input type="date" value={vehForm.apk_expiry} onChange={(e) => setVehForm({ ...vehForm, apk_expiry: e.target.value })} placeholder={t("apkExpiry")} title={t("apkExpiry")} data-testid="veh-apk" />
                         <Input type="number" value={vehForm.next_oil_change_km} onChange={(e) => setVehForm({ ...vehForm, next_oil_change_km: e.target.value })} placeholder={t("nextOilChangeKm")} title={t("nextOilChangeKm")} data-testid="veh-oil" />
-                        <Input value={vehForm.vin} onChange={(e) => setVehForm({ ...vehForm, vin: e.target.value })} placeholder={t("vin")} />
-                        <Input value={vehForm.notes} onChange={(e) => setVehForm({ ...vehForm, notes: e.target.value })} placeholder={t("note")} />
+                        <Input value={vehForm.vin} onChange={(e) => setVehForm({ ...vehForm, vin: e.target.value })} placeholder={`${t("vin")} — يُدخل يدوياً`} className="md:col-span-2" data-testid="veh-vin" />
+                        <Input value={vehForm.notes} onChange={(e) => setVehForm({ ...vehForm, notes: e.target.value })} placeholder={t("note")} className="md:col-span-2" />
                       </div>
                       <div className="flex justify-end gap-2">
                         <Button type="button" variant="ghost" size="sm" onClick={() => setShowAddVeh(false)}>{t("cancel")}</Button>

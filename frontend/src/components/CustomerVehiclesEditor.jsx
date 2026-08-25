@@ -31,6 +31,14 @@ async function lookupRdwInto(plate, applyPatch, t) {
       if (data[k]) patch[k] = data[k];
     });
     patch.plate = data.plate;
+    // Append fuel + engine + chassis-location hint into notes so nothing is lost
+    const extras = [];
+    if (data.fuel) extras.push(data.fuel);
+    if (data.cc) extras.push(`${data.cc}cc`);
+    if (data.doors) extras.push(`${data.doors}-drs`);
+    if (data.seats) extras.push(`${data.seats} zitpl.`);
+    if (data.chassis_location) extras.push(`VIN @ ${data.chassis_location}`);
+    if (extras.length) patch.notes = extras.join(" · ");
     applyPatch(patch);
     toast.success(`${data.make} ${data.model} ${data.year}`.trim() + " · RDW ✓");
     return true;
@@ -213,7 +221,10 @@ export default function CustomerVehiclesEditor({ customerId }) {
             <div className="space-y-1"><Label className="text-[10px]">{t("color")}</Label><Input value={newForm.color} onChange={(e) => setNewForm({ ...newForm, color: e.target.value })} data-testid="cust-veh-new-color" /></div>
             <div className="space-y-1"><Label className="text-[10px]">{t("odometer")}</Label><Input value={newForm.km} onChange={(e) => setNewForm({ ...newForm, km: e.target.value })} data-testid="cust-veh-new-km" /></div>
             <div className="space-y-1"><Label className="text-[10px]">{t("apkExpiry")}</Label><Input type="date" value={newForm.apk_expiry || ""} onChange={(e) => setNewForm({ ...newForm, apk_expiry: e.target.value })} data-testid="cust-veh-new-apk" /></div>
-            <div className="space-y-1 md:col-span-2"><Label className="text-[10px]">VIN</Label><Input value={newForm.vin || ""} onChange={(e) => setNewForm({ ...newForm, vin: e.target.value })} data-testid="cust-veh-new-vin" /></div>
+            <div className="space-y-1 md:col-span-2">
+              <Label className="text-[10px] flex items-center gap-1">VIN <span className="text-[9px] text-muted-foreground">(RDW لا يوفّره — يُدخل يدوياً)</span></Label>
+              <Input value={newForm.vin || ""} onChange={(e) => setNewForm({ ...newForm, vin: e.target.value })} placeholder="17 حرف/رقم" data-testid="cust-veh-new-vin" />
+            </div>
             <div className="space-y-1"><Label className="text-[10px]">{t("nextOilChangeKm")}</Label><Input type="number" value={newForm.next_oil_change_km} onChange={(e) => setNewForm({ ...newForm, next_oil_change_km: e.target.value })} data-testid="cust-veh-new-oil" /></div>
           </div>
           <div className="flex justify-end">
