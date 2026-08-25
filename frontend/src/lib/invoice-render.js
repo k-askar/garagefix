@@ -123,7 +123,7 @@ async function sepaQrDataUrl(inv, settings) {
     });
     return await QRCode.toDataURL(payload, {
       margin: 1,
-      width: 180,
+      width: 260,
       errorCorrectionLevel: "M",
       color: { dark: "#000000", light: "#ffffff" },
     });
@@ -193,32 +193,59 @@ export async function renderInvoiceHtml(inv, settings) {
     showQr ? sepaQrDataUrl(inv, s) : Promise.resolve(""),
   ]);
 
-  const rows = (inv.lines || []).map((l) => `
-    <tr>
-      <td>${esc(l.name)}<div style="font-size:10px;color:#888">${esc(l.sku || "")}</div></td>
+  const rows = (inv.lines || []).map((l, idx) => `
+    <tr${idx % 2 ? ' style="background:#fafafa"' : ''}>
+      <td style="padding-left:14px">
+        <div style="font-weight:600;color:#111">${esc(l.name)}</div>
+        ${l.sku ? `<div style="font-size:10px;color:#999;font-family:monospace;margin-top:2px">${esc(l.sku)}</div>` : ""}
+      </td>
       <td class="right">${l.quantity}</td>
       <td class="right">${fmtMoney(l.unit_price, s)}</td>
-      <td class="right">${fmtMoney(l.total, s)}</td>
+      <td class="right" style="font-weight:600;padding-right:14px">${fmtMoney(l.total, s)}</td>
     </tr>`).join("");
 
   const paidBadge = inv.status === "paid" ? "paid" : "";
   const paidLabel = inv.status === "paid" ? "PAID" : "INVOICE";
 
-  const bankBlock = (s.iban || s.bank_name || s.bic) ? `
-    <div style="margin-top:14px;padding:10px 12px;border:1px solid #eee;border-radius:6px;background:${tpl.bankBlockBg};
-                display:flex;justify-content:space-between;gap:16px;align-items:center;">
-      <div style="font-size:11px;color:#333;line-height:1.5">
-        <div style="font-size:9px;color:#888;letter-spacing:.1em;text-transform:uppercase">Payment details</div>
+  /* Prominent payment block — SEPA/iDEAL QR left, bank details right.
+     Shown whenever the QR toggle is on so the customer always sees how to pay.
+     Falls back to a clear notice when the owner hasn't configured an IBAN yet. */
+  const bankBlock = showQr ? (
+    qrData ? `
+    <div style="margin-top:22px;border:2px solid ${accent};border-radius:10px;overflow:hidden;
+                -webkit-print-color-adjust:exact;print-color-adjust:exact;">
+      <div style="background:${accent};color:#fff;padding:8px 14px;font-size:11px;
+                  letter-spacing:.14em;text-transform:uppercase;font-weight:700;
+                  -webkit-print-color-adjust:exact;print-color-adjust:exact;">
+        Betaal met iDEAL / SEPA · Scan &amp; pay
+      </div>
+      <div style="display:flex;gap:18px;padding:16px;background:#fff;align-items:center">
+        <div style="flex-shrink:0;text-align:center">
+          <img src="${qrData}" alt="SEPA payment QR" style="width:130px;height:130px;display:block;border:1px solid #eee;padding:4px;background:#fff"/>
+          <div style="font-size:8px;color:#888;letter-spacing:.14em;margin-top:4px;text-transform:uppercase">Scan met bank-app</div>
+        </div>
+        <div style="flex:1;font-size:12px;color:#222;line-height:1.7">
+          ${s.bank_name ? `<div><span style="color:#888;font-size:10px;letter-spacing:.1em;text-transform:uppercase">Bank</span><br/><strong>${esc(s.bank_name)}</strong></div>` : ""}
+          <div style="margin-top:6px"><span style="color:#888;font-size:10px;letter-spacing:.1em;text-transform:uppercase">IBAN</span><br/>
+            <span style="font-family:monospace;font-size:13px;letter-spacing:.05em">${esc(String(s.iban).replace(/\s+/g,"").match(/.{1,4}/g)?.join(" ") || s.iban)}</span></div>
+          ${s.bic ? `<div style="margin-top:6px"><span style="color:#888;font-size:10px;letter-spacing:.1em;text-transform:uppercase">BIC</span><br/><span style="font-family:monospace">${esc(s.bic)}</span></div>` : ""}
+          <div style="margin-top:6px"><span style="color:#888;font-size:10px;letter-spacing:.1em;text-transform:uppercase">Reference</span><br/>
+            <strong style="font-family:monospace">${esc(inv.invoice_number)}</strong></div>
+          <div style="margin-top:6px"><span style="color:#888;font-size:10px;letter-spacing:.1em;text-transform:uppercase">Amount</span><br/>
+            <strong style="font-size:15px;color:${accent}">${fmtMoney(inv.total, s)}</strong></div>
+        </div>
+      </div>
+    </div>` : (s.iban || s.bank_name || s.bic) ? `
+    <div style="margin-top:22px;padding:14px 16px;border:1px solid #eee;border-radius:8px;background:#fbfbfb">
+      <div style="font-size:10px;color:#888;letter-spacing:.14em;text-transform:uppercase;font-weight:700;margin-bottom:6px">Payment details</div>
+      <div style="font-size:12px;line-height:1.7">
         ${s.bank_name ? `<div><strong>${esc(s.bank_name)}</strong></div>` : ""}
         ${s.iban ? `<div style="font-family:monospace">IBAN&nbsp;${esc(s.iban)}</div>` : ""}
         ${s.bic ? `<div style="font-family:monospace">BIC&nbsp;${esc(s.bic)}</div>` : ""}
         <div style="color:#666;margin-top:2px">Reference: <strong>${esc(inv.invoice_number)}</strong></div>
       </div>
-      ${qrData ? `<div style="text-align:center;flex-shrink:0">
-        <img src="${qrData}" alt="SEPA QR" style="width:96px;height:96px;display:block"/>
-        <div style="font-size:8px;color:#888;letter-spacing:.1em;margin-top:2px;text-transform:uppercase">Scan to pay</div>
-      </div>` : ""}
-    </div>` : "";
+    </div>` : ""
+  ) : "";
 
   const headerRight = `
     <div style="text-align:right">
@@ -255,35 +282,47 @@ export async function renderInvoiceHtml(inv, settings) {
       .doc-header{${tpl.headerCss}}
       .doc-h1{${tpl.h1Css}}
       .muted{color:#666;font-size:12px}
-      table{width:100%;border-collapse:collapse;margin-top:16px}
-      th,td{padding:8px;border-bottom:1px solid #eee;text-align:left;font-size:13px;vertical-align:top}
-      th{background:${tpl.thBg};color:${tpl.thColor}}
+      table.items{width:100%;border-collapse:separate;border-spacing:0;margin-top:18px;
+                  border:1px solid #eaeaea;border-radius:8px;overflow:hidden}
+      table.items th,table.items td{padding:10px 8px;text-align:left;font-size:13px;vertical-align:top;border-bottom:1px solid #eee}
+      table.items tbody tr:last-child td{border-bottom:none}
+      table.items th{background:${tpl.thBg};color:${tpl.thColor};font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:700}
       .right{text-align:right}
-      .badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:10px;letter-spacing:.1em;${tpl.badgeCss};
+      .badge{display:inline-block;padding:3px 12px;border-radius:999px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;${tpl.badgeCss};
              -webkit-print-color-adjust:exact;print-color-adjust:exact}
       .badge.paid{background:#22c55e;color:#fff}
-      .totrow{font-size:15px;font-weight:700}
+      .totrow{font-size:18px;font-weight:800;color:${accent}}
+      .totbox{display:inline-block;text-align:right;padding:12px 16px;background:#fafafa;border-radius:8px;border:1px solid #eee;min-width:220px}
       hr.accent{${tpl.accentRule}}
-      .terms{margin-top:16px;font-size:10px;color:#666;white-space:pre-line;border-top:1px solid #eee;padding-top:8px}
+      .terms{margin-top:18px;font-size:10px;color:#666;white-space:pre-line;border-top:1px solid #eee;padding-top:10px}
+      .customer-block{margin-top:14px;padding:10px 14px;background:#fafafa;border-left:3px solid ${accent};border-radius:4px}
       @media print{*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}}
     </style></head><body>
     ${headerBlock}
     <hr class="accent"/>
     ${wrapOpen}
-    <div class="muted" style="text-transform:uppercase;letter-spacing:.1em;font-size:10px">Bill to</div>
-    <div style="font-size:15px;font-weight:600;margin-top:4px">${esc(inv.customer_name || "Walk-in customer")}</div>
-    <table><thead><tr>
-      <th>Item</th><th class="right">Qty</th><th class="right">Unit price</th><th class="right">Total</th>
+    <div class="customer-block">
+      <div class="muted" style="text-transform:uppercase;letter-spacing:.14em;font-size:9px;font-weight:700">Bill to</div>
+      <div style="font-size:16px;font-weight:700;margin-top:3px;color:#111">${esc(inv.customer_name || "Walk-in customer")}</div>
+    </div>
+    <table class="items"><thead><tr>
+      <th style="padding-left:14px">Item</th><th class="right">Qty</th><th class="right">Unit</th><th class="right" style="padding-right:14px">Total</th>
     </tr></thead>
     <tbody>${rows}</tbody></table>
-    <div style="margin-top:16px;text-align:right">
-      <div class="muted">Subtotal: ${fmtMoney(inv.subtotal, s)}</div>
-      ${inv.tax ? `<div class="muted">BTW: ${fmtMoney(inv.tax, s)}</div>` : ""}
-      <div class="totrow" style="margin-top:4px"><span style="${tpl.totalHighlight}">Total: ${fmtMoney(inv.total, s)}</span></div>
+    <div style="margin-top:18px;text-align:right">
+      <div class="totbox">
+        <div class="muted" style="display:flex;justify-content:space-between;gap:20px">
+          <span>Subtotal</span><span style="font-family:monospace">${fmtMoney(inv.subtotal, s)}</span></div>
+        ${inv.tax ? `<div class="muted" style="display:flex;justify-content:space-between;gap:20px;margin-top:2px">
+          <span>BTW${inv.tax_rate ? " " + inv.tax_rate + "%" : ""}</span><span style="font-family:monospace">${fmtMoney(inv.tax, s)}</span></div>` : ""}
+        <div style="border-top:1px solid #ddd;margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;gap:20px;align-items:baseline">
+          <span style="font-size:11px;color:#888;letter-spacing:.1em;text-transform:uppercase;font-weight:700">Total</span>
+          <span class="totrow" style="font-family:monospace">${fmtMoney(inv.total, s)}</span></div>
+      </div>
     </div>
     ${inv.note ? `<p class="muted" style="margin-top:20px">${noteWithPlate(inv.note, showPlate)}</p>` : ""}
     ${bankBlock}
-    <p class="muted" style="margin-top:8px">Payment due within ${s.payment_terms_days || 14} days${inv.due_date ? ` (by ${esc(inv.due_date)})` : ""}.</p>
+    <p class="muted" style="margin-top:14px">Payment due within ${s.payment_terms_days || 14} days${inv.due_date ? ` (by ${esc(inv.due_date)})` : ""}.</p>
     ${s.invoice_terms ? `<div class="terms">${esc(s.invoice_terms)}</div>` : ""}
     <p class="muted" style="margin-top:24px;text-align:center">${esc(s.footer_note || "Thank you!")}</p>
     ${wrapClose}
