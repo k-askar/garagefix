@@ -62,6 +62,10 @@ export default function DeliveryScan() {
   const [ocrBusy, setOcrBusy] = useState(false);
   const [ocrPreview, setOcrPreview] = useState(null);
   const [ocrResult, setOcrResult] = useState(null);
+  // Multi-line pakbon → user picks which OCR-detected parts to import.
+  // Every part starts checked so "Add N to card" is one click.
+  const [ocrRowChecked, setOcrRowChecked] = useState({});
+  const [bulkBusy, setBulkBusy] = useState(false);
   // Live A4 camera modal state
   const [a4CamOpen, setA4CamOpen] = useState(false);
   const [a4CamErr, setA4CamErr] = useState("");
@@ -176,7 +180,7 @@ export default function DeliveryScan() {
       toast.error(t("ocrUnsupportedFormat"));
       return;
     }
-    setOcrBusy(true); setOcrResult(null); setDetected(null); setTargetCard(null);
+    setOcrBusy(true); setOcrResult(null); setDetected(null); setTargetCard(null); setOcrRowChecked({});
     try {
       const { base64, previewUrl } = await shrinkImage(file, 1600, 0.82);
       setOcrPreview(previewUrl);
@@ -185,7 +189,14 @@ export default function DeliveryScan() {
         mime: "image/jpeg",
       });
       setOcrResult(data);
+      // Pre-check every detected row so the default "Add N" button is one-click.
+      const partsList = Array.isArray(data.parts) && data.parts.length ? data.parts : [];
+      const initial = {};
+      partsList.forEach((_, i) => { initial[i] = true; });
+      setOcrRowChecked(initial);
 
+      // Populate the manual single-part form with the FIRST detected line —
+      // still useful for the classic "one part" flow / manual correction.
       setForm(f => ({
         ...f,
         name: data.part_name || f.name,
@@ -239,9 +250,53 @@ export default function DeliveryScan() {
       qc.invalidateQueries();
       setForm({ name: "", part_number: "", quantity: 1, unit_price: "", unit_cost: "", tax_exempt: false, supplier_id: "" });
       setTargetCard(null); setDetected(null); setManual("");
-      setOcrPreview(null); setOcrResult(null);
+      setOcrPreview(null); setOcrResult(null); setOcrRowChecked({});
     } catch (e) { toast.error(formatApiError(e)); }
     finally { setBusy(false); }
+  };
+
+  /** Bulk-add EVERY checked pakbon line to the currently selected card.  The
+   *  backend accepts one special-part per call so we loop; toast a single
+   *  "N parts added" summary at the end. */
+  const bulkAddParts = async () => {
+    if (!targetCard) return toast.error(t("pickCardFirst"));
+    const parts = ocrResult?.parts || [];
+    const checkedIdxs = parts
+      .map((_, i) => i)
+      .filter((i) => ocrRowChecked[i] && (parts[i].part_name || parts[i].part_number));
+    if (checkedIdxs.length === 0) return toast.error(t("noPartsSelected"));
+    setBulkBusy(true);
+    let ok = 0; let fail = 0; let lastCard = null;
+    for (const i of checkedIdxs) {
+      const p = parts[i];
+      try {
+        const { data: updated } = await api.post(`/repairs/${targetCard.id}/special-parts`, {
+          name: (p.part_name || p.part_number || "Part").trim(),
+          quantity: Number(p.quantity) || 1,
+          unit_price: Number(p.unit_price) || 0,
+          unit_cost: Number(p.unit_cost) || 0,
+          tax_exempt: !!form.tax_exempt,
+          supplier_id: form.supplier_id || null,
+          part_number: p.part_number || "",
+          status: "arrived",
+        });
+        lastCard = updated;
+        ok += 1;
+      } catch (_e) { fail += 1; }
+    }
+    if (ok > 0) {
+      toast.success(t("bulkAdded", { count: ok, card: lastCard?.card_number || targetCard.card_number }));
+    }
+    if (fail > 0) {
+      toast.error(t("bulkAddFailed", { count: fail }));
+    }
+    qc.invalidateQueries();
+    if (ok > 0 && fail === 0) {
+      setForm({ name: "", part_number: "", quantity: 1, unit_price: "", unit_cost: "", tax_exempt: false, supplier_id: "" });
+      setTargetCard(null); setDetected(null); setManual("");
+      setOcrPreview(null); setOcrResult(null); setOcrRowChecked({});
+    }
+    setBulkBusy(false);
   };
 
   const candidates = detected?.matched ? detected.matches : (detected?.candidates || []);
@@ -306,18 +361,131 @@ export default function DeliveryScan() {
               data-testid="delivery-a4-preview"
             />
             {ocrResult && (
-              <div className="text-xs font-mono space-y-1 flex-1 min-w-[200px]" data-testid="delivery-a4-result">
+              <div className="text-xs font-mono space-y-1 flex-1 min-w-[240px]" data-testid="delivery-a4-result">
                 <div><span className="text-muted-foreground">{t("detectedPlate")}:</span> <strong>{ocrResult.plate || "—"}</strong></div>
-                <div><span className="text-muted-foreground">{t("partName")}:</span> <strong>{ocrResult.part_name || "—"}</strong></div>
-                <div><span className="text-muted-foreground">{t("partNumber")}:</span> <strong>{ocrResult.part_number || "—"}</strong></div>
-                <div><span className="text-muted-foreground">{t("costPerUnit")}:</span> <strong>€ {Number(ocrResult.unit_cost || 0).toFixed(2)}</strong></div>
-                <div><span className="text-muted-foreground">{t("sellPerUnit")}:</span> <strong>€ {Number(ocrResult.unit_price || 0).toFixed(2)}</strong></div>
-                <div><span className="text-muted-foreground">{t("qty")}:</span> <strong>{ocrResult.quantity}</strong></div>
                 {ocrResult.supplier_name && <div><span className="text-muted-foreground">{t("supplier")}:</span> <strong>{ocrResult.supplier_name}</strong></div>}
                 <div className="pt-1 text-[10px] text-muted-foreground">{t("ocrConfidence")}: {Math.round((ocrResult.confidence || 0) * 100)}%</div>
                 {ocrResult.notes && <div className="text-amber-600 dark:text-amber-400">⚠ {ocrResult.notes}</div>}
               </div>
             )}
+          </div>
+        )}
+        {ocrResult && Array.isArray(ocrResult.parts) && ocrResult.parts.length > 0 && (
+          <div className="pt-3" data-testid="ocr-parts-list">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
+                {t("ocrPartsDetected", { count: ocrResult.parts.length })}
+              </div>
+              <div className="flex items-center gap-2 text-[11px] font-mono">
+                <button
+                  type="button"
+                  className="text-primary hover:underline"
+                  onClick={() => {
+                    const all = {};
+                    ocrResult.parts.forEach((_, i) => { all[i] = true; });
+                    setOcrRowChecked(all);
+                  }}
+                  data-testid="ocr-check-all"
+                >{t("selectAll")}</button>
+                <span className="text-muted-foreground">·</span>
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:underline"
+                  onClick={() => setOcrRowChecked({})}
+                  data-testid="ocr-uncheck-all"
+                >{t("selectNone")}</button>
+              </div>
+            </div>
+            <div className="rounded-md border border-border overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/40 text-muted-foreground uppercase text-[10px]">
+                  <tr>
+                    <th className="px-2 py-2 w-8"></th>
+                    <th className="px-2 py-2 text-left">{t("partName")}</th>
+                    <th className="px-2 py-2 text-left">{t("partNumber")}</th>
+                    <th className="px-2 py-2 text-right">{t("qty")}</th>
+                    <th className="px-2 py-2 text-right">{t("costPerUnit")}</th>
+                    <th className="px-2 py-2 text-right">{t("sellPerUnit")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ocrResult.parts.map((p, i) => (
+                    <tr key={i} className="border-t border-border" data-testid={`ocr-part-row-${i}`}>
+                      <td className="px-2 py-1.5 text-center">
+                        <input
+                          type="checkbox"
+                          className="accent-primary"
+                          checked={!!ocrRowChecked[i]}
+                          onChange={(e) => setOcrRowChecked((r) => ({ ...r, [i]: e.target.checked }))}
+                          data-testid={`ocr-check-${i}`}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <Input
+                          className="h-7 text-xs"
+                          value={p.part_name}
+                          onChange={(e) => setOcrResult((r) => ({
+                            ...r,
+                            parts: r.parts.map((row, idx) => idx === i ? { ...row, part_name: e.target.value } : row),
+                          }))}
+                          data-testid={`ocr-name-${i}`}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <Input
+                          className="h-7 text-xs font-mono"
+                          value={p.part_number}
+                          onChange={(e) => setOcrResult((r) => ({
+                            ...r,
+                            parts: r.parts.map((row, idx) => idx === i ? { ...row, part_number: e.target.value } : row),
+                          }))}
+                          data-testid={`ocr-pn-${i}`}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5 w-20">
+                        <Input
+                          type="number" min="1"
+                          className="h-7 text-xs text-right"
+                          value={p.quantity}
+                          onChange={(e) => setOcrResult((r) => ({
+                            ...r,
+                            parts: r.parts.map((row, idx) => idx === i ? { ...row, quantity: Number(e.target.value) || 1 } : row),
+                          }))}
+                          data-testid={`ocr-qty-${i}`}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5 w-24">
+                        <Input
+                          type="number" step="0.01"
+                          className="h-7 text-xs text-right font-mono"
+                          value={p.unit_cost}
+                          onChange={(e) => setOcrResult((r) => ({
+                            ...r,
+                            parts: r.parts.map((row, idx) => idx === i ? { ...row, unit_cost: Number(e.target.value) || 0 } : row),
+                          }))}
+                          data-testid={`ocr-cost-${i}`}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5 w-24">
+                        <Input
+                          type="number" step="0.01"
+                          className="h-7 text-xs text-right font-mono"
+                          value={p.unit_price}
+                          onChange={(e) => setOcrResult((r) => ({
+                            ...r,
+                            parts: r.parts.map((row, idx) => idx === i ? { ...row, unit_price: Number(e.target.value) || 0 } : row),
+                          }))}
+                          data-testid={`ocr-price-${i}`}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-2">
+              {t("ocrPartsHint")}
+            </p>
           </div>
         )}
       </Card>
@@ -432,6 +600,19 @@ export default function DeliveryScan() {
           </div>
           <div className="flex justify-end gap-2 flex-wrap">
             <Button variant="ghost" onClick={() => setTargetCard(null)}>{t("back")}</Button>
+            {ocrResult && Array.isArray(ocrResult.parts) && ocrResult.parts.length > 1 && (
+              <Button
+                className="rounded-full bg-primary"
+                onClick={bulkAddParts}
+                disabled={bulkBusy}
+                data-testid="delivery-bulk-add"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                {bulkBusy
+                  ? t("adding")
+                  : t("bulkAddButton", { count: Object.values(ocrRowChecked).filter(Boolean).length })}
+              </Button>
+            )}
             <Button className="rounded-full bg-primary" onClick={addPart} disabled={busy} data-testid="delivery-add-run">
               <Plus className="h-4 w-4 mr-2" /> {busy ? t("adding") : t("addToCard")}
             </Button>

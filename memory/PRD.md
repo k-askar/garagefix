@@ -18,6 +18,14 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26e — Multi-line pakbon (delivery note) OCR
+- **`_OCR_SYSTEM` prompt rewritten** — Claude vision now returns `{plate, supplier_name, confidence, notes, parts:[{part_name, part_number, quantity, unit_cost, unit_price}, ...]}` with an explicit "EVERY ordered line" instruction. A single pakbon that lists 2/5/10 items is now captured in one scan instead of losing everything after the first row.
+- **`POST /special-parts/ocr-delivery-note`** — normalises the new `parts` array through `_one_part()`, drops empty rows, and mirrors the FIRST row up to the top-level keys (`part_name`, `part_number`, `quantity`, `unit_cost`, `unit_price`) so any legacy single-part caller keeps working.
+- **`DeliveryScan.jsx`** — after OCR, shows a fully editable table of every detected part with per-row checkbox (all on by default), inline name/PN/qty/cost/price editing, "Select all / Clear" shortcut, and a primary "Add N to card" bulk button that loops the checked rows into `POST /repairs/{id}/special-parts` and toasts a single "N parts added" summary at the end. The legacy single-part "Add to card" button still works for one-off corrections.
+- Verified: normaliser handles both multi-part (`parts:[...]` array) and legacy (flat) responses; backend restart clean; UI renders new table and "Add 3 to card" bulk button.
+
+
+
 ### Session 2026-02-26d — Per-tenant sender identity (garage brand + Reply-To)
 - **`_tenant_email_meta()`** helper — reads the garage settings (name, email, phone, address, KvK) and returns `{from_name, reply_to, footer_html}`. Falls back to platform defaults if a tenant hasn't filled in its profile.
 - **`send_email(...)`** now accepts optional `from_name` and `reply_to` — the latter maps to Resend's `contact_email` (Reply-To header). The customer's inbox shows "Karam Askar Autoservice" as the sender and clicking Reply sends the response straight to `info@k-askar.nl` even though the actual From address stays on the platform-managed domain (Resend limitation — sender email is domain-locked).

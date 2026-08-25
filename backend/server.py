@@ -4256,21 +4256,27 @@ async def scan_delivery(payload: dict, user: dict = Depends(get_current_user)):
 # =========================
 _OCR_SYSTEM = (
     "You extract structured data from a photograph of an automotive supplier's delivery note "
-    "(packing slip / pakbon / bon de livraison). The paper is A4 and lists ONE ordered part "
-    "for a specific vehicle. You must return STRICT JSON — no prose, no code fences.\n\n"
+    "(packing slip / pakbon / bon de livraison). The paper is A4 and may list ONE OR MORE ordered "
+    "parts for a specific vehicle. You must return STRICT JSON — no prose, no code fences.\n\n"
     "Schema — always return every key, use empty string / 0 when unknown, never invent values:\n"
     "{\n"
     "  \"plate\": string,           // vehicle licence plate e.g. 'B-DE-9022' or 'NL-42-ABC'\n"
-    "  \"part_name\": string,       // human-readable part name e.g. 'Front brake pads'\n"
-    "  \"part_number\": string,     // OEM / manufacturer part number e.g. '34116794300'\n"
-    "  \"unit_cost\": number,       // purchase price / inkoop per unit in EUR\n"
-    "  \"unit_price\": number,      // sell price / verkoop per unit in EUR — same as unit_cost if only one price appears\n"
-    "  \"quantity\": number,        // qty ordered (integer). Default 1 if not shown.\n"
     "  \"supplier_name\": string,   // supplier / leverancier name from the letterhead\n"
     "  \"confidence\": number,      // 0..1 — how sure you are the extraction is correct\n"
-    "  \"notes\": string            // one short line if something looks off, otherwise empty\n"
+    "  \"notes\": string,           // one short line if something looks off, otherwise empty\n"
+    "  \"parts\": [                 // EVERY ordered line on the pakbon — do not merge or drop rows\n"
+    "    {\n"
+    "      \"part_name\": string,   // human-readable name e.g. 'Front brake pads'\n"
+    "      \"part_number\": string, // OEM / manufacturer part number e.g. '34116794300'\n"
+    "      \"quantity\": number,    // qty ordered (integer). Default 1 if not shown.\n"
+    "      \"unit_cost\": number,   // purchase price (inkoop) per unit in EUR\n"
+    "      \"unit_price\": number   // sell price (verkoop) per unit in EUR — same as unit_cost if only one price appears\n"
+    "    }\n"
+    "  ]\n"
     "}\n\n"
     "Rules:\n"
+    "- ALWAYS include every ordered line in the parts array — a single pakbon can contain 2, 5, 10 or more items.\n"
+    "- Do NOT collapse similar items into one row — if the pakbon lists them separately, return them separately.\n"
     "- Prices are in EUR — strip currency symbols, use dot as decimal separator, no thousands separators.\n"
     "- The plate letters are always uppercase.\n"
     "- If two prices appear (cost + sell), unit_cost = the lower/inkoop, unit_price = the higher/verkoop.\n"
@@ -4349,22 +4355,47 @@ async def ocr_delivery_note(payload: OcrDeliveryPayload, user: dict = Depends(ge
         try: return float(re.sub(r"[^0-9.\-]", "", s) or 0)
         except ValueError: return 0.0
 
+    def _one_part(raw_p: dict) -> dict:
+        p = {
+            "part_name": str(raw_p.get("part_name", "")).strip(),
+            "part_number": str(raw_p.get("part_number", "")).strip(),
+            "quantity": max(1, int(_num(raw_p.get("quantity")) or 1)),
+            "unit_cost": round(_num(raw_p.get("unit_cost")), 2),
+            "unit_price": round(_num(raw_p.get("unit_price")), 2),
+        }
+        # Mirror a single price to both columns so downstream never has to.
+        if p["unit_price"] and not p["unit_cost"]: p["unit_cost"] = p["unit_price"]
+        if p["unit_cost"] and not p["unit_price"]: p["unit_price"] = p["unit_cost"]
+        return p
+
+    # New multi-line schema: model returns `parts: [...]`.  Older captures may
+    # still return the flat single-part shape, so we handle both.
+    parts_raw = parsed.get("parts")
+    if isinstance(parts_raw, list) and parts_raw:
+        parts = [_one_part(p) for p in parts_raw if isinstance(p, dict)]
+        # Drop empty rows the model sometimes emits (blank name AND no part number).
+        parts = [p for p in parts if p["part_name"] or p["part_number"]]
+    else:
+        parts = [_one_part(parsed)]  # legacy flat shape
+
+    if not parts:
+        parts = [_one_part({})]   # keep the caller happy even on a bad read
+
+    first = parts[0]
     out = {
         "plate": str(parsed.get("plate", "")).strip().upper(),
-        "part_name": str(parsed.get("part_name", "")).strip(),
-        "part_number": str(parsed.get("part_number", "")).strip(),
-        "unit_cost": round(_num(parsed.get("unit_cost")), 2),
-        "unit_price": round(_num(parsed.get("unit_price")), 2),
-        "quantity": max(1, int(_num(parsed.get("quantity")) or 1)),
         "supplier_name": str(parsed.get("supplier_name", "")).strip(),
         "confidence": max(0.0, min(1.0, _num(parsed.get("confidence")))),
         "notes": str(parsed.get("notes", "")).strip(),
+        "parts": parts,
+        # Legacy top-level fields — mirror the first line so existing callers
+        # (Delivery scan single-part flow, older mobile builds) keep working.
+        "part_name": first["part_name"],
+        "part_number": first["part_number"],
+        "quantity": first["quantity"],
+        "unit_cost": first["unit_cost"],
+        "unit_price": first["unit_price"],
     }
-    # If only one price came back, mirror it to the other.
-    if out["unit_price"] and not out["unit_cost"]:
-        out["unit_cost"] = out["unit_price"]
-    if out["unit_cost"] and not out["unit_price"]:
-        out["unit_price"] = out["unit_cost"]
     return out
 
 
