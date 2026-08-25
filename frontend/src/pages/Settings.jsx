@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatEUR, formatApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -235,6 +235,7 @@ function InvoicePreview({ form }) {
 
 export default function Settings() {
   const { t } = useLang();
+  const qc = useQueryClient();
   const { data, refetch } = useQuery({ queryKey: ["settings"], queryFn: () => api.get("/settings").then((r) => r.data) });
   const [form, setForm] = useState(DEFAULT_FORM);
   const [saving, setSaving] = useState(false);
@@ -247,8 +248,13 @@ export default function Settings() {
     e.preventDefault();
     setSaving(true);
     try {
-      await api.put("/settings", form);
-      toast.success("Garage details saved");
+      const { data: saved } = await api.put("/settings", form);
+      // Push the fresh settings into every other page's React-Query cache
+      // (Invoices / Repairs / Party / …) so the new template, colour and
+      // toggles apply immediately without a browser reload.
+      qc.setQueryData(["settings"], saved || form);
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      toast.success("Garage details saved · تم تطبيق التصميم على كل الفواتير");
     } catch (e) { toast.error(formatApiError(e)); }
     finally { setSaving(false); }
   };

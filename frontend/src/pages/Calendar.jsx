@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Plus, CalendarDays, Car, User, Wrench, Trash2, FileText, ArrowRight, AlertTriangle } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, CalendarDays, Car, User, Wrench, Trash2, FileText, ArrowRight, AlertTriangle, Search, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import SearchableSelect from "@/components/SearchableSelect";
@@ -55,8 +55,71 @@ export default function CalendarPage() {
   const [showNew, setShowNew] = useState(false);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [showNewVehicle, setShowNewVehicle] = useState(false);
-  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", email: "", address: "", make: "", model: "", year: "", plate: "", color: "", km: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL" });
-  const [newVehicle, setNewVehicle] = useState({ make: "", model: "", year: "", plate: "", color: "", km: "" });
+  const EMPTY_NEW_CUST = { name: "", phone: "", email: "", address: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL", customer_type: "individual", company_name: "", kvk_number: "", vat_number: "", contact_person: "" };
+  const EMPTY_NEW_VEH = { make: "", model: "", year: "", plate: "", color: "", km: "", country: "NL", apk_expiry: "", next_oil_change_km: "", vin: "", notes: "", meldcode: "", fuel: "", cc: "", doors: "", seats: "", weight: "", chassis_location: "", registration_date: "" };
+  const [newCustomer, setNewCustomer] = useState(EMPTY_NEW_CUST);
+  const [newVehicle, setNewVehicle] = useState(EMPTY_NEW_VEH);
+  const [kvkBusy, setKvkBusy] = useState(false);
+  const [rdwBusy, setRdwBusy] = useState(false);
+
+  /* KvK auto-fill for the "New customer" mini-dialog. */
+  const kvkLookup = async () => {
+    const cleaned = (newCustomer.kvk_number || "").replace(/[^0-9]/g, "");
+    if (cleaned.length !== 8) return toast.error("KvK = 8 cijfers");
+    setKvkBusy(true);
+    try {
+      const { data } = await api.get(`/kvk/lookup?kvk=${cleaned}`);
+      setNewCustomer(f => ({
+        ...f,
+        name: data.company_name || f.name,
+        company_name: data.company_name || f.company_name,
+        kvk_number: data.kvk_number,
+        vat_number: data.vat_number || f.vat_number,
+        street: data.street || f.street,
+        house_number: data.house_number || f.house_number,
+        house_number_addition: data.house_number_addition || f.house_number_addition,
+        postcode: data.postcode || f.postcode,
+        city: data.city || f.city,
+        address_country: data.address_country || f.address_country,
+      }));
+      toast.success(`${data.company_name} · KvK ✓`);
+    } catch (e) {
+      const isConfigMissing = e?.response?.status === 501;
+      toast.error(e?.response?.data?.detail || "KvK lookup failed",
+        isConfigMissing ? { duration: 10000, description: "Je kunt de gegevens ondertussen handmatig invullen." } : {});
+    } finally { setKvkBusy(false); }
+  };
+
+  /* RDW auto-fill for the "New vehicle" mini-dialog. */
+  const rdwLookup = async () => {
+    if (newVehicle.country !== "NL") return toast.error("RDW = NL only");
+    const cleaned = (newVehicle.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!cleaned || cleaned.length < 4) return toast.error(t("rdwEnterPlate"));
+    setRdwBusy(true);
+    try {
+      const { data } = await api.get(`/rdw/lookup?plate=${encodeURIComponent(cleaned)}`);
+      setNewVehicle(v => ({
+        ...v,
+        plate: data.plate || v.plate,
+        make: data.make || v.make,
+        model: data.model || v.model,
+        year: data.year || v.year,
+        color: data.color || v.color,
+        country: data.country || v.country,
+        apk_expiry: data.apk_expiry || v.apk_expiry,
+        fuel: data.fuel || v.fuel,
+        cc: data.cc || v.cc,
+        doors: data.doors || v.doors,
+        seats: data.seats || v.seats,
+        weight: data.weight || v.weight,
+        chassis_location: data.chassis_location || v.chassis_location,
+        registration_date: data.registration_date || v.registration_date,
+      }));
+      toast.success(`${data.make} ${data.model} ${data.year}`.trim() + " · RDW ✓");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "RDW lookup failed");
+    } finally { setRdwBusy(false); }
+  };
   const [form, setForm] = useState({
     customer_id: "", vehicle_id: "", mechanic_id: "",
     scheduled_at: isoLocal(new Date(Date.now() + 60 * 60 * 1000)),
@@ -169,32 +232,15 @@ export default function CalendarPage() {
 
   const createCustomer = async (e) => {
     e.preventDefault();
-    if (!newCustomer.name.trim()) return toast.error(t("nameRequired"));
+    const nameField = newCustomer.customer_type === "company" ? newCustomer.company_name : newCustomer.name;
+    if (!nameField?.trim()) return toast.error(newCustomer.customer_type === "company" ? "Bedrijfsnaam is verplicht" : t("nameRequired"));
     try {
-      const summaryVehicle = [newCustomer.make, newCustomer.model, newCustomer.year, newCustomer.plate].filter(Boolean).join(" ");
-      const { data } = await api.post("/customers", {
-        name: newCustomer.name, phone: newCustomer.phone, email: newCustomer.email,
-        address: newCustomer.address, vehicle: summaryVehicle,
-        postcode: newCustomer.postcode, house_number: newCustomer.house_number,
-        house_number_addition: newCustomer.house_number_addition,
-        street: newCustomer.street, city: newCustomer.city,
-        address_country: newCustomer.address_country,
-      });
-      let newVehId = "";
-      if (newCustomer.make || newCustomer.plate) {
-        try {
-          const { data: veh } = await api.post(`/customers/${data.id}/vehicles`, {
-            make: newCustomer.make, model: newCustomer.model, year: newCustomer.year,
-            plate: newCustomer.plate, color: newCustomer.color, km: newCustomer.km,
-          });
-          newVehId = veh.id;
-        } catch (err) { /* silent */ }
-      }
+      const payload = { ...newCustomer, name: nameField };
+      const { data } = await api.post("/customers", payload);
       toast.success(t("customerAdded"));
       await qc.invalidateQueries({ queryKey: ["cus"] });
-      if (newVehId) await qc.invalidateQueries({ queryKey: ["cust-vehicles", data.id] });
-      setForm(f => ({ ...f, customer_id: data.id, vehicle_id: newVehId }));
-      setNewCustomer({ name: "", phone: "", email: "", address: "", make: "", model: "", year: "", plate: "", color: "", km: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL" });
+      setForm(f => ({ ...f, customer_id: data.id, vehicle_id: "" }));
+      setNewCustomer(EMPTY_NEW_CUST);
       setShowNewCustomer(false);
     } catch (err) { toast.error(formatApiError(err)); }
   };
@@ -208,7 +254,7 @@ export default function CalendarPage() {
       toast.success(t("vehicleAdded"));
       await qc.invalidateQueries({ queryKey: ["cust-vehicles", form.customer_id] });
       setForm(f => ({ ...f, vehicle_id: data.id }));
-      setNewVehicle({ make: "", model: "", year: "", plate: "", color: "", km: "" });
+      setNewVehicle(EMPTY_NEW_VEH);
       setShowNewVehicle(false);
     } catch (err) { toast.error(formatApiError(err)); }
   };
@@ -432,45 +478,83 @@ export default function CalendarPage() {
       </Dialog>
 
       {/* Quick add customer dialog — same layout as the Customers page */}
-      <Dialog open={showNewCustomer} onOpenChange={setShowNewCustomer}>
-        <DialogContent className="max-w-lg max-h-[92vh] overflow-y-auto">
+      <Dialog open={showNewCustomer} onOpenChange={(v) => { setShowNewCustomer(v); if (!v) setNewCustomer(EMPTY_NEW_CUST); }}>
+        <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="font-display">{t("newCustomer")}</DialogTitle></DialogHeader>
           <form onSubmit={createCustomer} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label>{t("name")}</Label>
-              <Input value={newCustomer.name} onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })} required data-testid="quick-customer-name" />
+            {/* Individual / Company toggle */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-muted/40 rounded-full border border-border" data-testid="cal-cust-type-toggle">
+              <button
+                type="button"
+                onClick={() => setNewCustomer({ ...newCustomer, customer_type: "individual" })}
+                className={`h-9 rounded-full text-sm font-medium transition-colors ${newCustomer.customer_type !== "company" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                data-testid="cal-cust-type-individual"
+              >
+                <span className="inline-flex items-center gap-1.5"><span>👤</span>{t("customerTypeIndividual")}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewCustomer({ ...newCustomer, customer_type: "company" })}
+                className={`h-9 rounded-full text-sm font-medium transition-colors ${newCustomer.customer_type === "company" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                data-testid="cal-cust-type-company"
+              >
+                <span className="inline-flex items-center gap-1.5"><span>🏢</span>{t("customerTypeCompany")}</span>
+              </button>
             </div>
-            <div className="space-y-2 p-3 rounded-md border border-border bg-muted/20">
-              <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("vehicle")} · {t("optional")}</div>
-              <VehicleMakeModelYear
-                value={{ make: newCustomer.make, model: newCustomer.model, year: newCustomer.year }}
-                onChange={(mmy) => setNewCustomer({ ...newCustomer, ...mmy })}
-                testIdPrefix="quick-cust"
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1.5"><Label className="text-xs">{t("plateNumber")}</Label><Input value={newCustomer.plate} onChange={(e) => setNewCustomer({ ...newCustomer, plate: e.target.value })} placeholder="NL-XX-00" data-testid="quick-cust-plate" /></div>
-                <div className="space-y-1.5"><Label className="text-xs">{t("color")}</Label><Input value={newCustomer.color} onChange={(e) => setNewCustomer({ ...newCustomer, color: e.target.value })} /></div>
-                <div className="space-y-1.5"><Label className="text-xs">{t("odometer")}</Label><Input value={newCustomer.km} onChange={(e) => setNewCustomer({ ...newCustomer, km: e.target.value })} placeholder="km" /></div>
+
+            {/* KvK hero */}
+            {newCustomer.customer_type === "company" && (
+              <div className="rounded-md border border-emerald-500/40 bg-emerald-500/5 p-3 space-y-2" data-testid="cal-kvk-hero">
+                <div className="flex items-center gap-2">
+                  <Search className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-emerald-700 dark:text-emerald-400">{t("kvkLookup")}</div>
+                </div>
+                <div className="grid grid-cols-12 gap-2 items-end">
+                  <div className="col-span-9 space-y-1">
+                    <Label className="text-[10px]">{t("kvkNumber")}</Label>
+                    <Input value={newCustomer.kvk_number} onChange={(e) => setNewCustomer({ ...newCustomer, kvk_number: e.target.value.replace(/[^0-9]/g, "").slice(0, 8) })}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); kvkLookup(); } }}
+                      placeholder="12345678" className="h-10 font-mono tracking-wider" data-testid="cal-cust-kvk-input" />
+                  </div>
+                  <div className="col-span-3">
+                    <Button type="button" className="w-full h-10 rounded-md bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm disabled:opacity-60"
+                      onClick={kvkLookup} disabled={kvkBusy || !newCustomer.kvk_number} data-testid="cal-cust-kvk-btn">
+                      {kvkBusy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Search className="h-4 w-4 mr-1" />}KvK
+                    </Button>
+                  </div>
+                </div>
               </div>
-              <p className="text-[10px] text-muted-foreground">{t("addMoreVehiclesHint")}</p>
-            </div>
+            )}
+
+            {/* Company fields */}
+            {newCustomer.customer_type === "company" && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5"><Label>{t("companyName")} *</Label>
+                  <Input required value={newCustomer.company_name} onChange={(e) => setNewCustomer({ ...newCustomer, company_name: e.target.value, name: e.target.value })} data-testid="cal-cust-company-name" /></div>
+                <div className="space-y-1.5"><Label>{t("vatNumber")}</Label>
+                  <Input value={newCustomer.vat_number} onChange={(e) => setNewCustomer({ ...newCustomer, vat_number: e.target.value.toUpperCase() })} placeholder="NL812345678B01" className="font-mono" /></div>
+                <div className="space-y-1.5 col-span-2"><Label>{t("contactPerson")}</Label>
+                  <Input value={newCustomer.contact_person} onChange={(e) => setNewCustomer({ ...newCustomer, contact_person: e.target.value })} placeholder={t("contactPersonPlaceholder")} /></div>
+              </div>
+            )}
+
+            {/* Individual name */}
+            {newCustomer.customer_type !== "company" && (
+              <div className="space-y-1.5"><Label>{t("name")} *</Label>
+                <Input required value={newCustomer.name} onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })} data-testid="quick-customer-name" /></div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5"><Label>{t("email")}</Label><Input type="email" value={newCustomer.email} onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })} /></div>
               <div className="space-y-1.5"><Label>{t("phone")}</Label><Input value={newCustomer.phone} onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })} data-testid="quick-customer-phone" /></div>
+              <div className="space-y-1.5"><Label>{t("email")}</Label><Input type="email" value={newCustomer.email} onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })} /></div>
             </div>
+
             <div className="space-y-2 p-3 rounded-md border border-border bg-muted/20">
               <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("address")}</div>
               <AddressFields
-                value={{
-                  postcode: newCustomer.postcode,
-                  house_number: newCustomer.house_number,
-                  house_number_addition: newCustomer.house_number_addition,
-                  street: newCustomer.street,
-                  city: newCustomer.city,
-                  address_country: newCustomer.address_country,
-                }}
+                value={{ postcode: newCustomer.postcode, house_number: newCustomer.house_number, house_number_addition: newCustomer.house_number_addition, street: newCustomer.street, city: newCustomer.city, address_country: newCustomer.address_country }}
                 onChange={(a) => setNewCustomer({ ...newCustomer, ...a })}
-                testIdPrefix="quick-cust-addr"
+                testIdPrefix="cal-cust-addr"
                 compact
               />
             </div>
@@ -482,20 +566,58 @@ export default function CalendarPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Quick add vehicle dialog */}
-      <Dialog open={showNewVehicle} onOpenChange={setShowNewVehicle}>
-        <DialogContent className="max-w-lg">
+      {/* Quick add vehicle dialog — mirrors the CustomerVehiclesEditor add-form */}
+      <Dialog open={showNewVehicle} onOpenChange={(v) => { setShowNewVehicle(v); if (!v) setNewVehicle(EMPTY_NEW_VEH); }}>
+        <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="font-display">{t("newVehicle")}</DialogTitle></DialogHeader>
-          <form onSubmit={createVehicle} className="space-y-3">
+          <form onSubmit={createVehicle} className="space-y-4">
+            {/* RDW hero */}
+            <div className="rounded-md border border-orange-500/40 bg-orange-500/5 p-3 space-y-2" data-testid="cal-rdw-hero">
+              <div className="flex items-center gap-2">
+                <Search className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
+                <div className="text-[10px] font-mono uppercase tracking-widest text-orange-700 dark:text-orange-400">{t("rdwLookup")}</div>
+              </div>
+              <div className="grid grid-cols-12 gap-2 items-end">
+                <div className="col-span-4 space-y-1">
+                  <Label className="text-[10px]">{t("country")}</Label>
+                  <select value={newVehicle.country} onChange={(e) => setNewVehicle({ ...newVehicle, country: e.target.value })} className="w-full h-10 rounded-md border border-input bg-background px-2 text-sm" data-testid="cal-veh-country">
+                    {["NL","DE","BE","FR","IT","ES","PL","TR","MA","SY","LB","JO","IQ","EG","SA","AE","GB","OTHER"].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="col-span-5 space-y-1">
+                  <Label className="text-[10px]">{t("plateNumber")}</Label>
+                  <Input value={newVehicle.plate} onChange={(e) => setNewVehicle({ ...newVehicle, plate: e.target.value.toUpperCase() })}
+                    onKeyDown={(e) => { if (e.key === "Enter" && newVehicle.country === "NL") { e.preventDefault(); rdwLookup(); } }}
+                    placeholder="12-ABC-3" className="h-10 font-mono tracking-wider" data-testid="quick-veh-plate" />
+                </div>
+                <div className="col-span-3">
+                  <Button type="button" className="w-full h-10 rounded-md bg-orange-500 hover:bg-orange-600 text-white shadow-sm disabled:opacity-60"
+                    onClick={rdwLookup} disabled={rdwBusy || newVehicle.country !== "NL" || !newVehicle.plate}
+                    data-testid="cal-veh-rdw">
+                    {rdwBusy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Search className="h-4 w-4 mr-1" />}RDW
+                  </Button>
+                </div>
+              </div>
+            </div>
+
             <VehicleMakeModelYear
               value={{ make: newVehicle.make, model: newVehicle.model, year: newVehicle.year }}
               onChange={(mmy) => setNewVehicle({ ...newVehicle, ...mmy })}
               testIdPrefix="quick-veh"
             />
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1.5"><Label>{t("plateNumber")}</Label><Input value={newVehicle.plate} onChange={(e) => setNewVehicle({ ...newVehicle, plate: e.target.value })} data-testid="quick-veh-plate" /></div>
-              <div className="space-y-1.5"><Label>{t("color")}</Label><Input value={newVehicle.color} onChange={(e) => setNewVehicle({ ...newVehicle, color: e.target.value })} /></div>
-              <div className="space-y-1.5"><Label>{t("odometer")}</Label><Input value={newVehicle.km} onChange={(e) => setNewVehicle({ ...newVehicle, km: e.target.value })} /></div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              <div className="space-y-1"><Label className="text-[10px]">{t("color")}</Label><Input value={newVehicle.color} onChange={(e) => setNewVehicle({ ...newVehicle, color: e.target.value })} /></div>
+              <div className="space-y-1"><Label className="text-[10px]">{t("odometer")}</Label><Input value={newVehicle.km} onChange={(e) => setNewVehicle({ ...newVehicle, km: e.target.value })} placeholder="km" /></div>
+              <div className="space-y-1"><Label className="text-[10px]">{t("apkExpiry")}</Label><Input type="date" value={newVehicle.apk_expiry} onChange={(e) => setNewVehicle({ ...newVehicle, apk_expiry: e.target.value })} /></div>
+              <div className="space-y-1"><Label className="text-[10px]">{t("nextOilChangeKm")}</Label><Input type="number" value={newVehicle.next_oil_change_km} onChange={(e) => setNewVehicle({ ...newVehicle, next_oil_change_km: e.target.value })} /></div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2 border-t border-border/50">
+              <div className="space-y-1"><Label className="text-[10px]">Brandstof</Label><Input value={newVehicle.fuel} onChange={(e) => setNewVehicle({ ...newVehicle, fuel: e.target.value })} /></div>
+              <div className="space-y-1"><Label className="text-[10px]">CC</Label><Input value={newVehicle.cc} onChange={(e) => setNewVehicle({ ...newVehicle, cc: e.target.value })} /></div>
+              <div className="space-y-1"><Label className="text-[10px]">Deuren</Label><Input value={newVehicle.doors} onChange={(e) => setNewVehicle({ ...newVehicle, doors: e.target.value })} /></div>
+              <div className="space-y-1"><Label className="text-[10px]">Zitpl.</Label><Input value={newVehicle.seats} onChange={(e) => setNewVehicle({ ...newVehicle, seats: e.target.value })} /></div>
+              <div className="space-y-1 md:col-span-2"><Label className="text-[10px]">Meldcode</Label><Input value={newVehicle.meldcode} onChange={(e) => setNewVehicle({ ...newVehicle, meldcode: e.target.value })} placeholder="4-cijferige code" className="font-mono" /></div>
+              <div className="space-y-1 md:col-span-2"><Label className="text-[10px]">VIN</Label><Input value={newVehicle.vin} onChange={(e) => setNewVehicle({ ...newVehicle, vin: e.target.value })} className="font-mono" /></div>
             </div>
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={() => setShowNewVehicle(false)}>{t("cancel")}</Button>
