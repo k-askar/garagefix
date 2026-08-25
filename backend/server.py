@@ -941,6 +941,13 @@ async def dashboard_summary(user: dict = Depends(get_current_user)):
     now = datetime.now(timezone.utc)
     open_cars = []
     total_mech_minutes = 0.0
+    # Bulk-fetch linked vehicles so we can hydrate any missing car_* fields
+    # (plate/country/apk) that were added/edited AFTER the card was created.
+    open_vids = list({c.get("vehicle_id") for c in open_cards_raw if c.get("vehicle_id")})
+    veh_by_id = {}
+    if open_vids:
+        vehs = await db.vehicles.find({"id": {"$in": open_vids}}, {"_id": 0}).to_list(len(open_vids))
+        veh_by_id = {v["id"]: v for v in vehs}
     for c in open_cards_raw:
         try:
             created = datetime.fromisoformat(c["created_at"].replace("Z", "+00:00"))
@@ -951,15 +958,16 @@ async def dashboard_summary(user: dict = Depends(get_current_user)):
         cover = None
         if c.get("photos"):
             cover = c["photos"][0].get("id")
+        v = veh_by_id.get(c.get("vehicle_id")) or {}
         open_cars.append({
             "id": c["id"],
             "card_number": c["card_number"],
             "customer_name": c.get("customer_name") or "Walk-in",
-            "car_make": c.get("car_make", ""),
-            "car_model": c.get("car_model", ""),
-            "car_plate": c.get("car_plate", ""),
-            "car_country": c.get("car_country") or "NL",
-            "car_year": c.get("car_year", ""),
+            "car_make":    c.get("car_make")    or v.get("make", ""),
+            "car_model":   c.get("car_model")   or v.get("model", ""),
+            "car_plate":   c.get("car_plate")   or v.get("plate", ""),
+            "car_country": c.get("car_country") or v.get("country") or "NL",
+            "car_year":    c.get("car_year")    or v.get("year", ""),
             "mechanic_name": c.get("mechanic_name", ""),
             "status": c.get("status"),
             "grand_total": c.get("grand_total", 0),
@@ -2139,17 +2147,60 @@ def _recalc_fields(card: dict) -> dict:
         "total_with_tax": card["total_with_tax"],
     }
 
+async def _hydrate_repair_from_vehicle(card: dict) -> dict:
+    """Fill blank car_* fields on a repair card from the linked vehicle so
+    updates to the vehicle (plate added later, APK renewed, colour set…)
+    show up on old cards without needing to edit each one."""
+    vid = card.get("vehicle_id")
+    if not vid:
+        return card
+    veh = await db.vehicles.find_one({"id": vid}, {"_id": 0})
+    if not veh:
+        return card
+    mapping = {
+        "car_plate":     veh.get("plate"),
+        "car_country":   veh.get("country"),
+        "car_make":      veh.get("make"),
+        "car_model":     veh.get("model"),
+        "car_year":      veh.get("year"),
+        "car_color":     veh.get("color"),
+        "car_apk_expiry": veh.get("apk_expiry"),
+    }
+    for k, v in mapping.items():
+        if v and not card.get(k):
+            card[k] = v
+    return card
+
+
 @api_router.get("/repairs", response_model=List[RepairCard])
 async def list_repairs(status: Optional[str] = None, user: dict = Depends(get_current_user)):
     query = {"status": status} if status else {}
-    return await db.repairs.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    rows = await db.repairs.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    # Hydrate every card in one bulk vehicle lookup for efficiency
+    vids = list({r["vehicle_id"] for r in rows if r.get("vehicle_id")})
+    if vids:
+        vehs = await db.vehicles.find({"id": {"$in": vids}}, {"_id": 0}).to_list(len(vids))
+        by_id = {v["id"]: v for v in vehs}
+        for r in rows:
+            v = by_id.get(r.get("vehicle_id"))
+            if not v:
+                continue
+            for card_key, veh_key in (
+                ("car_plate", "plate"), ("car_country", "country"),
+                ("car_make", "make"), ("car_model", "model"),
+                ("car_year", "year"), ("car_color", "color"),
+                ("car_apk_expiry", "apk_expiry"),
+            ):
+                if v.get(veh_key) and not r.get(card_key):
+                    r[card_key] = v[veh_key]
+    return rows
 
 @api_router.get("/repairs/{rid}", response_model=RepairCard)
 async def get_repair(rid: str, user: dict = Depends(get_current_user)):
     c = await db.repairs.find_one({"id": rid}, {"_id": 0})
     if not c:
         raise HTTPException(status_code=404, detail="Card not found")
-    return c
+    return await _hydrate_repair_from_vehicle(c)
 
 # ---------- Special-order parts (not stocked) ----------
 
