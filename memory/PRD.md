@@ -18,6 +18,16 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26f — Auto-suspend on subscription expiry + 7/3/1-day payment reminders
+- **`routes/subscription_cron.py`** new module with `POST /api/cron/subscription-sweep` (Bearer-auth via `WEBHOOK_CRON_SECRET`). Handler acks immediately and defers the sweep to a background task.
+- **Sweep logic**: iterates every tenant with `subscription_expires_at` set. Computes days remaining and:
+  - `days ∈ {7, 3, 1}` and stage not already in `reminder_days_sent` → emails the garage owner a "payment reminder" with escalating urgency (friendly → important → final) and adds the stage to `reminder_days_sent` so we never double-remind.
+  - `days < 0` and tenant still active → sets `active=false`, stamps `suspended_at` + `suspended_reason="subscription_expired"`, sends "your subscription expired" notice (once, tracked via `"expired"` entry in `reminder_days_sent`).
+- **`.emergent/crons.yml`** — added `subscription-sweep` entry running `0 8 * * *` UTC (daily at 08:00). Now 4/5 crons used.
+- **Verified end-to-end**: created a tenant expiring in 3 days + a tenant expired yesterday → 401 rejected on wrong Bearer → 200 with correct secret → after sweep: expired tenant flipped to `active=false` with `suspended_at` set and `reminder_days_sent=["expired"]`; 3-day tenant got a "3 days left" email (`reminder_days_sent=["7","3"]` — the sweep sent the largest-not-yet-sent stage). Both emails logged as `accepted` in `email_logs` with purposes `subscription_expired` and `subscription_reminder`.
+
+
+
 ### Session 2026-02-26e — Multi-line pakbon (delivery note) OCR
 - **`_OCR_SYSTEM` prompt rewritten** — Claude vision now returns `{plate, supplier_name, confidence, notes, parts:[{part_name, part_number, quantity, unit_cost, unit_price}, ...]}` with an explicit "EVERY ordered line" instruction. A single pakbon that lists 2/5/10 items is now captured in one scan instead of losing everything after the first row.
 - **`POST /special-parts/ocr-delivery-note`** — normalises the new `parts` array through `_one_part()`, drops empty rows, and mirrors the FIRST row up to the top-level keys (`part_name`, `part_number`, `quantity`, `unit_cost`, `unit_price`) so any legacy single-part caller keeps working.

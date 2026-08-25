@@ -3726,6 +3726,7 @@ from routes.rdw       import register as _register_rdw        # noqa: E402
 from routes.kvk       import register as _register_kvk        # noqa: E402
 from routes.tenants   import register as _register_tenants    # noqa: E402
 from routes.email_logs import register as _register_email_logs  # noqa: E402
+from routes.subscription_cron import register as _register_subscription_cron  # noqa: E402
 
 # Helper passed into routes/tenants.py so the super-admin "Create garage"
 # endpoint can auto-provision a pending-password owner user and email the
@@ -3767,6 +3768,7 @@ api_router.include_router(_register_rdw(get_current_user))
 api_router.include_router(_register_kvk(get_current_user))
 api_router.include_router(_register_tenants(db, get_current_user, require_super_admin, _provision_tenant_owner))
 api_router.include_router(_register_email_logs(db, get_current_user, send_email, require_super_admin))
+api_router.include_router(_register_subscription_cron(db, WEBHOOK_CRON_SECRET, send_email))
 
 
 # --- Cash Register / Daily Till ---

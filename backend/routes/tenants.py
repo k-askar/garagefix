@@ -61,6 +61,11 @@ class Tenant(BaseModel):
     # 14 days from creation, paid plans to 30 days.
     subscription_expires_at: Optional[str] = None   # ISO date (YYYY-MM-DD)
     plan_started_at: Optional[str] = None           # ISO date the current billing window began
+    # Populated by the daily subscription-sweep cron so we don't double-remind
+    # or fail to visualise "why is this garage suspended?" in the UI.
+    reminder_days_sent: List[str] = Field(default_factory=list)
+    suspended_at: Optional[str] = None
+    suspended_reason: Optional[str] = None
 
 
 class TenantCreate(BaseModel):
