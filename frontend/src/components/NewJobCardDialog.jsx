@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +38,7 @@ const EMPTY_VEHICLE = { make: "", model: "", year: "", plate: "", color: "", km:
  *  Step 3: Mechanic + complaint
  */
 export default function NewJobCardDialog({ open, onOpenChange, customers, users, onCreated }) {
+  const qc = useQueryClient();
   const [form, setForm] = useState(EMPTY_FORM);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", email: "", address: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL" });
@@ -48,10 +49,13 @@ export default function NewJobCardDialog({ open, onOpenChange, customers, users,
   // Reset when opened/closed
   useEffect(() => { if (!open) { setForm(EMPTY_FORM); setAddingVehicle(false); setNewVehicle(EMPTY_VEHICLE); } }, [open]);
 
-  // Vehicles for the picked customer
+  // Vehicles for the picked customer — always refetch on mount so any vehicle
+  // added elsewhere (Customers page, Calendar…) shows up immediately.
   const { data: cVehicles = [], refetch: refetchVehicles } = useQuery({
     queryKey: ["cust-vehicles", form.customer_id],
     enabled: !!form.customer_id,
+    refetchOnMount: "always",
+    staleTime: 0,
     queryFn: () => api.get(`/customers/${form.customer_id}/vehicles`).then(r => r.data),
   });
 
@@ -88,6 +92,9 @@ export default function NewJobCardDialog({ open, onOpenChange, customers, users,
       setForm(f => ({ ...f, customer_id: data.id, customer_name: data.name, customer_phone: data.phone || "" }));
       setNewCustomer({ name: "", phone: "", email: "", address: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL" });
       setShowNewCustomer(false);
+      // Refresh the customer list dropdown so the newly-added customer appears
+      // without needing a page reload.
+      qc.invalidateQueries({ queryKey: ["customers"] });
     } catch (e) { toast.error(formatApiError(e)); }
     finally { setBusy(false); }
   };
@@ -102,6 +109,9 @@ export default function NewJobCardDialog({ open, onOpenChange, customers, users,
         next_oil_change_km: null,
       });
       toast.success("Vehicle added");
+      // Invalidate + refetch so the vehicle appears in this dialog AND anywhere
+      // else that lists this customer's vehicles.
+      await qc.invalidateQueries({ queryKey: ["cust-vehicles", form.customer_id] });
       await refetchVehicles();
       setForm(f => ({ ...f, vehicle_id: data.id }));
       setNewVehicle(EMPTY_VEHICLE);

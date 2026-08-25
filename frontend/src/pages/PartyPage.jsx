@@ -60,6 +60,9 @@ export default function PartyPage({ kind }) {
       setVehForm({ make: "", model: "", year: "", plate: "", color: "", km: "", vin: "", notes: "" });
       setShowAddVeh(false);
       refetchHistory();
+      // Also invalidate the vehicle queries used elsewhere (job-card dialog, calendar…)
+      qc.invalidateQueries({ queryKey: ["cust-vehicles", historyId] });
+      qc.invalidateQueries({ queryKey: ["customers"] });
     } catch (err) { toast.error(formatApiError(err)); }
   };
 
@@ -69,6 +72,8 @@ export default function PartyPage({ kind }) {
       await api.delete(`/vehicles/${vid}`);
       toast.success(t("vehicleDeleted"));
       refetchHistory();
+      qc.invalidateQueries({ queryKey: ["cust-vehicles", historyId] });
+      qc.invalidateQueries({ queryKey: ["customers"] });
     } catch (err) { toast.error(formatApiError(err)); }
   };
 
@@ -87,6 +92,9 @@ export default function PartyPage({ kind }) {
         if (!isSup && (vehForm2.make || vehForm2.plate)) {
           try {
             await api.post(`/customers/${created.id}/vehicles`, vehForm2);
+            // Warm the vehicle cache for the newly-created customer so the
+            // job-card dialog sees the vehicle immediately.
+            qc.invalidateQueries({ queryKey: ["cust-vehicles", created.id] });
           } catch (err) { /* silent — customer is saved even if vehicle fails */ }
         }
         toast.success(`${label} added`);
