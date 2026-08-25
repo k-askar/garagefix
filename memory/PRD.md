@@ -18,6 +18,13 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26b — Permanent garage delete (subscription cancellation)
+- **`DELETE /api/tenants/{id}?purge=true`** — cascades a hard delete across every scoped collection (users, customers, vehicles, invoices, repairs, inventory, suppliers, transactions, purchase_orders, appointments, reminders, payment_methods/entries, cash_movements, public_invoice_pdfs, vehicle_events, parts_catalog, email_logs, audit_events) + `settings` (via `_id="garage:<tid>"`) + the tenant row itself. Returns per-collection counts so the UI can toast "N records removed". Default `purge=false` still soft-suspends for backwards compat.
+- **`SuperAdmin.jsx` Delete button** — red destructive button next to Suspend/Enter garage on every tenant row. Opens a confirm dialog that (a) explains the cascade, (b) reminds the admin to use "Suspend" if they only want to disable login, and (c) requires the admin to retype the garage name before enabling "Delete forever".
+- Verified end-to-end: created `Test Purge Garage` → soft-delete kept the row (active=false) → purge removed 1 user, 1 settings doc, 1 tenant and the tenant disappeared from `GET /tenants`. UI dialog verified with pre-typed name enabling the destructive button.
+
+
+
 ### Session 2026-02-26a — Email delivery log + one-click resend
 - **`_log_email()` + refactored `send_email()`** — every send (invoice, overdue reminder, service reminder, password setup, resend) now writes a row to `db.email_logs` with `{tenant_id, to, subject, html, purpose, related_id, status: accepted|failed, provider_id, error}`. Provider response body captured on 4xx so the owner sees the REAL reason (bad address, quota, etc.) instead of a generic 502.
 - **`GET /api/email-logs`** and **`POST /api/email-logs/{id}/resend`** in `routes/email_logs.py` — list newest-first with status/purpose/free-text filters (tenant-scoped for owners, all rows for super_admin) and a single-endpoint retry that reuses the stored subject + html.

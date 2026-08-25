@@ -151,11 +151,55 @@ def register(db, get_current_user, require_super_admin, provision_owner=None):
         return res
 
     @router.delete("/tenants/{tenant_id}")
-    async def delete_tenant(tenant_id: str, user: dict = Depends(require_super_admin)):
-        res = await db._db.tenants.update_one({"id": tenant_id}, {"$set": {"active": False}})
-        if res.matched_count == 0:
+    async def delete_tenant(tenant_id: str, purge: bool = False, user: dict = Depends(require_super_admin)):
+        """Delete a garage.
+
+        - Default (`?purge=false`): soft-suspend only (sets `active=false`).  Kept
+          for backwards compatibility with the older "Delete" flow which never
+          actually removed data — the tenant just disappeared from the active
+          list until re-enabled.
+        - `?purge=true`: **hard delete** every row belonging to the tenant across
+          all business collections + the tenant + its settings doc.  Used when a
+          garage cancels its subscription and wants their data removed.
+          Irreversible — the frontend must double-confirm before calling this.
+        """
+        t = await db._db.tenants.find_one({"id": tenant_id}, {"_id": 0})
+        if not t:
             raise HTTPException(status_code=404, detail="Tenant not found")
-        return {"ok": True}
+
+        if not purge:
+            await db._db.tenants.update_one({"id": tenant_id}, {"$set": {"active": False}})
+            return {"ok": True, "purged": False}
+
+        # Every scoped business collection — mirror tenant_scope._SCOPED so a
+        # cancelled garage leaves no orphan rows.
+        scoped_collections = [
+            "users", "suppliers", "customers", "vehicles",
+            "inventory", "parts_catalog", "transactions", "purchase_orders",
+            "repairs", "invoices", "appointments", "reminders",
+            "payment_methods", "payment_entries", "cash_movements",
+            "public_invoice_pdfs", "vehicle_events",
+        ]
+        # Extra collections that are NOT in _SCOPED but still stamp tenant_id
+        # today (added later — email_logs, audit_events if any).
+        extra_collections = ["email_logs", "audit_events"]
+
+        deleted = {}
+        for name in scoped_collections + extra_collections:
+            res = await getattr(db._db, name).delete_many({"tenant_id": tenant_id})
+            deleted[name] = res.deleted_count
+
+        # Settings uses `_id = garage:<tid>` — delete by primary key.
+        s_res = await db._db.settings.delete_many(
+            {"$or": [{"_id": f"garage:{tenant_id}"}, {"tenant_id": tenant_id}]}
+        )
+        deleted["settings"] = s_res.deleted_count
+
+        # Finally the tenant row itself.
+        await db._db.tenants.delete_one({"id": tenant_id})
+        deleted["tenants"] = 1
+
+        return {"ok": True, "purged": True, "tenant_name": t.get("name"), "deleted": deleted}
 
     @router.get("/tenants/{tenant_id}/stats")
     async def tenant_stats(tenant_id: str, user: dict = Depends(require_super_admin)):

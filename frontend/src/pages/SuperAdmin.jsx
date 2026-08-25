@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Building2, Plus, Power, PowerOff, Globe, LogIn } from "lucide-react";
+import { Building2, Plus, Power, PowerOff, Globe, LogIn, Trash2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 const COUNTRIES = ["NL", "BE", "DE", "FR", "ES", "IT", "GB", "TR", "MA", "SA", "AE", "EG"];
@@ -24,6 +24,9 @@ export default function SuperAdmin() {
   const qc = useQueryClient();
   const { setUser } = useAuth();
   const [open, setOpen] = useState(false);
+  const [purgeTarget, setPurgeTarget] = useState(null);   // tenant selected for hard-delete
+  const [purgeConfirmName, setPurgeConfirmName] = useState("");
+  const [purging, setPurging] = useState(false);
   const [form, setForm] = useState({ name: "", country: "NL", plan: "trial", owner_email: "", owner_name: "" });
   const { data: tenants = [], isLoading } = useQuery({
     queryKey: ["tenants"],
@@ -68,6 +71,35 @@ export default function SuperAdmin() {
       // support requests start with "why doesn't my dashboard show X?".
       window.location.href = "/";
     } catch (err) { toast.error(formatApiError(err)); }
+  };
+
+  /* Hard-delete a cancelled garage — irreversible.  Opens a confirmation
+     dialog that forces the admin to retype the garage name before we call
+     `DELETE /tenants/{id}?purge=true`, which cascades across every scoped
+     collection.  */
+  const openPurgeDialog = (t) => {
+    setPurgeTarget(t);
+    setPurgeConfirmName("");
+  };
+  const confirmPurge = async () => {
+    if (!purgeTarget) return;
+    if (purgeConfirmName.trim() !== purgeTarget.name) {
+      toast.error("Garage name doesn't match — deletion cancelled");
+      return;
+    }
+    setPurging(true);
+    try {
+      const { data } = await api.delete(`/tenants/${purgeTarget.id}`, { params: { purge: true } });
+      const total = Object.values(data.deleted || {}).reduce((a, b) => a + Number(b || 0), 0);
+      toast.success(`"${purgeTarget.name}" deleted — ${total} records removed`);
+      setPurgeTarget(null);
+      setPurgeConfirmName("");
+      qc.invalidateQueries({ queryKey: ["tenants"] });
+    } catch (err) {
+      toast.error(formatApiError(err));
+    } finally {
+      setPurging(false);
+    }
   };
 
   return (
@@ -159,6 +191,16 @@ export default function SuperAdmin() {
                         ? <><PowerOff className="h-3 w-3 mr-1" />Suspend</>
                         : <><Power className="h-3 w-3 mr-1" />Reactivate</>}
                     </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-full border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => openPurgeDialog(t)}
+                      title="Permanently delete this garage and all its data"
+                      data-testid={`tenant-delete-${t.id}`}
+                    >
+                      <Trash2 className="h-3 w-3 mr-1" />Delete
+                    </Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -213,6 +255,51 @@ export default function SuperAdmin() {
               <Button type="submit" className="rounded-full bg-primary" data-testid="tenant-submit"><Plus className="h-4 w-4 mr-2" />Create garage</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!purgeTarget} onOpenChange={(v) => { if (!v) { setPurgeTarget(null); setPurgeConfirmName(""); } }}>
+        <DialogContent className="max-w-lg" data-testid="tenant-delete-dialog">
+          <DialogHeader>
+            <DialogTitle className="font-display flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" /> Delete garage permanently
+            </DialogTitle>
+            <DialogDescription>
+              This will <strong>permanently remove</strong> "{purgeTarget?.name}" and every record it owns —
+              users, customers, vehicles, invoices, repair cards, inventory, transactions and settings.
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
+            Prefer to keep the data? Use <strong>Suspend</strong> instead — it disables login but leaves the records intact.
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="purge-confirm">
+              Type <span className="font-mono bg-muted px-1 py-0.5 rounded">{purgeTarget?.name}</span> to confirm
+            </Label>
+            <Input
+              id="purge-confirm"
+              value={purgeConfirmName}
+              onChange={(e) => setPurgeConfirmName(e.target.value)}
+              placeholder={purgeTarget?.name || ""}
+              autoFocus
+              data-testid="tenant-delete-confirm-input"
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => { setPurgeTarget(null); setPurgeConfirmName(""); }} disabled={purging}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={confirmPurge}
+              disabled={purging || (purgeConfirmName.trim() !== (purgeTarget?.name || ""))}
+              data-testid="tenant-delete-confirm"
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              {purging ? "Deleting…" : "Delete forever"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
