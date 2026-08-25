@@ -232,6 +232,7 @@ export async function renderInvoiceHtml(inv, settings) {
   const bankBlock = showQr ? (
     qrData ? `
     <div style="margin-top:22px;border:2px solid ${accent};border-radius:10px;overflow:hidden;
+                page-break-inside:avoid;break-inside:avoid;-webkit-column-break-inside:avoid;
                 -webkit-print-color-adjust:exact;print-color-adjust:exact;">
       <div style="background:${accent};color:#fff;padding:8px 14px;font-size:11px;
                   letter-spacing:.14em;text-transform:uppercase;font-weight:700;
@@ -257,7 +258,8 @@ export async function renderInvoiceHtml(inv, settings) {
         </tr>
       </table>
     </div>` : (s.iban || s.bank_name || s.bic) ? `
-    <div style="margin-top:22px;padding:14px 16px;border:1px solid #eee;border-radius:8px;background:#fbfbfb">
+    <div style="margin-top:22px;padding:14px 16px;border:1px solid #eee;border-radius:8px;background:#fbfbfb;
+                page-break-inside:avoid;break-inside:avoid;-webkit-column-break-inside:avoid">
       <div style="font-size:10px;color:#888;letter-spacing:.14em;text-transform:uppercase;font-weight:700;margin-bottom:6px">Payment details</div>
       <div style="font-size:12px;line-height:1.7">
         ${s.bank_name ? `<div><strong>${esc(s.bank_name)}</strong></div>` : ""}

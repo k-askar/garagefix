@@ -149,7 +149,7 @@ async def require_owner(user: dict = Depends(get_current_user)) -> dict:
 # --- Models ---
 class UserRegister(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=6)
+    password: Optional[str] = Field(default=None, min_length=6)
     name: str
     role: Literal["owner", "staff"] = "staff"
     permissions: List[str] = []
@@ -160,6 +160,10 @@ class UserUpdate(BaseModel):
     role: Optional[Literal["owner", "staff"]] = None
     permissions: Optional[List[str]] = None
     password: Optional[str] = Field(default=None, min_length=6)
+
+
+class PasswordSetupSubmit(BaseModel):
+    password: str = Field(min_length=6)
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -1091,7 +1095,12 @@ async def get_permissions_catalog(user: dict = Depends(require_owner)):
 
 @api_router.get("/users")
 async def list_users(user: dict = Depends(require_owner)):
-    rows = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(500)
+    rows = await db.users.find({}, {"_id": 0, "password_hash": 0, "password_setup_token": 0}).sort("created_at", -1).to_list(500)
+    # Expose a pending flag so the UI can show a "Resend setup link" button
+    # for staff whose account has not been activated yet.
+    for r in rows:
+        r["password_pending"] = bool(r.get("password_setup_expires"))
+    return rows
     for r in rows:
         r["permissions"] = r.get("permissions") or []
     return rows
@@ -1107,12 +1116,113 @@ async def create_user(payload: UserRegister, user: dict = Depends(require_owner)
     doc = {
         "id": uid, "email": email, "name": payload.name, "role": payload.role,
         "permissions": perms,
-        "password_hash": hash_password(payload.password),
-        "created_at": datetime.now(timezone.utc).isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    setup_link = None
+    if payload.password:
+        # Owner typed a password → activate straight away.
+        doc["password_hash"] = hash_password(payload.password)
+    else:
+        # No password → generate a one-time setup token and email the staff
+        # member a link to choose their own password.
+        token = secrets.token_urlsafe(32)
+        doc["password_setup_token"]   = token
+        doc["password_setup_expires"] = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        doc["password_hash"]          = ""  # explicit empty — cannot log in yet
+        setup_link = _password_setup_link(token)
     await db.users.insert_one(doc)
+    if setup_link:
+        try:
+            await _send_password_setup_email(doc, setup_link)
+        except Exception as e:
+            logger.warning(f"Password-setup email failed for {email}: {e}")
     return {"id": uid, "email": email, "name": payload.name, "role": payload.role,
-            "permissions": perms, "created_at": doc["created_at"]}
+            "permissions": perms, "created_at": doc["created_at"],
+            "password_pending": bool(setup_link)}
+
+
+def _password_setup_link(token: str) -> str:
+    """Absolute URL the staff member clicks to choose their password."""
+    base = (os.environ.get("APP_PUBLIC_URL") or "").rstrip("/")
+    return f"{base}/setup-password/{token}" if base else f"/setup-password/{token}"
+
+
+async def _send_password_setup_email(user_doc: dict, link: str):
+    settings = await db.settings.find_one({}, {"_id": 0}) or {}
+    garage = settings.get("name") or "PitStock Garage"
+    html = f"""
+    <div style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#111">
+      <h2 style="margin:0 0 8px 0">Welkom bij {esc_html(garage)} 👋</h2>
+      <p style="color:#555;line-height:1.6">Hoi {esc_html(user_doc.get('name') or '')},<br/>
+      Er is een account voor jou aangemaakt in het garage-systeem.
+      Klik op de knop hieronder om je eigen wachtwoord in te stellen —
+      de link is 7 dagen geldig.</p>
+      <p style="text-align:center;margin:28px 0">
+        <a href="{link}" style="display:inline-block;background:#0EA5E9;color:#fff;
+                                text-decoration:none;padding:12px 24px;border-radius:999px;
+                                font-weight:700;font-size:14px">
+          Stel wachtwoord in
+        </a>
+      </p>
+      <p style="color:#888;font-size:12px;line-height:1.5">
+        Werkt de knop niet? Kopieer deze link in je browser:<br/>
+        <span style="font-family:monospace;word-break:break-all">{esc_html(link)}</span>
+      </p>
+    </div>"""
+    email = (user_doc.get("email") or "").strip()
+    if not email:
+        return
+    await send_email(to=email, subject=f"Stel je wachtwoord in — {garage}", html=html)
+
+
+def esc_html(s: str) -> str:
+    return (str(s or "")
+            .replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+@api_router.post("/users/{user_id}/send-setup-link")
+async def resend_password_setup(user_id: str, user: dict = Depends(require_owner)):
+    target = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not (target.get("email") or "").strip():
+        raise HTTPException(status_code=400, detail="User has no email")
+    token = secrets.token_urlsafe(32)
+    await db.users.update_one({"id": user_id}, {"$set": {
+        "password_setup_token":   token,
+        "password_setup_expires": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+    }})
+    link = _password_setup_link(token)
+    target["password_setup_token"] = token
+    await _send_password_setup_email(target, link)
+    return {"ok": True, "link": link, "sent_to": target["email"]}
+
+
+@api_router.get("/auth/password-setup/{token}")
+async def verify_password_setup_token(token: str):
+    doc = await db.users.find_one({"password_setup_token": token}, {"_id": 0, "password_hash": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Link ongeldig of al gebruikt")
+    exp = doc.get("password_setup_expires")
+    if exp and exp < datetime.now(timezone.utc).isoformat():
+        raise HTTPException(status_code=410, detail="Link verlopen — vraag je manager om een nieuwe")
+    return {"email": doc["email"], "name": doc.get("name") or ""}
+
+
+@api_router.post("/auth/password-setup/{token}")
+async def submit_password_setup(token: str, payload: PasswordSetupSubmit):
+    doc = await db.users.find_one({"password_setup_token": token})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Link ongeldig of al gebruikt")
+    exp = doc.get("password_setup_expires")
+    if exp and exp < datetime.now(timezone.utc).isoformat():
+        raise HTTPException(status_code=410, detail="Link verlopen")
+    await db.users.update_one({"id": doc["id"]}, {
+        "$set":   {"password_hash": hash_password(payload.password)},
+        "$unset": {"password_setup_token": "", "password_setup_expires": ""},
+    })
+    return {"ok": True, "email": doc["email"]}
 
 
 @api_router.put("/users/{user_id}")
