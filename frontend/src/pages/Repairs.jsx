@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Car, Wrench, Plus, Trash2, CheckCircle2, FileText, Printer, User, Gauge, X, ClipboardList, FileDown, MessageCircle, Play, Square, Timer, Lock, Unlock, RefreshCw, Undo2, PercentCircle, Archive } from "lucide-react";
+import { Car, Wrench, Plus, Trash2, CheckCircle2, FileText, Printer, User, Gauge, X, ClipboardList, FileDown, MessageCircle, Play, Square, Timer, Lock, Unlock, RefreshCw, Undo2, PercentCircle, Archive, Search, ArrowDownWideNarrow, ArrowUpWideNarrow, SlidersHorizontal } from "lucide-react";
 import NewJobCardDialog from "@/components/NewJobCardDialog";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
@@ -708,6 +708,9 @@ export default function Repairs() {
   const [openCardId, setOpenCardId] = useState(null);
   const [filter, setFilter] = useState("all");
   const [exporting, setExporting] = useState(false);
+  const [query, setQuery] = useState("");
+  const [quickFilter, setQuickFilter] = useState("all"); // all | mine | unassigned | invoiced | noparts
+  const [sortBy, setSortBy] = useState("newest");        // newest | oldest | total_desc | total_asc
   const [form, setForm] = useState({
     customer_id: "", customer_name: "", customer_phone: "",
     car_make: "", car_model: "", car_year: "", car_plate: "", car_color: "", car_km: "",
@@ -730,11 +733,47 @@ export default function Repairs() {
   // These vanish from the main tabs so the workshop board stays uncluttered,
   // but remain visible via the dedicated Archive tab.
   const isArchived = (c) => c.status === "completed" && !!c.invoice_id;
+
+  /* Multi-field search — matches on card number, customer, plate, make/model,
+     mechanic name and complaint text.  Case-insensitive, whitespace-tolerant. */
+  const matchesQuery = (c, q) => {
+    if (!q) return true;
+    const needle = q.toLowerCase().trim();
+    const haystack = [
+      c.card_number, c.customer_name, c.customer_phone,
+      c.car_plate, c.car_make, c.car_model, c.car_year,
+      c.mechanic_name, c.complaint, c.notes,
+      c.invoice_number,
+    ].filter(Boolean).join(" ").toLowerCase();
+    return haystack.includes(needle);
+  };
+
+  const matchesQuickFilter = (c) => {
+    switch (quickFilter) {
+      case "mine":       return c.mechanic_id === me?.id;
+      case "unassigned": return !c.mechanic_id;
+      case "invoiced":   return !!c.invoice_id;
+      case "noparts":    return !(c.parts_used || []).length;
+      default:           return true;
+    }
+  };
+
   const filtered = (() => {
-    if (filter === "archived") return cards.filter(isArchived);
-    const active = cards.filter(c => !isArchived(c));
-    if (filter === "all") return active;
-    return active.filter(c => c.status === filter);
+    // Base list — Archive tab shows archived, everything else shows active only
+    let base = filter === "archived"
+      ? cards.filter(isArchived)
+      : cards.filter(c => !isArchived(c) && (filter === "all" || c.status === filter));
+    // Then narrow by search + quick filter
+    base = base.filter(c => matchesQuery(c, query) && matchesQuickFilter(c));
+    // Then sort
+    const g = (c) => Number(c.grand_total || 0);
+    const d = (c) => c.created_at || "";
+    switch (sortBy) {
+      case "oldest":     return base.sort((a, b) => d(a).localeCompare(d(b)));
+      case "total_desc": return base.sort((a, b) => g(b) - g(a));
+      case "total_asc":  return base.sort((a, b) => g(a) - g(b));
+      default:           return base.sort((a, b) => d(b).localeCompare(d(a))); // newest
+    }
   })();
   const archivedCount = cards.filter(isArchived).length;
 
@@ -826,6 +865,84 @@ export default function Repairs() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {/* ─── Modern search + quick filters bar ─────────────── */}
+        <div className="col-span-full">
+          <div className="rounded-2xl border border-border bg-card p-3 space-y-3" data-testid="repair-search-bar">
+            {/* Hero search input */}
+            <div className="relative">
+              <Search className="h-4 w-4 absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t("searchWerkbonnenPlaceholder") || "ابحث بالاسم، رقم اللوحة، الماركة، رقم البطاقة، الميكانيكي، الشكوى…"}
+                className="w-full h-12 rounded-xl bg-muted/40 border border-transparent focus:border-primary focus:bg-background focus:outline-none pl-11 pr-11 text-sm transition-all"
+                data-testid="repair-search-input"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full bg-muted hover:bg-muted-foreground/20 flex items-center justify-center"
+                  data-testid="repair-search-clear"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+
+            {/* Quick filter chips + sort */}
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex gap-1.5 flex-wrap">
+                {[
+                  { id: "all",        label: t("filterAll")        || "الكل",          Icon: SlidersHorizontal },
+                  { id: "mine",       label: t("filterMine")       || "بطاقاتي",       Icon: User },
+                  { id: "unassigned", label: t("filterUnassigned") || "غير معيّنة",     Icon: Wrench },
+                  { id: "invoiced",   label: t("filterInvoiced")   || "لها فاتورة",     Icon: FileText },
+                  { id: "noparts",    label: t("filterNoParts")    || "بلا قطع غيار",  Icon: X },
+                ].map(({ id, label, Icon }) => {
+                  const active = quickFilter === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setQuickFilter(id)}
+                      className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium transition-all ${active ? "bg-primary text-primary-foreground shadow-sm" : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+                      data-testid={`quick-filter-${id}`}
+                    >
+                      <Icon className="h-3 w-3" />{label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{filtered.length} {t("results") || "نتيجة"}</span>
+                <div className="flex gap-0.5 p-0.5 rounded-full bg-muted/40 border border-border">
+                  {[
+                    { id: "newest",     Icon: ArrowDownWideNarrow, title: t("sortNewest")   || "الأحدث"   },
+                    { id: "oldest",     Icon: ArrowUpWideNarrow,   title: t("sortOldest")   || "الأقدم"   },
+                    { id: "total_desc", Icon: () => <span className="text-[10px] font-mono">€↓</span>, title: t("sortTotalDesc") || "الأعلى ثمناً" },
+                    { id: "total_asc",  Icon: () => <span className="text-[10px] font-mono">€↑</span>, title: t("sortTotalAsc")  || "الأدنى ثمناً" },
+                  ].map(({ id, Icon, title }) => {
+                    const active = sortBy === id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => setSortBy(id)}
+                        title={title}
+                        className={`h-7 min-w-[32px] px-2 rounded-full flex items-center justify-center transition-colors ${active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                        data-testid={`sort-${id}`}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {filtered.map(c => (
           <Card key={c.id} className="group p-5 border-border card-hover cursor-pointer relative overflow-hidden" onClick={() => setOpenCardId(c.id)} data-testid={`repair-card-${c.card_number}`}>
             <div className="absolute top-0 left-0 right-0 h-10 bg-secondary flex items-center justify-between px-4 border-b border-primary/20">
