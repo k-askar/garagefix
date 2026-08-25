@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Car, Wrench, Plus, Trash2, CheckCircle2, FileText, Printer, User, Gauge, X, ClipboardList, FileDown, MessageCircle, Play, Square, Timer, Lock, Unlock, RefreshCw, Undo2, PercentCircle } from "lucide-react";
+import { Car, Wrench, Plus, Trash2, CheckCircle2, FileText, Printer, User, Gauge, X, ClipboardList, FileDown, MessageCircle, Play, Square, Timer, Lock, Unlock, RefreshCw, Undo2, PercentCircle, Archive } from "lucide-react";
 import NewJobCardDialog from "@/components/NewJobCardDialog";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
@@ -726,7 +726,17 @@ export default function Repairs() {
   const { data: items = [] } = useQuery({ queryKey: ["inv"], queryFn: () => api.get("/inventory").then(r => r.data) });
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: () => api.get("/settings").then(r => r.data) });
 
-  const filtered = filter === "all" ? cards : cards.filter(c => c.status === filter);
+  // A card is "archived" once it's been completed AND has been invoiced.
+  // These vanish from the main tabs so the workshop board stays uncluttered,
+  // but remain visible via the dedicated Archive tab.
+  const isArchived = (c) => c.status === "completed" && !!c.invoice_id;
+  const filtered = (() => {
+    if (filter === "archived") return cards.filter(isArchived);
+    const active = cards.filter(c => !isArchived(c));
+    if (filter === "all") return active;
+    return active.filter(c => c.status === filter);
+  })();
+  const archivedCount = cards.filter(isArchived).length;
 
   const create = async (e) => {
     e.preventDefault();
@@ -797,6 +807,10 @@ export default function Repairs() {
               <TabsTrigger value="open">{t("open")}</TabsTrigger>
               <TabsTrigger value="in_progress">{t("inProgress")}</TabsTrigger>
               <TabsTrigger value="completed">{t("completed")}</TabsTrigger>
+              <TabsTrigger value="archived" data-testid="repair-filter-archived">
+                <Archive className="h-3.5 w-3.5 mr-1.5" />{t("archive") || "Archive"}
+                {archivedCount > 0 && <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-mono bg-primary/15 text-primary">{archivedCount}</span>}
+              </TabsTrigger>
             </TabsList>
           </Tabs>
           <Button variant="outline" className="rounded-full" onClick={() => exportReport("print")} data-testid="repairs-print-button">
@@ -828,6 +842,13 @@ export default function Repairs() {
               </div>
               <Badge className={STATUS_STYLE[c.status] + " capitalize whitespace-nowrap"}>{STATUS_LABEL[c.status]}</Badge>
             </div>
+            {c.invoice_id && (
+              <div className="absolute top-11 right-2 z-10">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono uppercase tracking-widest bg-primary/15 text-primary border border-primary/30" title={`Invoice ${c.invoice_number || ""}`}>
+                  <FileText className="h-2.5 w-2.5" />{c.invoice_number || t("invoice")}
+                </span>
+              </div>
+            )}
 
             <div className="space-y-2 text-sm">
               <div className="flex items-center gap-2 text-muted-foreground">
@@ -866,8 +887,12 @@ export default function Repairs() {
         ))}
         {filtered.length === 0 && (
           <div className="col-span-full text-center py-20 border border-dashed border-border rounded-lg">
-            <Wrench className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-            <p className="text-muted-foreground">No {filter === "all" ? "" : STATUS_LABEL[filter]?.toLowerCase() + " "}job cards yet.</p>
+            {filter === "archived" ? <Archive className="h-8 w-8 text-muted-foreground mx-auto mb-3" /> : <Wrench className="h-8 w-8 text-muted-foreground mx-auto mb-3" />}
+            <p className="text-muted-foreground">
+              {filter === "archived"
+                ? (t("noArchivedCards") || "No archived cards yet. Cards move here automatically once completed and invoiced.")
+                : `No ${filter === "all" ? "" : STATUS_LABEL[filter]?.toLowerCase() + " "}job cards yet.`}
+            </p>
           </div>
         )}
       </div>
