@@ -294,7 +294,6 @@ export async function renderInvoiceHtml(inv, settings) {
              -webkit-print-color-adjust:exact;print-color-adjust:exact}
       .badge.paid{background:#22c55e;color:#fff}
       .totrow{font-size:18px;font-weight:800;color:${accent}}
-      .totbox{display:inline-table;padding:12px 16px;background:#fafafa;border-radius:8px;border:1px solid #eee;min-width:240px}
       hr.accent{${tpl.accentRule}}
       .terms{margin-top:18px;font-size:10px;color:#666;white-space:pre-line;border-top:1px solid #eee;padding-top:10px}
       .customer-block{margin-top:14px;padding:10px 14px;background:#fafafa;border-left:3px solid ${accent};border-radius:4px}
@@ -311,22 +310,20 @@ export async function renderInvoiceHtml(inv, settings) {
       <th style="padding-left:14px">Item</th><th class="right">Qty</th><th class="right">Unit</th><th class="right" style="padding-right:14px">Total</th>
     </tr></thead>
     <tbody>${rows}</tbody></table>
-    <div style="margin-top:18px;text-align:right">
-      <table class="totbox" style="border-collapse:collapse">
-        <tr>
-          <td style="color:#666;font-size:12px;padding:2px 0;text-align:left">Subtotal</td>
-          <td style="color:#666;font-size:12px;padding:2px 0 2px 24px;text-align:right;font-family:monospace">${fmtMoney(inv.subtotal, s)}</td>
-        </tr>
-        ${inv.tax ? `<tr>
-          <td style="color:#666;font-size:12px;padding:2px 0;text-align:left">BTW${inv.tax_rate ? " " + inv.tax_rate + "%" : ""}</td>
-          <td style="color:#666;font-size:12px;padding:2px 0 2px 24px;text-align:right;font-family:monospace">${fmtMoney(inv.tax, s)}</td>
-        </tr>` : ""}
-        <tr>
-          <td style="border-top:1px solid #ddd;padding-top:6px;font-size:11px;color:#888;letter-spacing:.1em;text-transform:uppercase;font-weight:700;text-align:left">Total</td>
-          <td style="border-top:1px solid #ddd;padding:6px 0 0 24px;text-align:right;font-family:monospace;font-size:18px;font-weight:800;color:${accent}">${fmtMoney(inv.total, s)}</td>
-        </tr>
-      </table>
-    </div>
+    <table style="margin-top:18px;margin-left:auto;margin-right:0;background:#fafafa;border:1px solid #eee;border-radius:8px;border-collapse:collapse;min-width:260px">
+      <tr>
+        <td style="padding:6px 24px 6px 14px;color:#666;font-size:12px;text-align:left;white-space:nowrap">Subtotal</td>
+        <td style="padding:6px 14px 6px 12px;color:#666;font-size:12px;text-align:right;font-family:monospace;white-space:nowrap">${fmtMoney(inv.subtotal, s)}</td>
+      </tr>
+      ${inv.tax ? `<tr>
+        <td style="padding:4px 24px 4px 14px;color:#666;font-size:12px;text-align:left;white-space:nowrap">BTW${inv.tax_rate ? " " + inv.tax_rate + "%" : ""}</td>
+        <td style="padding:4px 14px 4px 12px;color:#666;font-size:12px;text-align:right;font-family:monospace;white-space:nowrap">${fmtMoney(inv.tax, s)}</td>
+      </tr>` : ""}
+      <tr>
+        <td style="padding:10px 24px 12px 14px;border-top:1px solid #ddd;font-size:11px;color:#888;letter-spacing:.1em;text-transform:uppercase;font-weight:700;text-align:left;white-space:nowrap">Total</td>
+        <td style="padding:10px 14px 12px 12px;border-top:1px solid #ddd;text-align:right;font-family:monospace;font-size:18px;font-weight:800;color:${accent};white-space:nowrap">${fmtMoney(inv.total, s)}</td>
+      </tr>
+    </table>
     ${inv.note ? `<p class="muted" style="margin-top:20px">${noteWithPlate(inv.note, showPlate)}</p>` : ""}
     ${bankBlock}
     <p class="muted" style="margin-top:14px">Payment due within ${s.payment_terms_days || 14} days${inv.due_date ? ` (by ${esc(inv.due_date)})` : ""}.</p>
