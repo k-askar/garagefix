@@ -52,6 +52,75 @@ def create_access_token(user_id: str, email: str, role: str) -> str:
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
+# ── Permission catalog ────────────────────────────────────────────────────
+# Grouped scopes shown as checkboxes in the Staff editor. Owner bypasses ALL
+# checks and always has full access. Staff members hold a subset.
+PERMISSION_CATALOG = [
+    {"section": "inventory", "label": "Inventory", "icon": "package", "perms": [
+        {"key": "inventory.view",     "label": "View parts list & KPIs"},
+        {"key": "inventory.edit",     "label": "Add / edit parts, prices, notes"},
+        {"key": "inventory.delete",   "label": "Delete parts"},
+        {"key": "inventory.withdraw", "label": "Withdraw stock (to card / garage)"},
+        {"key": "inventory.import",   "label": "CSV import / template download"},
+    ]},
+    {"section": "repairs", "label": "Job cards", "icon": "wrench", "perms": [
+        {"key": "repairs.view",     "label": "View repair cards"},
+        {"key": "repairs.create",   "label": "Create new card"},
+        {"key": "repairs.edit",     "label": "Edit card (parts, labor, notes)"},
+        {"key": "repairs.complete", "label": "Mark complete / issue invoice"},
+        {"key": "repairs.delete",   "label": "Delete card"},
+    ]},
+    {"section": "invoices", "label": "Invoices", "icon": "receipt", "perms": [
+        {"key": "invoices.view",       "label": "View invoices"},
+        {"key": "invoices.create",     "label": "Create invoice"},
+        {"key": "invoices.mark_paid",  "label": "Mark as paid"},
+        {"key": "invoices.delete",     "label": "Delete invoice"},
+        {"key": "invoices.send",       "label": "Send by email / WhatsApp"},
+    ]},
+    {"section": "cash", "label": "Cash register", "icon": "wallet", "perms": [
+        {"key": "cash.view",         "label": "View ledger"},
+        {"key": "cash.add_movement", "label": "Add cash in/out"},
+        {"key": "cash.export",       "label": "Export Excel"},
+    ]},
+    {"section": "customers", "label": "Customers & vehicles", "icon": "users", "perms": [
+        {"key": "customers.view",   "label": "View customers"},
+        {"key": "customers.edit",   "label": "Add / edit customer & vehicle"},
+        {"key": "customers.delete", "label": "Delete customer"},
+    ]},
+    {"section": "suppliers", "label": "Suppliers", "icon": "truck", "perms": [
+        {"key": "suppliers.view", "label": "View suppliers"},
+        {"key": "suppliers.edit", "label": "Add / edit suppliers"},
+    ]},
+    {"section": "reports", "label": "Reports & dashboard", "icon": "bar-chart", "perms": [
+        {"key": "reports.view", "label": "View dashboard & reports"},
+    ]},
+    {"section": "calendar", "label": "Calendar & workboard", "icon": "calendar", "perms": [
+        {"key": "calendar.view", "label": "View calendar / workboard / bay-board"},
+        {"key": "calendar.edit", "label": "Book / move appointments"},
+    ]},
+]
+
+def all_permission_keys() -> List[str]:
+    return [p["key"] for section in PERMISSION_CATALOG for p in section["perms"]]
+
+
+def has_permission(user: dict, perm: str) -> bool:
+    """Owner bypasses; staff need `perm` in their `permissions` list."""
+    if not user:
+        return False
+    if user.get("role") == "owner":
+        return True
+    return perm in (user.get("permissions") or [])
+
+
+def require_permission(perm: str):
+    """FastAPI dependency factory to guard an endpoint by a single scope."""
+    async def _dep(user: dict = Depends(get_current_user)) -> dict:
+        if not has_permission(user, perm):
+            raise HTTPException(status_code=403, detail=f"Missing permission: {perm}")
+        return user
+    return _dep
+
 async def get_current_user(request: Request) -> dict:
     auth_header = request.headers.get("Authorization", "")
     token = auth_header[7:] if auth_header.startswith("Bearer ") else (
@@ -64,6 +133,8 @@ async def get_current_user(request: Request) -> dict:
         user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        # Ensure a permissions list is always returned (older docs may lack it).
+        user["permissions"] = user.get("permissions") or []
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
@@ -81,6 +152,14 @@ class UserRegister(BaseModel):
     password: str = Field(min_length=6)
     name: str
     role: Literal["owner", "staff"] = "staff"
+    permissions: List[str] = []
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[Literal["owner", "staff"]] = None
+    permissions: Optional[List[str]] = None
+    password: Optional[str] = Field(default=None, min_length=6)
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -320,14 +399,17 @@ async def register(payload: UserRegister, response: Response):
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email already registered")
     user_id = str(uuid.uuid4())
+    valid_perms = set(all_permission_keys())
+    perms = [p for p in (payload.permissions or []) if p in valid_perms]
     doc = {
         "id": user_id, "email": email, "name": payload.name, "role": payload.role,
+        "permissions": perms,
         "password_hash": hash_password(payload.password),
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.users.insert_one(doc)
     token = create_access_token(user_id, email, payload.role)
-    return {"token": token, "user": {"id": user_id, "email": email, "name": payload.name, "role": payload.role}}
+    return {"token": token, "user": {"id": user_id, "email": email, "name": payload.name, "role": payload.role, "permissions": perms}}
 
 @api_router.post("/auth/login")
 async def login(payload: UserLogin):
@@ -336,7 +418,10 @@ async def login(payload: UserLogin):
     if not user or not verify_password(payload.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = create_access_token(user["id"], user["email"], user["role"])
-    return {"token": token, "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}}
+    return {"token": token, "user": {
+        "id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"],
+        "permissions": user.get("permissions") or [],
+    }}
 
 @api_router.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
@@ -949,9 +1034,17 @@ async def root():
     return {"message": "Garage Inventory API"}
 
 # --- Users / Staff (owner only) ---
+@api_router.get("/permissions/catalog")
+async def permissions_catalog(user: dict = Depends(get_current_user)):
+    """Return the grouped permission catalog for the Staff editor UI."""
+    return {"sections": PERMISSION_CATALOG}
+
+
 @api_router.get("/users")
 async def list_users(user: dict = Depends(require_owner)):
     rows = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(500)
+    for r in rows:
+        r["permissions"] = r.get("permissions") or []
     return rows
 
 @api_router.post("/users")
@@ -960,13 +1053,41 @@ async def create_user(payload: UserRegister, user: dict = Depends(require_owner)
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email already registered")
     uid = str(uuid.uuid4())
+    valid_perms = set(all_permission_keys())
+    perms = [p for p in (payload.permissions or []) if p in valid_perms]
     doc = {
         "id": uid, "email": email, "name": payload.name, "role": payload.role,
+        "permissions": perms,
         "password_hash": hash_password(payload.password),
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.users.insert_one(doc)
-    return {"id": uid, "email": email, "name": payload.name, "role": payload.role, "created_at": doc["created_at"]}
+    return {"id": uid, "email": email, "name": payload.name, "role": payload.role,
+            "permissions": perms, "created_at": doc["created_at"]}
+
+
+@api_router.put("/users/{user_id}")
+async def update_user(user_id: str, payload: UserUpdate, user: dict = Depends(require_owner)):
+    target = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    # Owner cannot demote themselves — safety net against getting locked out.
+    if user["id"] == user_id and payload.role and payload.role != "owner":
+        raise HTTPException(status_code=400, detail="You cannot demote your own owner account")
+    update_fields = {}
+    if payload.name is not None: update_fields["name"] = payload.name
+    if payload.role is not None: update_fields["role"] = payload.role
+    if payload.permissions is not None:
+        valid_perms = set(all_permission_keys())
+        update_fields["permissions"] = [p for p in payload.permissions if p in valid_perms]
+    if payload.password:
+        update_fields["password_hash"] = hash_password(payload.password)
+    if update_fields:
+        await db.users.update_one({"id": user_id}, {"$set": update_fields})
+    fresh = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    fresh["permissions"] = fresh.get("permissions") or []
+    return fresh
+
 
 @api_router.delete("/users/{user_id}")
 async def delete_user(user_id: str, user: dict = Depends(require_owner)):

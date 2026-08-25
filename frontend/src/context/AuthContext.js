@@ -43,8 +43,19 @@ export function AuthProvider({ children }) {
     window.location.href = "/login";
   };
 
+  /**
+   * Central permission check.  Owner bypasses everything, staff need the exact
+   * `perm` string in their permissions list.  Used to hide UI (nav items,
+   * buttons); the server always re-checks on sensitive endpoints.
+   */
+  const hasPermission = (perm) => {
+    if (!user) return false;
+    if (user.role === "owner") return true;
+    return (user.permissions || []).includes(perm);
+  };
+
   return (
-    <AuthCtx.Provider value={{ user, ready, login, register, logout }}>
+    <AuthCtx.Provider value={{ user, ready, login, register, logout, hasPermission }}>
       {children}
     </AuthCtx.Provider>
   );
