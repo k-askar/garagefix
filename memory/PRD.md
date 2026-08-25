@@ -18,6 +18,18 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-25e — server.py partial refactor into routes/
+- **Extracted 4 self-contained modules from `server.py` → `/app/backend/routes/`** to unblock the "monolithic 4400-line server.py" pain point without touching the higher-risk auth/repairs/invoices core paths. New files:
+  - `routes/rdw.py` — `/api/rdw/lookup` (public NL plate open-data)
+  - `routes/kvk.py` — `/api/kvk/lookup` (Dutch Chamber of Commerce)
+  - `routes/reminders.py` — Reminder + ReminderCreate models, `_reminder_html`, `_send_reminder`, and all 6 `/api/reminders/*` endpoints
+  - `routes/cron.py` — `/api/cron/reminders` + `/api/cron/backup` (Bearer-token protected)
+- Each module exposes a `register(...)` factory that returns an `APIRouter`, mirroring the existing `backup.py`/`extras.py` pattern (no circular imports, deps injected).
+- `server.py` shrank from **4438 → 4082 lines** (-356). Verified live: reminders list works, RDW returns Nissan Pixo 2011, KvK returns configured 501 message, cron endpoints correctly reject 401.
+
+### Session 2026-02-25d — Workboard card redesign
+- **CardChip redesigned for readability inside the narrow 7-column week grid** — previously card_number and vehicle collapsed to "J..." in the mechanic × day cells. New stacked layout: top bar (card_number + priority flame + hours pill), hero row (plate badge), vehicle make/model/year row, customer row with user icon, footer with status pill + APK/OIL alert pills. Left-border accent stripe for priority. `context="sidebar"` shows the target mechanic hint (`→ khaled`) only in the unassigned queue (redundant inside a mechanic column). Presenter/compact mode collapses to a single-line pill with plate + vehicle + hours for wall-display readability.
+
 ### Session 2026-02-25c — reminders UX + workboard auto-assign + password setup wiring
 - **Reminders: WhatsApp + Email action buttons on every pending reminder** — replaced the single "Send now" button with two: `Email` (uses existing Resend flow) and `WhatsApp` (opens wa.me with a pre-filled message and marks the reminder as sent). Backend `Reminder.channel` widened to `email | whatsapp | manual` and new endpoint `POST /api/reminders/{id}/mark-sent` accepts `{channel}` to flip status → sent + record channel. Also added dynamic auto-refresh: `refetchInterval: 20s` + `refetchOnWindowFocus`, so rows flip Pending → Sent without a manual page reload.
 - **Workboard: new job cards auto-land on their assigned mechanic** — `POST /api/repairs` now sets `scheduled_date = today` automatically when a `mechanic_id` is picked at creation time (so the card appears in the mechanic's Today column right away instead of sitting in "Niet-toegewezen"). CardChip now shows the mechanic name inline with a wrench icon on every chip — including chips in the unassigned queue — so staff instantly see which colleague the card is destined for.

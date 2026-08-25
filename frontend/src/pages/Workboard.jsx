@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  ChevronLeft, ChevronRight, Wrench, Clock, Search, Maximize2, Minimize2, Flame, ArrowLeftRight, X,
+  ChevronLeft, ChevronRight, Wrench, Clock, Search, Maximize2, Minimize2, Flame, ArrowLeftRight, X, User,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useLang } from "@/i18n";
@@ -83,79 +83,119 @@ function vehicleAlert(card) {
 }
 
 /* ---------- draggable job card ---------- */
-function CardChip({ card, onDragStart, onOpen, onSendBack, compact = false }) {
-  const veh = [card.car_make, card.car_model].filter(Boolean).join(" ") || "Vehicle TBD";
+function CardChip({ card, onDragStart, onOpen, onSendBack, compact = false, context = "cell" }) {
+  const veh = [card.car_make, card.car_model].filter(Boolean).join(" ");
   const alerts = vehicleAlert(card);
   const worst = alerts.reduce((a, x) => (x.level === "critical" ? "critical" : a), alerts.length ? "warn" : "");
   const alertRing =
     worst === "critical" ? "ring-2 ring-rose-500 animate-pulse shadow-[0_0_12px_rgba(244,63,94,0.6)]" :
     worst === "warn" ? "ring-1 ring-amber-500/70" : "";
-  const priorityRing =
-    !worst && card.priority === "high" ? "ring-1 ring-rose-500/60" :
-    !worst && card.priority === "low" ? "ring-1 ring-slate-500/40" : "";
+  const priorityAccent =
+    !worst && card.priority === "high" ? "border-l-4 border-l-rose-500" :
+    !worst && card.priority === "low" ? "border-l-4 border-l-slate-400" :
+    !worst ? "border-l-4 border-l-primary/60" : "";
+  const statusStyle = STATUS_STYLE[card.status] || "";
+  // In compact/presenter mode we squeeze to a tight, glanceable pill.
+  if (compact) {
+    return (
+      <div
+        draggable
+        onDragStart={(e) => onDragStart(e, card)}
+        onClick={onOpen}
+        className={`group cursor-grab active:cursor-grabbing rounded-md border border-border bg-card px-2 py-1.5 hover:border-primary/40 transition-all flex items-center gap-1.5 ${alertRing} ${priorityAccent}`}
+        data-testid={`workboard-chip-${card.card_number}`}
+        title={`${card.card_number} · ${veh} · ${card.customer_name || "Walk-in"}`}
+      >
+        {card.car_plate
+          ? <PlateBadge plate={card.car_plate} country={card.car_country || "NL"} size="xxs" />
+          : <Wrench className="h-3 w-3 text-primary" />}
+        <span className="text-[10px] font-mono truncate flex-1">{veh || "TBD"}</span>
+        {card.estimated_hours > 0 && (
+          <span className="text-[10px] font-mono text-muted-foreground shrink-0">{card.estimated_hours}h</span>
+        )}
+        {card.priority === "high" && <Flame className="h-2.5 w-2.5 text-rose-500 shrink-0" />}
+      </div>
+    );
+  }
   return (
     <div
       draggable
       onDragStart={(e) => onDragStart(e, card)}
       onClick={onOpen}
-      className={`group cursor-grab active:cursor-grabbing rounded-md border border-border bg-card p-2.5 hover:border-primary/40 hover:bg-accent/40 transition-all ${alertRing} ${priorityRing}`}
+      className={`group cursor-grab active:cursor-grabbing rounded-md border border-border bg-card overflow-hidden hover:border-primary/40 hover:shadow-md transition-all ${alertRing} ${priorityAccent}`}
       data-testid={`workboard-chip-${card.card_number}`}
       title={alerts.map(a => a.text).join(" · ")}
     >
-      <div className="flex items-center gap-2 min-w-0">
-        <Wrench className="h-3.5 w-3.5 shrink-0 text-primary" />
-        <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium truncate">{card.card_number} · {veh}</div>
-          <div className="text-[10px] font-mono text-muted-foreground truncate flex items-center gap-1.5">
-            {card.car_plate && <PlateBadge plate={card.car_plate} country={card.car_country || "NL"} size="xxs" />}
-            <span className="truncate">{card.customer_name || "Walk-in"}</span>
-          </div>
-          {/* Show the assigned mechanic prominently on the chip. Employees
-              browsing the "Niet-toegewezen" sidebar can instantly see the
-              card is destined for a specific colleague, and mechanic-column
-              chips still confirm ownership if a card is later moved. */}
-          {card.mechanic_name && (
-            <div className="text-[10px] font-mono text-primary truncate mt-0.5 flex items-center gap-1">
-              <Wrench className="h-2.5 w-2.5" />
-              <span className="truncate">{card.mechanic_name}</span>
-            </div>
-          )}
-        </div>
-        {!compact && card.estimated_hours > 0 && (
-          <Badge variant="outline" className="font-mono text-[10px] px-1.5 h-5 shrink-0">
-            <Clock className="h-3 w-3 mr-1" />{card.estimated_hours}h
-          </Badge>
+      {/* Row 1 — top bar: card number + hours pill */}
+      <div className="flex items-center gap-1.5 px-2 pt-1.5">
+        <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground truncate flex-1">
+          {card.card_number}
+        </span>
+        {card.priority === "high" && <Flame className="h-3 w-3 text-rose-500 shrink-0" title="High priority" />}
+        {card.estimated_hours > 0 && (
+          <span className="inline-flex items-center gap-0.5 text-[10px] font-mono text-primary bg-primary/10 rounded px-1 py-[1px] shrink-0">
+            <Clock className="h-2.5 w-2.5" />{card.estimated_hours}h
+          </span>
         )}
-        {card.priority === "high" && <Flame className="h-3 w-3 text-rose-500 shrink-0" />}
       </div>
-      {!compact && (
-        <div className="mt-1.5 flex items-center gap-1 flex-wrap">
-          <Badge className={STATUS_STYLE[card.status] + " text-[9px] px-1.5 h-4"}>
-            {card.status.replace("_", " ")}
-          </Badge>
-          {alerts.map((a, i) => (
-            <Badge
-              key={i}
-              className={`text-[9px] px-1.5 h-4 ${a.level === "critical"
-                ? "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/50"
-                : "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/40"}`}
-              data-testid={`workboard-alert-${a.kind}-${card.card_number}`}
-            >
-              {a.kind === "apk" ? "APK" : "OIL"} · {a.text.split(" ").slice(-1)[0]}
-            </Badge>
-          ))}
-          {onSendBack && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onSendBack(card); }}
-              className="ms-auto text-[9px] font-mono text-muted-foreground hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity"
-              title="Send back to unassigned"
-              data-testid={`workboard-sendback-${card.card_number}`}
-            >
-              <ArrowLeftRight className="h-3 w-3" />
-            </button>
-          )}
+
+      {/* Row 2 — plate (hero) */}
+      {card.car_plate && (
+        <div className="px-2 py-1">
+          <PlateBadge plate={card.car_plate} country={card.car_country || "NL"} size="xs" />
         </div>
       )}
+
+      {/* Row 3 — vehicle make + model */}
+      {(veh || !card.car_plate) && (
+        <div className="px-2 pb-0.5 flex items-center gap-1 text-[11px] font-semibold text-foreground truncate">
+          <Wrench className="h-3 w-3 text-primary shrink-0" />
+          <span className="truncate">{veh || "Vehicle TBD"}</span>
+          {card.car_year && <span className="text-muted-foreground font-mono text-[10px] shrink-0">{card.car_year}</span>}
+        </div>
+      )}
+
+      {/* Row 4 — customer name */}
+      <div className="px-2 flex items-center gap-1 text-[10px] text-muted-foreground truncate">
+        <User className="h-2.5 w-2.5 shrink-0" />
+        <span className="truncate">{card.customer_name || "Walk-in"}</span>
+      </div>
+
+      {/* Row 5 — mechanic hint (sidebar only — redundant inside the mechanic's own column) */}
+      {context === "sidebar" && card.mechanic_name && (
+        <div className="px-2 mt-0.5 flex items-center gap-1 text-[10px] font-mono text-primary truncate">
+          <Wrench className="h-2.5 w-2.5 shrink-0" />
+          <span className="truncate">→ {card.mechanic_name}</span>
+        </div>
+      )}
+
+      {/* Row 6 — status + alerts footer */}
+      <div className="px-2 pt-1 pb-1.5 mt-1 border-t border-border/60 flex items-center gap-1 flex-wrap">
+        <Badge className={`${statusStyle} text-[9px] px-1.5 h-4 uppercase tracking-wide`}>
+          {card.status.replace("_", " ")}
+        </Badge>
+        {alerts.map((a, i) => (
+          <Badge
+            key={i}
+            className={`text-[9px] px-1.5 h-4 ${a.level === "critical"
+              ? "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/50"
+              : "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/40"}`}
+            data-testid={`workboard-alert-${a.kind}-${card.card_number}`}
+          >
+            {a.kind === "apk" ? "APK" : "OIL"}
+          </Badge>
+        ))}
+        {onSendBack && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onSendBack(card); }}
+            className="ms-auto text-muted-foreground hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity"
+            title="Send back to unassigned"
+            data-testid={`workboard-sendback-${card.card_number}`}
+          >
+            <ArrowLeftRight className="h-3 w-3" />
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -611,6 +651,7 @@ function UnassignedList({ cards, onDragStart, onDragOver, onDrop, onCyclePriorit
             <CardChip
               card={c}
               onDragStart={onDragStart}
+              context="sidebar"
               onOpen={(e) => {
                 e.stopPropagation();
                 setHoursMenu({ cardId: c.id, current: c.estimated_hours });
