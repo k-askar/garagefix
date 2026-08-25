@@ -493,6 +493,31 @@ async def login(payload: UserLogin):
         "permissions": user.get("permissions") or [],
     }}
 
+
+class ChangePasswordBody(BaseModel):
+    current_password: str = Field(min_length=1)
+    new_password:     str = Field(min_length=6)
+
+
+@api_router.post("/auth/change-password")
+async def change_my_password(payload: ChangePasswordBody, user: dict = Depends(get_current_user)):
+    """Let any logged-in user rotate their own password.  Requires the current
+    password to prevent hijacked-session tampering; the platform super_admin
+    uses this to move off the default `platform123` seed without a redeploy."""
+    doc = await _raw_db.users.find_one({"id": user["id"]})
+    if not doc or not doc.get("password_hash"):
+        raise HTTPException(status_code=400, detail="Account has no password set")
+    if not verify_password(payload.current_password, doc["password_hash"]):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    if payload.new_password == payload.current_password:
+        raise HTTPException(status_code=400, detail="New password must differ from the current one")
+    await _raw_db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"password_hash": hash_password(payload.new_password),
+                  "password_changed_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"ok": True}
+
 @api_router.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
     return user

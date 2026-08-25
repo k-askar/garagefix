@@ -6,6 +6,7 @@ import LanguageSwitcher from "@/components/LanguageSwitcher";
 import ThemeToggle from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { LayoutDashboard, Package, ArrowLeftRight, ScrollText, Truck, Users, BarChart3, LogOut, Wrench, Menu, X, UserCog, Settings as SettingsIcon, ClipboardList, Receipt, ShoppingCart, Bell, Wallet, ScanLine, Banknote, Calendar, LayoutGrid, Monitor, PackageOpen, Building2 } from "lucide-react";
+import ChangePasswordDialog from "@/components/ChangePasswordDialog";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -120,6 +121,7 @@ export default function DashboardLayout({ children }) {
             <div className="text-sm font-medium truncate">{user?.name}</div>
             <div className="text-xs font-mono text-muted-foreground uppercase tracking-widest">{user?.role}</div>
           </div>
+          <ChangePasswordDialog triggerLabel={t("changePassword")} />
           <Button
             variant="ghost"
             className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"

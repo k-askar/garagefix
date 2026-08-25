@@ -18,6 +18,11 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-25i — Self-service change password
+- **`POST /api/auth/change-password`** — requires the current password to prevent session-hijack tampering; rejects same-as-current and passwords under 6 chars; stamps `password_changed_at` on success. Uses `_raw_db` so it works for super_admin (no tenant context) and any per-tenant user alike.
+- **`ChangePasswordDialog` component** (Sidebar footer, above "Sign out") — 3-field form with show/hide toggle, translated for EN / NL / AR (`t("changePassword")`). Visible for **every** logged-in user (super_admin, owner, staff) so the platform owner can rotate off the default `platform123` seed in production without a redeploy, and staff can change theirs after using the setup-link email.
+- Verified 8 backend edge cases (wrong current, too-short, same-as-current, valid, old fails, new works, restore, no-auth) + UI screenshot confirming the dialog opens on `/super-admin` with the button in the sidebar.
+
 ### Session 2026-02-25h — Multi-tenant Phase 1b: query isolation + onboarding email + per-country defaults
 - **Query isolation via `tenant_scope.py`** — a `ContextVar`-driven `TenantAwareDb` proxy that wraps 18 business collections. Every filter, `insert_one`, `update_one`, upsert, `find_one_and_update` and aggregation pipeline auto-injects `tenant_id`. `get_current_user` sets the ContextVar on each authenticated request; super_admin, background tasks, cron and startup migrations leave it unset (raw multi-tenant view). Special `_id` rewrite maps legacy `settings._id: "garage"` to `garage:<tenant_id>` — the 11 existing settings queries in server.py + routes stayed untouched.
 - **Legacy settings migration at startup** — the singleton `settings._id: "garage"` doc is copied into `settings._id: "garage:<default_tid>"` (with `tenant_id` stamped) and the legacy row is deleted, so the default garage keeps its historic branding.
