@@ -38,27 +38,46 @@ function extractPlate(note) {
   return candidates.length ? candidates[candidates.length - 1] : null;
 }
 
-/* Compact Dutch-style yellow plate — much smaller than the old 22 px one. */
-function plateHtml(plate) {
+/* Dutch/EU-style yellow plate badge for the printed invoice — mirrors the
+   look of the <PlateBadge> React component used on the Job Cards page so the
+   plate feels consistent everywhere the customer sees it. */
+function plateHtml(plate, country = "NL") {
   if (!plate) return "";
-  return `<span style="display:inline-flex;align-items:center;gap:0;vertical-align:middle;
-    padding:2px 8px;background:#FFC900;color:#000;border:1px solid #000;border-radius:3px;
+  const code = String(country || "NL").toUpperCase();
+  const isNL = code === "NL";
+  const bg = isNL ? "#FFCB05" : "#ffffff";
+  const stripBg = { NL: "#003399", DE: "#003399", FR: "#003399", BE: "#003399",
+                    IT: "#003399", ES: "#003399", PL: "#003399", GB: "#012169",
+                    TR: "#e30a17", MA: "#c1272d", DZ: "#006233", SA: "#006c35",
+                    AE: "#00732f", EG: "#ce1126", SY: "#000000", LB: "#ed1c24",
+                    JO: "#000000", IQ: "#ce1126" }[code] || "#111";
+  const stripLbl = { NL: "NL", DE: "D", FR: "F", BE: "B", IT: "I", ES: "E",
+                     PL: "PL", GB: "GB", TR: "TR", MA: "MA", DZ: "DZ",
+                     SA: "KSA", AE: "UAE", EG: "ET", SY: "SYR", LB: "RL",
+                     JO: "JOR", IQ: "IRQ" }[code] || code.slice(0, 3);
+  return `<span style="display:inline-block;position:relative;vertical-align:middle;
+    background:${bg};color:#000;border:2px solid #000;border-radius:5px;
+    padding:5px 14px 5px 38px;
     font-family:'Arial Black',Impact,'Helvetica Neue',sans-serif;font-weight:900;
-    font-size:12px;letter-spacing:0.06em;line-height:1.15;
+    font-size:16px;letter-spacing:0.14em;line-height:1.15;white-space:nowrap;
     -webkit-print-color-adjust:exact;print-color-adjust:exact;">
-    <span style="background:#003399;color:#fff;font-size:8px;padding:1px 3px;margin-right:6px;
-                 border-radius:2px;-webkit-print-color-adjust:exact;print-color-adjust:exact;">NL</span>
+    <span style="position:absolute;left:0;top:0;bottom:0;width:30px;
+                 background:${stripBg};color:#fff;font-size:11px;letter-spacing:0.06em;
+                 display:flex;align-items:center;justify-content:center;font-weight:900;
+                 border-top-left-radius:3px;border-bottom-left-radius:3px;
+                 border-right:1px solid rgba(0,0,0,.15);
+                 -webkit-print-color-adjust:exact;print-color-adjust:exact;">${stripLbl}</span>
     ${esc(String(plate).toUpperCase())}
   </span>`;
 }
 
-function noteWithPlate(note, showPlate) {
+function noteWithPlate(note, showPlate, country = "NL") {
   if (!note) return "";
   if (!showPlate) return esc(note);
   const plate = extractPlate(note);
   if (!plate) return esc(note);
   const idx = note.lastIndexOf(plate);
-  return `${esc(note.slice(0, idx))}${plateHtml(plate)}`;
+  return `${esc(note.slice(0, idx))}${plateHtml(plate, country)}`;
 }
 
 /* Absolute URL for a settings.logo_url that may be:

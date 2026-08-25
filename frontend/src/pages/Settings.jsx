@@ -92,39 +92,69 @@ const ALIGNMENTS = [
   { id: "right",  Icon: AlignRight  },
 ];
 
-// Same yellow-plate mock used in printInvoice; here for the preview only.
+/* Live invoice preview — mirrors invoice-render.js so every settings toggle
+   (accent, template, alignment, currency, prefix, QR, plate) shows up here
+   BEFORE the owner even hits Save. */
 function InvoicePreview({ form }) {
   const accent = form.invoice_accent_color || "#0EA5E9";
   const logo = form.logo_url;
   const logoSrc = logo?.startsWith("/api/") ? `${process.env.REACT_APP_BACKEND_URL}${logo}` : logo;
+  const template = form.invoice_template || "classic";
+  const align = form.invoice_header_align || "left";
+  const alignClass = align === "center" ? "items-center text-center" : align === "right" ? "items-end text-right" : "items-start text-left";
+  const flexDir = align === "right" ? "flex-row-reverse" : "flex-row";
+  const currencyPos = form.invoice_currency_symbol_pos || "suffix";
+  const fmt = (n) => currencyPos === "prefix"
+    ? `€ ${Number(n).toFixed(2)}`
+    : `${Number(n).toFixed(2).replace(".", ",")} €`;
+  const taxRate = form.default_tax_rate || 21;
+  const subtotal = 100;
+  const tax = (subtotal * taxRate) / 100;
+  const total = subtotal + tax;
+
   return (
-    <div className="p-6 bg-white text-black rounded-md border border-border shadow-sm text-sm" data-testid="invoice-preview">
-      <div className="flex items-start justify-between">
-        <div className="flex items-start gap-3">
-          {logoSrc && <img src={logoSrc} alt="logo" className="h-12 w-auto object-contain" />}
-          <div>
-            <div className="font-bold text-lg">{form.name || "Garage"}</div>
+    <div className="p-6 bg-white text-black rounded-md border border-border shadow-sm text-sm relative overflow-hidden" data-testid="invoice-preview">
+      {/* Template-specific top band */}
+      {template === "classic" && <div style={{ height: 6, background: accent, marginTop: -24, marginLeft: -24, marginRight: -24, marginBottom: 18 }} />}
+      {template === "bold"    && <div style={{ height: 3, background: "#000", marginTop: -24, marginLeft: -24, marginRight: -24, marginBottom: 18 }} />}
+
+      {/* Header row — alignment dynamic */}
+      <div className={`flex ${flexDir} items-start justify-between gap-3 ${align === "center" ? "flex-col " + alignClass : ""}`}>
+        <div className={`flex ${align === "center" ? "flex-col items-center" : "items-start"} gap-3 min-w-0`}>
+          {logoSrc && <img src={logoSrc} alt="logo" className="h-12 w-auto object-contain shrink-0" />}
+          <div className={align === "center" ? "text-center" : ""}>
+            <div className={template === "bold" ? "font-black text-xl leading-tight" : "font-bold text-lg leading-tight"}>{form.name || "Garage"}</div>
             <div className="text-[11px] text-gray-500 whitespace-pre-line">{form.address}</div>
             <div className="text-[11px] text-gray-500">{form.phone}{form.email ? " · " + form.email : ""}</div>
             {form.tax_id && <div className="text-[11px] text-gray-500">VAT / BTW: {form.tax_id}</div>}
             {form.kvk_number && <div className="text-[11px] text-gray-500">KvK: {form.kvk_number}</div>}
           </div>
         </div>
-        <div className="text-right">
+        <div className={align === "center" ? "text-center" : "text-right"}>
           <span
-            className="inline-block px-3 py-0.5 rounded-full text-[10px] tracking-widest text-white font-bold"
+            className={`inline-block ${template === "bold" ? "px-4 py-1 rounded-none" : "px-3 py-0.5 rounded-full"} text-[10px] tracking-widest text-white font-bold`}
             style={{ background: accent }}
           >INVOICE</span>
-          <div className="font-mono font-bold mt-1">{form.invoice_prefix || "INV"}-260821-DEMO</div>
+          <div className="font-mono font-bold mt-1 whitespace-nowrap">{form.invoice_prefix || "INV"}-260821-DEMO</div>
           <div className="text-[11px] text-gray-500">21/08/2026</div>
         </div>
       </div>
-      <hr className="my-4" style={{ borderColor: accent, borderWidth: "0 0 2px 0" }} />
-      <div className="text-[10px] uppercase tracking-widest text-gray-500">Bill to</div>
-      <div className="font-semibold">Ahmed Al-Farsi</div>
+
+      {/* Divider — template-specific */}
+      {template === "classic" && <hr className="my-4" style={{ borderColor: accent, borderWidth: "0 0 2px 0" }} />}
+      {template === "minimal" && <hr className="my-4" style={{ borderColor: accent, borderWidth: "0 0 1px 0" }} />}
+      {template === "bold"    && <hr className="my-4" style={{ borderColor: "#000", borderWidth: "0 0 3px 0" }} />}
+
+      {/* Bill to */}
+      <div className={`${template === "classic" ? "rounded p-2 -mx-2" : ""}`} style={template === "classic" ? { background: `${accent}15`, borderLeft: `3px solid ${accent}` } : {}}>
+        <div className="text-[10px] uppercase tracking-widest text-gray-500">Bill to</div>
+        <div className="font-semibold">Ahmed Al-Farsi</div>
+      </div>
+
+      {/* Items table */}
       <table className="w-full mt-3 border-collapse text-[12px]">
         <thead>
-          <tr style={{ background: "#f5f5f5" }}>
+          <tr style={template === "bold" ? { background: "#000", color: "#fff" } : { background: "#f5f5f5" }}>
             <th className="text-left p-2 border-b">Item</th>
             <th className="text-right p-2 border-b">Qty</th>
             <th className="text-right p-2 border-b">Price</th>
@@ -132,31 +162,71 @@ function InvoicePreview({ form }) {
           </tr>
         </thead>
         <tbody>
-          <tr><td className="p-2 border-b">Brake pads front set</td><td className="text-right p-2 border-b">1</td><td className="text-right p-2 border-b">45,00 €</td><td className="text-right p-2 border-b">45,00 €</td></tr>
-          <tr><td className="p-2 border-b">Labor</td><td className="text-right p-2 border-b">1</td><td className="text-right p-2 border-b">55,00 €</td><td className="text-right p-2 border-b">55,00 €</td></tr>
+          <tr><td className="p-2 border-b">Brake pads front set</td><td className="text-right p-2 border-b">1</td><td className="text-right p-2 border-b font-mono">{fmt(45)}</td><td className="text-right p-2 border-b font-mono">{fmt(45)}</td></tr>
+          <tr><td className="p-2 border-b">Labor</td><td className="text-right p-2 border-b">1</td><td className="text-right p-2 border-b font-mono">{fmt(55)}</td><td className="text-right p-2 border-b font-mono">{fmt(55)}</td></tr>
         </tbody>
       </table>
-      <div className="text-right mt-2 text-[12px]">
-        <div className="text-gray-500">Subtotal: 100,00 €</div>
-        <div className="text-gray-500">BTW ({form.default_tax_rate || 21}%): {((100 * (form.default_tax_rate || 21)) / 100).toFixed(2)} €</div>
-        <div className="font-bold mt-1">Total: {(100 + (100 * (form.default_tax_rate || 21)) / 100).toFixed(2)} €</div>
+
+      {/* Totals */}
+      <div className="text-right mt-3 text-[12px] space-y-0.5">
+        <div className="text-gray-500 font-mono">Subtotal: {fmt(subtotal)}</div>
+        <div className="text-gray-500 font-mono">BTW ({taxRate}%): {fmt(tax)}</div>
+        <div className="font-mono pt-1 mt-1 border-t" style={template === "bold"
+          ? { fontSize: 16, fontWeight: 900, color: "#000", borderColor: "#000" }
+          : { fontSize: 15, fontWeight: 800, color: accent, borderColor: "#ddd" }}>
+          Total: {fmt(total)}
+        </div>
       </div>
+
+      {/* Plate badge — matches the job card / PlateBadge component */}
       {form.show_plate_badge && (
-        <div className="mt-4 text-[11px] text-gray-500">
-          Repair JOB-260821-DEMO ·{" "}
+        <div className="mt-4 text-[11px] text-gray-600 flex items-center gap-2 flex-wrap">
+          <span>Repair JOB-260821-DEMO ·</span>
           <span
-            className="inline-flex items-center gap-1 px-2 py-[3px] rounded font-mono font-bold border border-black/40"
-            style={{ background: "#FFC900", color: "#000", letterSpacing: "0.08em", fontSize: "11px" }}
+            className="inline-block relative align-middle"
+            style={{
+              background: "#FFCB05", color: "#000",
+              border: "2px solid #000", borderRadius: 4,
+              padding: "3px 10px 3px 30px",
+              fontFamily: "'Arial Black',Impact,'Helvetica Neue',sans-serif",
+              fontWeight: 900, fontSize: 13, letterSpacing: "0.14em", lineHeight: 1.15,
+              whiteSpace: "nowrap",
+            }}
           >
-            <span style={{ background: "#003399", color: "#fff", fontSize: "7px", padding: "1px 4px", borderRadius: "2px" }}>NL</span>
-            NL-COR-02
+            <span
+              style={{
+                position: "absolute", left: 0, top: 0, bottom: 0, width: 24,
+                background: "#003399", color: "#fff", fontSize: 9,
+                letterSpacing: "0.06em", display: "flex", alignItems: "center",
+                justifyContent: "center", fontWeight: 900,
+                borderTopLeftRadius: 2, borderBottomLeftRadius: 2,
+                borderRight: "1px solid rgba(0,0,0,.15)",
+              }}
+            >NL</span>
+            KK-555-D
           </span>
         </div>
       )}
+
+      {/* SEPA QR placeholder */}
+      {form.invoice_show_qr && form.iban && (
+        <div
+          className="mt-4 p-3 rounded flex items-center gap-3"
+          style={{ border: `2px solid ${accent}`, background: "#fff" }}
+        >
+          <div className="w-16 h-16 shrink-0 grid place-items-center bg-black/5 rounded font-mono text-[9px] text-gray-500">QR</div>
+          <div className="text-[10px] text-gray-600 leading-tight">
+            <div className="font-bold text-black">Betaal met iDEAL / SEPA</div>
+            <div className="font-mono">IBAN {String(form.iban).replace(/\s+/g, "").toUpperCase().match(/.{1,4}/g)?.join(" ")}</div>
+            <div>Reference: <strong>{form.invoice_prefix || "INV"}-260821-DEMO</strong></div>
+          </div>
+        </div>
+      )}
+
       {form.invoice_terms && (
         <div className="mt-4 text-[10px] text-gray-500 whitespace-pre-line border-t pt-2">{form.invoice_terms}</div>
       )}
-      {form.iban && <div className="mt-2 text-[11px] text-gray-500">IBAN: <span className="font-mono">{form.iban}</span></div>}
+      {form.iban && !form.invoice_show_qr && <div className="mt-2 text-[11px] text-gray-500">IBAN: <span className="font-mono">{form.iban}</span></div>}
       <div className="mt-1 text-[11px] text-gray-500">Payment due within {form.payment_terms_days || 14} days.</div>
       <p className="text-center text-[11px] text-gray-500 mt-4">{form.footer_note}</p>
     </div>
