@@ -1281,7 +1281,8 @@ async def _send_password_setup_email(user_doc: dict, link: str):
     email = (user_doc.get("email") or "").strip()
     if not email:
         return
-    await send_email(to=email, subject=f"Stel je wachtwoord in — {garage}", html=html)
+    await send_email(to=email, subject=f"Stel je wachtwoord in — {garage}", html=html,
+                     purpose="password_setup", related_id=user_doc.get("id"))
 
 
 def esc_html(s: str) -> str:
@@ -1824,7 +1825,8 @@ async def _send_overdue_email(inv, stage: Optional[int] = None):
     subject = tone["subject"].format(inv=inv["invoice_number"], days=days)
     html = _overdue_email_html(inv, garage_name, iban, picked_stage)
     try:
-        await send_email(to=c["email"], subject=subject, html=html)
+        await send_email(to=c["email"], subject=subject, html=html,
+                         purpose="invoice_overdue", related_id=inv.get("id"))
         now_iso = datetime.now(timezone.utc).isoformat()
         entry = {"stage": picked_stage, "sent_at": now_iso, "days_overdue": days}
         await db.invoices.update_one(
@@ -2054,7 +2056,8 @@ async def email_invoice(inv_id: str, payload: InvoiceEmailBody = InvoiceEmailBod
             "content_base64": payload.attachment_base64,
         }]
     try:
-        await send_email(to=to, subject=subject, html=html, attachments=attachments)
+        await send_email(to=to, subject=subject, html=html, attachments=attachments,
+                         purpose="invoice_send", related_id=inv.get("id"))
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Email failed: {str(e)[:180]}")
     await db.invoices.update_one({"id": inv_id}, {"$set": {"last_emailed_at": datetime.now(timezone.utc).isoformat(), "last_emailed_to": to}})
@@ -3587,7 +3590,36 @@ def _assert_safe_email(subject, html):
         if not _host_ok(h) or urlparse(low).username is not None:
             raise ValueError(f"Unsafe URL: {url} (G3)")
 
-async def send_email(*, to, subject, html, attachments=None):
+async def _log_email(*, to, subject, html, purpose, related_id, status, provider_id, error, attachments):
+    """Persist every email attempt so owners can audit delivery status and
+    trigger a manual resend from the UI."""
+    try:
+        tid = None
+        try:
+            tid = current_tenant_id.get()
+        except Exception:
+            tid = None
+        doc = {
+            "id": str(uuid.uuid4()),
+            "tenant_id": tid,
+            "to": to,
+            "subject": subject,
+            "html": html,
+            "purpose": purpose or "other",
+            "related_id": related_id,
+            "status": status,           # "accepted" | "failed"
+            "provider_id": provider_id,
+            "error": (error or "")[:400] if error else None,
+            "has_attachments": bool(attachments),
+            "attachment_filenames": [a.get("filename") for a in (attachments or []) if a.get("filename")],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await _raw_db.email_logs.insert_one(doc)
+    except Exception as le:
+        logger.warning(f"email log persist failed: {le}")
+
+
+async def send_email(*, to, subject, html, attachments=None, purpose="other", related_id=None):
     _assert_safe_email(subject, html)
     payload = {"to": [to], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME}
     # attachments: [{"filename": "invoice.pdf", "content_base64": "…"}]  — passed
@@ -3602,9 +3634,24 @@ async def send_email(*, to, subject, html, attachments=None):
             r = await c.post(f"{EMAIL_BASE_URL}/api/v1/email/send",
                              headers={"X-Email-Key": EMAIL_KEY}, json=payload)
         r.raise_for_status()
-        return r.json().get("id")
+        provider_id = r.json().get("id")
+        await _log_email(to=to, subject=subject, html=html, purpose=purpose,
+                         related_id=related_id, status="accepted",
+                         provider_id=provider_id, error=None, attachments=attachments)
+        return provider_id
     except Exception as e:
-        logger.error(f"Email send failed: {e}")
+        # Capture the provider's response body when available so we can show
+        # the real "why" (bad address, over quota, blocked, etc.) in the UI.
+        err_detail = str(e)
+        try:
+            if hasattr(e, "response") and e.response is not None:
+                err_detail = f"{e.response.status_code}: {e.response.text[:300]}"
+        except Exception:
+            pass
+        logger.error(f"Email send failed: {err_detail}")
+        await _log_email(to=to, subject=subject, html=html, purpose=purpose,
+                         related_id=related_id, status="failed",
+                         provider_id=None, error=err_detail, attachments=attachments)
         raise HTTPException(status_code=502, detail="Failed to send email")
 
 # --- Reminders, Cron, RDW, KvK — extracted to routes/ ---
@@ -3615,6 +3662,7 @@ from routes.cron      import register as _register_cron       # noqa: E402
 from routes.rdw       import register as _register_rdw        # noqa: E402
 from routes.kvk       import register as _register_kvk        # noqa: E402
 from routes.tenants   import register as _register_tenants    # noqa: E402
+from routes.email_logs import register as _register_email_logs  # noqa: E402
 
 # Helper passed into routes/tenants.py so the super-admin "Create garage"
 # endpoint can auto-provision a pending-password owner user and email the
@@ -3655,6 +3703,7 @@ api_router.include_router(_register_cron(db, WEBHOOK_CRON_SECRET, _send_reminder
 api_router.include_router(_register_rdw(get_current_user))
 api_router.include_router(_register_kvk(get_current_user))
 api_router.include_router(_register_tenants(db, get_current_user, require_super_admin, _provision_tenant_owner))
+api_router.include_router(_register_email_logs(db, get_current_user, send_email, require_super_admin))
 
 
 # --- Cash Register / Daily Till ---

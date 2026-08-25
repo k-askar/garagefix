@@ -5,7 +5,7 @@ import { useLang } from "@/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import ThemeToggle from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Package, ArrowLeftRight, ScrollText, Truck, Users, BarChart3, LogOut, Wrench, Menu, X, UserCog, Settings as SettingsIcon, ClipboardList, Receipt, ShoppingCart, Bell, Wallet, ScanLine, Banknote, Calendar, LayoutGrid, Monitor, PackageOpen, Building2 } from "lucide-react";
+import { LayoutDashboard, Package, ArrowLeftRight, ScrollText, Truck, Users, BarChart3, LogOut, Wrench, Menu, X, UserCog, Settings as SettingsIcon, ClipboardList, Receipt, ShoppingCart, Bell, Wallet, ScanLine, Banknote, Calendar, LayoutGrid, Monitor, PackageOpen, Building2, Mail } from "lucide-react";
 import ChangePasswordDialog from "@/components/ChangePasswordDialog";
 import ImpersonationBanner from "@/components/ImpersonationBanner";
 import { cn } from "@/lib/utils";
@@ -30,6 +30,7 @@ const NAV = [
 const OWNER_NAV = [
   { to: "/purchase-orders", key: "purchaseOrders", icon: ShoppingCart, testId: "nav-po" },
   { to: "/staff", key: "staff", icon: UserCog, testId: "nav-staff" },
+  { to: "/email-logs", key: "emailLogs", icon: Mail, testId: "nav-email-logs" },
   { to: "/settings", key: "settings", icon: SettingsIcon, testId: "nav-settings" },
 ];
 

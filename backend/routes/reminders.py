@@ -88,7 +88,8 @@ def register(db, get_current_user, send_email):
         try:
             await send_email(to=rem["customer_email"],
                              subject=f"Service reminder — {rem.get('reason') or 'workshop visit'}",
-                             html=html)
+                             html=html,
+                             purpose="service_reminder", related_id=rem.get("id"))
             await db.reminders.update_one(
                 {"id": rem_id},
                 {"$set": {"status": "sent", "sent_at": datetime.now(timezone.utc).isoformat()}},

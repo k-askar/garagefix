@@ -18,6 +18,14 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26a — Email delivery log + one-click resend
+- **`_log_email()` + refactored `send_email()`** — every send (invoice, overdue reminder, service reminder, password setup, resend) now writes a row to `db.email_logs` with `{tenant_id, to, subject, html, purpose, related_id, status: accepted|failed, provider_id, error}`. Provider response body captured on 4xx so the owner sees the REAL reason (bad address, quota, etc.) instead of a generic 502.
+- **`GET /api/email-logs`** and **`POST /api/email-logs/{id}/resend`** in `routes/email_logs.py` — list newest-first with status/purpose/free-text filters (tenant-scoped for owners, all rows for super_admin) and a single-endpoint retry that reuses the stored subject + html.
+- **`/email-logs` page** (`EmailLogs.jsx`, owner-only) — sidebar entry under OWNER, 3 stat cards (Total / Accepted / Failed), search + status + purpose filters, table with recipient, subject, purpose badge, delivery status pill (with error text on failure) and a per-row **Resend** button. EN / NL / AR translated.
+- Verified end-to-end: created a service reminder → sent → provider returned HTTP 202 → row logged as `accepted` → Resend button re-sent successfully; page renders correctly with i18n keys resolved and tenant isolation enforced.
+
+
+
 ### Session 2026-02-25l — Staff invite QR code + copy-link dialog
 - **`GET /api/users/{id}/setup-link`** (owner-only) — returns the CURRENT pending setup URL, expiry date and target email.  Idempotent: reads the existing token if still valid, only regenerates when missing or expired.  Rejects activated accounts (400) and unknown users (404).
 - **`StaffInviteQrDialog`** — fetches the link on open, renders a **220×220 QR** (using the already-installed `qrcode` npm lib), shows the URL in a select-all `<code>` block with a 1-tap **Copy** button (with green checkmark feedback), plus **"Send by email"** and **"Open link"** side actions.  Expiry date shown prominently.
