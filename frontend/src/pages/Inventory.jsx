@@ -13,13 +13,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Search, Pencil, Trash2, Printer, Upload, Car, Download, Tags, FileDown, Package, TrendingDown, TrendingUp, Wallet, AlertTriangle, ArrowDownRight, ArrowUpRight, Wrench, Warehouse, PackagePlus, PackageMinus, ClipboardList, User } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Printer, Upload, Car, Download, Tags, FileDown, Package, TrendingDown, TrendingUp, Wallet, AlertTriangle, ArrowDownRight, ArrowUpRight, Wrench, Warehouse, PackagePlus, PackageMinus, ClipboardList, User, Camera } from "lucide-react";
 import { toast } from "sonner";
 import Barcode from "react-barcode";
 import { useAuth } from "@/context/AuthContext";
 import { useLang } from "@/i18n";
 import { printLabels } from "@/lib/barcode-batch";
 import { downloadListReportPdf, printListReport } from "@/lib/reports";
+import BarcodeScannerDialog from "@/components/BarcodeScannerDialog";
 
 const CATEGORIES = ["Engine", "Brakes", "Filters", "Lubricants", "Electrical", "Body", "Tyres", "Suspension", "Transmission", "General"];
 
@@ -144,6 +145,7 @@ function WithdrawPanel({ items, invalidate, t }) {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [manualCode, setManualCode] = useState("");
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   const { data: openCards = [] } = useQuery({
     queryKey: ["repairs-open"],
@@ -155,14 +157,19 @@ function WithdrawPanel({ items, invalidate, t }) {
   const isCard = destination && destination !== "garage";
   const chosenCard = openCards.find(c => c.id === destination);
 
-  const scanCode = () => {
-    if (!manualCode.trim()) return;
-    const found = items.find(i => i.barcode === manualCode.trim() || i.sku === manualCode.trim());
+  // Look up an item by scanned/typed code and select it, or complain.
+  const resolveCode = (code) => {
+    const c = (code || "").trim();
+    if (!c) return;
+    const found = items.find(i => i.barcode === c || i.sku === c);
     if (!found) { toast.error(t("noMatchingBarcode")); return; }
     setItemId(found.id);
     setManualCode("");
     toast.success(`${found.name} · ${found.quantity} ${t("inStock")}`);
   };
+
+  const scanCode = () => resolveCode(manualCode);
+  const onScannerDecoded = (text) => resolveCode(text);
 
   const submit = async () => {
     if (!itemId) return toast.error(t("pickPart"));
@@ -220,7 +227,18 @@ function WithdrawPanel({ items, invalidate, t }) {
               onKeyDown={(e) => { if (e.key === "Enter") scanCode(); }}
               data-testid="withdraw-scan-input"
             />
-            <Button type="button" variant="outline" className="rounded-full" onClick={scanCode}>{t("load")}</Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="rounded-full shrink-0 border-primary/40 text-primary hover:bg-primary/10"
+              onClick={() => setScannerOpen(true)}
+              title={t("scanBarcodeCamera")}
+              data-testid="withdraw-open-scanner"
+            >
+              <Camera className="h-4 w-4" />
+            </Button>
+            <Button type="button" variant="outline" className="rounded-full shrink-0" onClick={scanCode}>{t("load")}</Button>
           </div>
         </div>
         <div className="space-y-1.5">
@@ -320,6 +338,13 @@ function WithdrawPanel({ items, invalidate, t }) {
           <PackageMinus className="h-4 w-4 mr-2" /> {busy ? t("loading") : t("confirmWithdraw")}
         </Button>
       </div>
+
+      <BarcodeScannerDialog
+        open={scannerOpen}
+        onOpenChange={setScannerOpen}
+        onDecoded={onScannerDecoded}
+        elementId="withdraw-bcode-scanner"
+      />
     </Card>
   );
 }
