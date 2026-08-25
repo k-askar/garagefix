@@ -10,8 +10,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Bell, Send, Plus, Trash2, RefreshCw, Wrench, Droplet, ShieldCheck } from "lucide-react";
+import { Bell, Send, Plus, Trash2, RefreshCw, Wrench, Droplet, ShieldCheck, Mail, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
+import { whatsappShare } from "@/lib/whatsapp";
 
 function todayISO(offset = 0) { const d = new Date(); d.setDate(d.getDate() + offset); return d.toISOString().slice(0, 10); }
 
@@ -20,8 +21,16 @@ export default function Reminders() {
   const [open, setOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [form, setForm] = useState({ customer_id: "", reason: "Oil & filter service", due_date: todayISO(30), due_km: "", car_plate: "", car_make: "", car_model: "" });
-  const { data: rows = [] } = useQuery({ queryKey: ["reminders"], queryFn: () => api.get("/reminders").then(r => r.data) });
+  const { data: rows = [] } = useQuery({
+    queryKey: ["reminders"],
+    queryFn: () => api.get("/reminders").then(r => r.data),
+    // Poll every 20s so newly-sent items flip from Pending → Sent without a
+    // manual refresh, and so scheduled cron sweeps show up promptly.
+    refetchInterval: 20000,
+    refetchOnWindowFocus: true,
+  });
   const { data: customers = [] } = useQuery({ queryKey: ["cus"], queryFn: () => api.get("/customers").then(r => r.data) });
+  const { data: settings = {} } = useQuery({ queryKey: ["settings"], queryFn: () => api.get("/settings").then(r => r.data).catch(() => ({})) });
 
   const scanVehicles = async () => {
     setScanning(true);
@@ -49,6 +58,31 @@ export default function Reminders() {
   const sendNow = async (id) => {
     try { await api.post(`/reminders/${id}/send`); toast.success("Email queued"); setTimeout(() => qc.invalidateQueries({ queryKey: ["reminders"] }), 1500); }
     catch (e) { toast.error(formatApiError(e)); }
+  };
+
+  /* Open WhatsApp Web / app with a ready-to-send reminder message. The customer
+     phone is looked up from the loaded customer list (Reminder doc doesn't
+     store phone). We mark the reminder "sent" so the row flips to green. */
+  const sendWhatsApp = async (r) => {
+    const cust = customers.find(c => c.id === r.customer_id);
+    const phone = cust?.phone || "";
+    if (!phone) { toast.error("No phone number on file"); return; }
+    const veh = [r.car_make, r.car_model, r.car_plate].filter(Boolean).join(" ");
+    whatsappShare({
+      phone,
+      garageName: settings?.name || "Garage",
+      header: `Service reminder — ${r.reason}`,
+      lines: [
+        `Vehicle: ${veh || "your car"}`,
+        `Due: ${r.due_date}${r.due_km ? ` · ${r.due_km} km` : ""}`,
+      ],
+      note: "Please book a slot that suits you — reply to this message or give us a call.",
+    });
+    // Best-effort backend mark. Falls back gracefully if endpoint is missing.
+    try {
+      await api.post(`/reminders/${r.id}/mark-sent`, { channel: "whatsapp" });
+      qc.invalidateQueries({ queryKey: ["reminders"] });
+    } catch { /* non-fatal — WhatsApp already opened */ }
   };
 
   const del = async (id) => {
@@ -140,7 +174,31 @@ export default function Reminders() {
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
-                    {r.status === "pending" && <Button size="sm" variant="outline" className="rounded-full" onClick={() => sendNow(r.id)} data-testid={`reminder-send-${r.id}`}><Send className="h-3 w-3 mr-1" />Send now</Button>}
+                    {r.status === "pending" && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="rounded-full"
+                          onClick={() => sendNow(r.id)}
+                          disabled={!r.customer_email}
+                          title={r.customer_email ? "Send email" : "Customer has no email"}
+                          data-testid={`reminder-email-${r.id}`}
+                        >
+                          <Mail className="h-3 w-3 mr-1" />Email
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="rounded-full text-emerald-700 dark:text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10"
+                          onClick={() => sendWhatsApp(r)}
+                          title="Send via WhatsApp"
+                          data-testid={`reminder-wa-${r.id}`}
+                        >
+                          <MessageCircle className="h-3 w-3 mr-1" />WhatsApp
+                        </Button>
+                      </>
+                    )}
                     <Button size="icon" variant="ghost" onClick={() => del(r.id)}><Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" /></Button>
                   </div>
                 </TableCell>

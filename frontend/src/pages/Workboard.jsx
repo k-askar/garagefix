@@ -110,6 +110,16 @@ function CardChip({ card, onDragStart, onOpen, onSendBack, compact = false }) {
             {card.car_plate && <PlateBadge plate={card.car_plate} country={card.car_country || "NL"} size="xxs" />}
             <span className="truncate">{card.customer_name || "Walk-in"}</span>
           </div>
+          {/* Show the assigned mechanic prominently on the chip. Employees
+              browsing the "Niet-toegewezen" sidebar can instantly see the
+              card is destined for a specific colleague, and mechanic-column
+              chips still confirm ownership if a card is later moved. */}
+          {card.mechanic_name && (
+            <div className="text-[10px] font-mono text-primary truncate mt-0.5 flex items-center gap-1">
+              <Wrench className="h-2.5 w-2.5" />
+              <span className="truncate">{card.mechanic_name}</span>
+            </div>
+          )}
         </div>
         {!compact && card.estimated_hours > 0 && (
           <Badge variant="outline" className="font-mono text-[10px] px-1.5 h-5 shrink-0">

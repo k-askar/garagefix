@@ -12,7 +12,7 @@ import jwt
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Literal
 
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, BackgroundTasks, Header
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, BackgroundTasks, Header, Body
 from fastapi.security import HTTPBearer
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -2604,6 +2604,12 @@ async def create_repair(payload: RepairCreate, user: dict = Depends(get_current_
     if payload.mechanic_id:
         m = await db.users.find_one({"id": payload.mechanic_id}, {"_id": 0})
         if m: mechanic_name = m.get("name") or m.get("email", "")
+    # When a mechanic is picked at creation time, park the card on today's
+    # column of the workboard so employees immediately see which technician
+    # it belongs to.  If none is picked, it stays in the "unassigned" queue.
+    scheduled_date = ""
+    if payload.mechanic_id:
+        scheduled_date = datetime.now(timezone.utc).date().isoformat()
     card = RepairCard(
         card_number=_next_number("JOB"),
         customer_id=payload.customer_id,
@@ -2615,6 +2621,7 @@ async def create_repair(payload: RepairCreate, user: dict = Depends(get_current_
         car_next_oil_change_km=veh_data["car_next_oil_change_km"],
         vehicle_id=payload.vehicle_id,
         mechanic_id=payload.mechanic_id, mechanic_name=mechanic_name,
+        scheduled_date=scheduled_date,
         complaint=payload.complaint, notes=payload.notes,
         created_by=user.get("email", ""),
     )
@@ -3402,7 +3409,7 @@ class Reminder(BaseModel):
     kind: Literal["service", "apk", "oil"] = "service"
     vehicle_id: Optional[str] = None
     status: Literal["pending", "sent", "cancelled"] = "pending"
-    channel: Literal["email"] = "email"
+    channel: Literal["email", "whatsapp", "manual"] = "email"
     created_by: str = ""
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     sent_at: Optional[str] = None
@@ -3545,6 +3552,21 @@ async def send_reminder_now(rid: str, background: BackgroundTasks, user: dict = 
     if not rem.get("customer_email"):
         raise HTTPException(status_code=400, detail="Customer has no email on file")
     background.add_task(_send_reminder, rid)
+    return {"ok": True}
+
+@api_router.post("/reminders/{rid}/mark-sent")
+async def mark_reminder_sent(rid: str, payload: dict = Body(default={}), user: dict = Depends(get_current_user)):
+    """Mark a reminder as manually sent (e.g. via WhatsApp) so the row flips
+       from Pending to Sent in the UI. `channel` is stored for reporting."""
+    rem = await db.reminders.find_one({"id": rid}, {"_id": 0})
+    if not rem:
+        raise HTTPException(status_code=404, detail="Not found")
+    channel = (payload or {}).get("channel") or "manual"
+    await db.reminders.update_one({"id": rid}, {"$set": {
+        "status": "sent",
+        "sent_at": datetime.now(timezone.utc).isoformat(),
+        "channel": channel,
+    }})
     return {"ok": True}
 
 @api_router.delete("/reminders/{rid}")

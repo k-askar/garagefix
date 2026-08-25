@@ -27,6 +27,7 @@ import Workboard from "@/pages/Workboard";
 import CarPassport from "@/pages/CarPassport";
 import BayBoard from "@/pages/BayBoard";
 import DeliveryScan from "@/pages/DeliveryScan";
+import PasswordSetup from "@/pages/PasswordSetup";
 import "@/App.css";
 
 function ProtectedShell() {
@@ -57,6 +58,7 @@ function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/passport/:token" element={<CarPassport />} />
+            <Route path="/setup-password/:token" element={<PasswordSetup />} />
             <Route element={<ProtectedShell />}>
               <Route path="/" element={<Dashboard />} />
               <Route path="/inventory" element={<Inventory />} />
