@@ -838,17 +838,15 @@ export default function Repairs() {
                 <div className="flex items-center gap-2 mt-1 flex-wrap">
                   {c.car_year && <span className="text-xs font-mono text-muted-foreground">{c.car_year}</span>}
                   <PlateBadge plate={c.car_plate} country={c.car_country || "NL"} size="xs" />
+                  {c.invoice_id && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono uppercase tracking-widest bg-primary/15 text-primary border border-primary/30" title={`Invoice ${c.invoice_number || ""}`}>
+                      <FileText className="h-2.5 w-2.5" />{c.invoice_number || t("invoice")}
+                    </span>
+                  )}
                 </div>
               </div>
               <Badge className={STATUS_STYLE[c.status] + " capitalize whitespace-nowrap"}>{STATUS_LABEL[c.status]}</Badge>
             </div>
-            {c.invoice_id && (
-              <div className="absolute top-11 right-2 z-10">
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono uppercase tracking-widest bg-primary/15 text-primary border border-primary/30" title={`Invoice ${c.invoice_number || ""}`}>
-                  <FileText className="h-2.5 w-2.5" />{c.invoice_number || t("invoice")}
-                </span>
-              </div>
-            )}
 
             <div className="space-y-2 text-sm">
               <div className="flex items-center gap-2 text-muted-foreground">
