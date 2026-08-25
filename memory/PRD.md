@@ -18,6 +18,11 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-25l — Staff invite QR code + copy-link dialog
+- **`GET /api/users/{id}/setup-link`** (owner-only) — returns the CURRENT pending setup URL, expiry date and target email.  Idempotent: reads the existing token if still valid, only regenerates when missing or expired.  Rejects activated accounts (400) and unknown users (404).
+- **`StaffInviteQrDialog`** — fetches the link on open, renders a **220×220 QR** (using the already-installed `qrcode` npm lib), shows the URL in a select-all `<code>` block with a 1-tap **Copy** button (with green checkmark feedback), plus **"Send by email"** and **"Open link"** side actions.  Expiry date shown prominently.
+- **Staff page** — every pending staff row now shows a blue QR icon next to Edit / Delete (hidden on the owner's own row).  Verified 6/6 backend edge cases + UI screenshot with the QR button visible on the "QR Test Worker" row.
+
 ### Session 2026-02-25k — Impersonate garage (support drop-in)
 - **`POST /api/tenants/{id}/impersonate`** (super_admin only) — issues a fresh JWT that carries an `impersonate_tenant_id` claim.  `get_current_user` reads the claim and, only if the underlying role is still `super_admin`, sets the ContextVar to the target tenant so every subsequent DB call is scoped to that garage.  Also attaches `user.impersonating = {id, name, country}` for the UI banner.
 - **`POST /api/tenants/stop-impersonation`** — returns a plain super_admin JWT (claim stripped).

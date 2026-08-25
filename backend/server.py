@@ -1290,6 +1290,36 @@ def esc_html(s: str) -> str:
             .replace(">", "&gt;").replace('"', "&quot;"))
 
 
+@api_router.get("/users/{user_id}/setup-link")
+async def get_password_setup_link(user_id: str, user: dict = Depends(require_owner)):
+    """Return the current setup link for a staff member with a pending
+    password.  If the existing token is missing or expired, a fresh one is
+    minted (but NOT re-emailed — the caller can trigger `send-setup-link`
+    separately).  Used by the "Show invite QR" dialog so the owner can hand
+    the link to the staff via any channel."""
+    target = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.get("password_hash"):
+        raise HTTPException(status_code=400, detail="This account is already activated — password is set")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    token = target.get("password_setup_token")
+    exp = target.get("password_setup_expires") or ""
+    if not token or exp < now_iso:
+        token = secrets.token_urlsafe(32)
+        exp = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        await db.users.update_one({"id": user_id}, {"$set": {
+            "password_setup_token": token,
+            "password_setup_expires": exp,
+        }})
+    return {
+        "link":       _password_setup_link(token),
+        "email":      target.get("email"),
+        "name":       target.get("name"),
+        "expires_at": exp,
+    }
+
+
 @api_router.post("/users/{user_id}/send-setup-link")
 async def resend_password_setup(user_id: str, user: dict = Depends(require_owner)):
     target = await db.users.find_one({"id": user_id}, {"_id": 0})

@@ -10,10 +10,11 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Trash2, UserCog, Pencil, Package, Wrench, Receipt, Wallet, Users, Truck, BarChart3, Calendar as CalendarIcon, ShieldCheck, Check } from "lucide-react";
+import { Plus, Trash2, UserCog, Pencil, Package, Wrench, Receipt, Wallet, Users, Truck, BarChart3, Calendar as CalendarIcon, ShieldCheck, Check, QrCode } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { useLang } from "@/i18n";
+import StaffInviteQrDialog from "@/components/StaffInviteQrDialog";
 
 const SECTION_ICON = {
   package: Package, wrench: Wrench, receipt: Receipt, wallet: Wallet,
@@ -246,6 +247,7 @@ export default function Staff() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [qrStaff, setQrStaff] = useState(null);
 
   const { data: users = [] } = useQuery({
     queryKey: ["users"],
@@ -385,6 +387,18 @@ export default function Staff() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
+                      {u.password_pending && u.id !== me?.id && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => setQrStaff(u)}
+                          title="Show invite QR + copy link"
+                          className="text-primary"
+                          data-testid={`invite-qr-${u.id}`}
+                        >
+                          <QrCode className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button size="icon" variant="ghost" onClick={() => openEdit(u)} data-testid={`edit-user-${u.id}`}>
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -404,6 +418,12 @@ export default function Staff() {
           </TableBody>
         </Table>
       </Card>
+
+      <StaffInviteQrDialog
+        open={!!qrStaff}
+        onOpenChange={(v) => { if (!v) setQrStaff(null); }}
+        staff={qrStaff}
+      />
     </div>
   );
 }
