@@ -1442,6 +1442,10 @@ class Invoice(BaseModel):
     note: Optional[str] = ""
     transaction_ids: List[str] = []
     repair_id: Optional[str] = None
+    # Vehicle plate snapshot so the printed invoice can render the right country
+    # badge (NL yellow, D white, F blue …) even after the repair is edited.
+    car_plate: Optional[str] = ""
+    car_country: Optional[str] = "NL"
     payment_method_id: Optional[str] = None
     payment_method_name: Optional[str] = ""
     payment_terms_days: int = 14
@@ -2962,6 +2966,8 @@ async def invoice_repair(rid: str, tax_rate: Optional[float] = None, user: dict 
         transaction_ids=[p["txn_id"] for p in card.get("parts_used", []) if p.get("txn_id")],
         note=f"Repair {card['card_number']} · {card.get('car_make','')} {card.get('car_model','')} {card.get('car_plate','')}".strip(),
         repair_id=rid,
+        car_plate=card.get("car_plate", ""),
+        car_country=card.get("car_country") or "NL",
         created_by=user.get("email", ""),
     )
     await db.invoices.insert_one(inv.model_dump())
@@ -4265,6 +4271,35 @@ async def startup():
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
         logger.info(f"Seeded admin user: {admin_email}")
+    # ------------------------------------------------------------------
+    # One-off backfill: copy `car_country` / `car_plate` from each linked
+    # repair card onto historical invoices so the printed plate badge on
+    # OLD invoices renders with the correct country colour (DE white, F
+    # blue, TR red …) once the setting is toggled on.
+    # ------------------------------------------------------------------
+    try:
+        stale = await db.invoices.find(
+            {"repair_id": {"$exists": True, "$ne": None},
+             "$or": [{"car_country": {"$in": [None, ""]}}, {"car_country": {"$exists": False}}]},
+            {"_id": 0, "id": 1, "repair_id": 1},
+        ).to_list(5000)
+        patched = 0
+        for row in stale:
+            rep = await db.repairs.find_one({"id": row["repair_id"]}, {"_id": 0, "car_country": 1, "car_plate": 1})
+            if not rep:
+                continue
+            await db.invoices.update_one(
+                {"id": row["id"]},
+                {"$set": {
+                    "car_country": rep.get("car_country") or "NL",
+                    "car_plate":   rep.get("car_plate")   or "",
+                }},
+            )
+            patched += 1
+        if patched:
+            logger.info(f"Backfilled car_country/car_plate on {patched} historical invoices")
+    except Exception as e:
+        logger.warning(f"Invoice country backfill skipped: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

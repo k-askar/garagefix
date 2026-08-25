@@ -343,7 +343,7 @@ export async function renderInvoiceHtml(inv, settings) {
         <td style="padding:10px 14px 12px 12px;border-top:1px solid #ddd;text-align:right;font-family:monospace;font-size:18px;font-weight:800;color:${accent};white-space:nowrap">${fmtMoney(inv.total, s)}</td>
       </tr>
     </table>
-    ${inv.note ? `<p class="muted" style="margin-top:20px">${noteWithPlate(inv.note, showPlate)}</p>` : ""}
+    ${inv.note ? `<p class="muted" style="margin-top:20px">${noteWithPlate(inv.note, showPlate, inv.car_country || "NL")}</p>` : ""}
     ${bankBlock}
     <p class="muted" style="margin-top:14px">Payment due within ${s.payment_terms_days || 14} days${inv.due_date ? ` (by ${esc(inv.due_date)})` : ""}.</p>
     ${s.invoice_terms ? `<div class="terms">${esc(s.invoice_terms)}</div>` : ""}

@@ -496,9 +496,9 @@ export default function Settings() {
                 accent
               />
               <ToggleRow
-                icon={<span className="text-lg">🇳🇱</span>}
-                title="لوحة السيارة الصفراء (NL plate)"
-                desc="إبراز رقم اللوحة المرتبط بالفاتورة بالتصميم الرسمي الهولندي."
+                icon={<span className="text-lg leading-none">🇪🇺</span>}
+                title={t("plateBadgeToggle") || "لوحة السيارة الرسمية (متعددة الدول)"}
+                desc={t("plateBadgeToggleDesc") || "يعرض رقم اللوحة بتصميم رسمي حسب الدولة — أصفر NL هولندي، أبيض D ألماني، أزرق F فرنسي، …"}
                 checked={!!form.show_plate_badge}
                 onCheck={(v) => set("show_plate_badge", v)}
                 testId="settings-plate-badge"
