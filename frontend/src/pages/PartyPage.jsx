@@ -15,6 +15,7 @@ import { downloadListReportPdf, printListReport, downloadCustomerHistoryPdf, pri
 import PlateBadge from "@/components/PlateBadge";
 import AddressFields from "@/components/AddressFields";
 import VehicleMakeModelYear from "@/components/VehicleMakeModelYear";
+import CustomerVehiclesEditor from "@/components/CustomerVehiclesEditor";
 import CarPassportQrDialog from "@/components/CarPassportQrDialog";
 import CsvImportDialog from "@/components/CsvImportDialog";
 import { Progress } from "@/components/ui/progress";
@@ -208,6 +209,9 @@ export default function PartyPage({ kind }) {
             <form onSubmit={save} className="space-y-4">
               <div className="space-y-1.5"><Label>{t("name")}</Label><Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid={`${kind}-name`} /></div>
               {isSup && <div className="space-y-1.5"><Label>{t("contactPerson")}</Label><Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} /></div>}
+              {!isSup && editId && (
+                <CustomerVehiclesEditor customerId={editId} />
+              )}
               {!isSup && !editId && (
                 <div className="space-y-2 p-3 rounded-md border border-border bg-muted/20">
                   <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("vehicle")} · {t("optional")}</div>
