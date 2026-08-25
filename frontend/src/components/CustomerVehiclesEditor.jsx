@@ -152,45 +152,69 @@ export default function CustomerVehiclesEditor({ customerId }) {
         </Button>
       </div>
 
-      {/* Add new vehicle form (collapsed by default) */}
+      {/* Add new vehicle form (collapsed by default) — plate lookup is the hero */}
       {adding && (
-        <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-2" data-testid="cust-veh-add-form">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-            <div className="space-y-1"><Label className="text-[10px]">{t("make")}</Label><Input value={newForm.make} onChange={(e) => setNewForm({ ...newForm, make: e.target.value })} data-testid="cust-veh-new-make" /></div>
-            <div className="space-y-1"><Label className="text-[10px]">{t("model")}</Label><Input value={newForm.model} onChange={(e) => setNewForm({ ...newForm, model: e.target.value })} /></div>
-            <div className="space-y-1"><Label className="text-[10px]">{t("year")}</Label><Input value={newForm.year} onChange={(e) => setNewForm({ ...newForm, year: e.target.value })} /></div>
-            <div className="space-y-1"><Label className="text-[10px]">{t("plateNumber")}</Label>
-              <div className="flex gap-1">
+        <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-3" data-testid="cust-veh-add-form">
+          {/* Hero: plate + country + RDW lookup, big and first */}
+          <div className="rounded-md border border-orange-500/40 bg-orange-500/5 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <Search className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+              <div className="text-[11px] font-mono uppercase tracking-widest text-orange-700 dark:text-orange-400">
+                {t("rdwLookup")}
+              </div>
+            </div>
+            <div className="grid grid-cols-12 gap-2 items-end">
+              <div className="col-span-12 md:col-span-3 space-y-1">
+                <Label className="text-[10px]">{t("country")}</Label>
+                <select
+                  value={newForm.country}
+                  onChange={(e) => setNewForm({ ...newForm, country: e.target.value })}
+                  className="w-full h-10 rounded-md border border-input bg-background px-2 text-sm"
+                  data-testid="cust-veh-new-country"
+                >
+                  {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="col-span-8 md:col-span-6 space-y-1">
+                <Label className="text-[10px]">{t("plateNumber")}</Label>
                 <Input
                   value={newForm.plate}
                   onChange={(e) => setNewForm({ ...newForm, plate: e.target.value.toUpperCase() })}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); lookupNew(); } }}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (newForm.country === "NL") lookupNew(); } }}
+                  placeholder="12-ABC-3"
+                  className="h-10 font-mono text-base tracking-wider"
                   data-testid="cust-veh-new-plate"
                 />
-                {newForm.country === "NL" && (
-                  <Button
-                    type="button" size="icon" variant="outline"
-                    className="rounded-full shrink-0 border-orange-500/40 text-orange-600 dark:text-orange-400 hover:bg-orange-500/10"
-                    onClick={lookupNew}
-                    disabled={rdwBusy === "new"}
-                    title={t("rdwLookup")}
-                    data-testid="cust-veh-new-rdw"
-                  >
-                    {rdwBusy === "new" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
-                  </Button>
-                )}
+              </div>
+              <div className="col-span-4 md:col-span-3">
+                <Button
+                  type="button"
+                  className="w-full h-10 rounded-md bg-orange-500 hover:bg-orange-600 text-white shadow-sm disabled:opacity-60"
+                  onClick={lookupNew}
+                  disabled={rdwBusy === "new" || newForm.country !== "NL" || !newForm.plate}
+                  title={newForm.country !== "NL" ? "RDW = NL only" : t("rdwLookup")}
+                  data-testid="cust-veh-new-rdw"
+                >
+                  {rdwBusy === "new" ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Search className="h-4 w-4 mr-1" />}
+                  RDW
+                </Button>
               </div>
             </div>
-            <div className="space-y-1">
-              <Label className="text-[10px]">{t("country")}</Label>
-              <select value={newForm.country} onChange={(e) => setNewForm({ ...newForm, country: e.target.value })} className="w-full h-9 rounded-md border border-input bg-transparent px-2 text-sm">
-                {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1"><Label className="text-[10px]">{t("color")}</Label><Input value={newForm.color} onChange={(e) => setNewForm({ ...newForm, color: e.target.value })} /></div>
-            <div className="space-y-1"><Label className="text-[10px]">{t("odometer")}</Label><Input value={newForm.km} onChange={(e) => setNewForm({ ...newForm, km: e.target.value })} /></div>
-            <div className="space-y-1"><Label className="text-[10px]">{t("apkExpiry")}</Label><Input type="date" value={newForm.apk_expiry} onChange={(e) => setNewForm({ ...newForm, apk_expiry: e.target.value })} /></div>
-            <div className="space-y-1"><Label className="text-[10px]">{t("nextOilChangeKm")}</Label><Input type="number" value={newForm.next_oil_change_km} onChange={(e) => setNewForm({ ...newForm, next_oil_change_km: e.target.value })} /></div>
+            {newForm.country !== "NL" && (
+              <p className="text-[10px] text-muted-foreground">RDW = NL only · املأ الحقول يدوياً للدول الأخرى.</p>
+            )}
+          </div>
+
+          {/* Details grid — auto-populated after RDW, or fill manually */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            <div className="space-y-1"><Label className="text-[10px]">{t("make")}</Label><Input value={newForm.make} onChange={(e) => setNewForm({ ...newForm, make: e.target.value })} data-testid="cust-veh-new-make" /></div>
+            <div className="space-y-1"><Label className="text-[10px]">{t("model")}</Label><Input value={newForm.model} onChange={(e) => setNewForm({ ...newForm, model: e.target.value })} data-testid="cust-veh-new-model" /></div>
+            <div className="space-y-1"><Label className="text-[10px]">{t("year")}</Label><Input value={newForm.year} onChange={(e) => setNewForm({ ...newForm, year: e.target.value })} data-testid="cust-veh-new-year" /></div>
+            <div className="space-y-1"><Label className="text-[10px]">{t("color")}</Label><Input value={newForm.color} onChange={(e) => setNewForm({ ...newForm, color: e.target.value })} data-testid="cust-veh-new-color" /></div>
+            <div className="space-y-1"><Label className="text-[10px]">{t("odometer")}</Label><Input value={newForm.km} onChange={(e) => setNewForm({ ...newForm, km: e.target.value })} data-testid="cust-veh-new-km" /></div>
+            <div className="space-y-1"><Label className="text-[10px]">{t("apkExpiry")}</Label><Input type="date" value={newForm.apk_expiry || ""} onChange={(e) => setNewForm({ ...newForm, apk_expiry: e.target.value })} data-testid="cust-veh-new-apk" /></div>
+            <div className="space-y-1 md:col-span-2"><Label className="text-[10px]">VIN</Label><Input value={newForm.vin || ""} onChange={(e) => setNewForm({ ...newForm, vin: e.target.value })} data-testid="cust-veh-new-vin" /></div>
+            <div className="space-y-1"><Label className="text-[10px]">{t("nextOilChangeKm")}</Label><Input type="number" value={newForm.next_oil_change_km} onChange={(e) => setNewForm({ ...newForm, next_oil_change_km: e.target.value })} data-testid="cust-veh-new-oil" /></div>
           </div>
           <div className="flex justify-end">
             <Button type="button" size="sm" className="rounded-full bg-primary" onClick={addNew} disabled={busy} data-testid="cust-veh-new-save">
