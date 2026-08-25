@@ -4077,41 +4077,68 @@ async def ocr_delivery_note(payload: OcrDeliveryPayload, user: dict = Depends(ge
 @api_router.get("/kvk/lookup")
 async def kvk_lookup(kvk: str, user: dict = Depends(get_current_user)):
     """Look up a Dutch company by its 8-digit KvK number.
-    Uses the official KvK Basisprofielen API when `KVK_API_KEY` is present.
-    Returns 501 with a helpful message when the key hasn't been configured yet,
-    so the frontend can guide the owner to Settings → Integrations."""
+    Uses the official KvK Basisprofielen API (production or test/sandbox
+    depending on `KVK_ENV`).  Returns 501 with a helpful message when the
+    key hasn't been configured yet so the frontend can guide the owner to
+    replace the sandbox key with a real production one."""
     cleaned = re.sub(r"[^0-9]", "", (kvk or ""))
     if len(cleaned) != 8:
         raise HTTPException(status_code=400, detail="KvK number must be 8 digits")
     api_key = os.environ.get("KVK_API_KEY", "").strip()
     if not api_key:
-        raise HTTPException(status_code=501, detail="KVK_API_KEY not configured — set it in backend/.env to enable auto-fill")
-    url = f"https://api.kvk.nl/api/v1/basisprofielen/{cleaned}"
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "KvK auto-fill is optioneel. Vraag een gratis API-key aan op "
+                "https://developers.kvk.nl → zet 'KVK_API_KEY=…' in backend/.env → "
+                "herstart de backend. Ondertussen kun je de bedrijfsgegevens gewoon "
+                "handmatig invullen."
+            ),
+        )
+    # Route to the sandbox host when KVK_ENV=test so the shared demo key works
+    kvk_env = (os.environ.get("KVK_ENV") or "").strip().lower()
+    base = "https://api.kvk.nl/test/api/v1" if kvk_env == "test" else "https://api.kvk.nl/api/v1"
+    url = f"{base}/basisprofielen/{cleaned}"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(url, headers={"apikey": api_key, "Accept": "application/json"})
             if r.status_code == 404:
-                raise HTTPException(status_code=404, detail=f"KvK {cleaned} not found")
+                hint = " (probeer een test-nummer zoals 68727720)" if kvk_env == "test" else ""
+                raise HTTPException(status_code=404, detail=f"KvK {cleaned} niet gevonden{hint}")
+            if r.status_code == 401:
+                raise HTTPException(status_code=401, detail="KVK API key rejected — replace KVK_API_KEY with a valid one")
             r.raise_for_status()
             data = r.json()
     except HTTPException:
         raise
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"KvK API unreachable: {e}")
-    # Best-effort extraction — the KvK basisprofiel schema nests things a bit.
-    handelsnaam = data.get("handelsnaam") or (data.get("_embedded", {}).get("eigenaar", {}) or {}).get("handelsnaam") or ""
-    addresses = ((data.get("_embedded", {}).get("hoofdvestiging", {}) or {}).get("adressen", []) or [])
-    addr = addresses[0] if addresses else {}
+    # ------------------------------------------------------------------
+    # Extract the handelsnaam and the first postal address from the KvK
+    # response.  The `basisprofiel` schema is deeply nested and slightly
+    # different between the test and production hosts, so we try a couple
+    # of well-known paths and fall back to empty strings if none are hit.
+    # ------------------------------------------------------------------
+    handelsnaam = (
+        data.get("handelsnaam")
+        or (data.get("_embedded", {}).get("eigenaar", {}) or {}).get("handelsnaam")
+        or (data.get("_embedded", {}).get("hoofdvestiging", {}) or {}).get("naam")
+        or ""
+    )
+    hoofdvestiging = data.get("_embedded", {}).get("hoofdvestiging", {}) or {}
+    addresses = (hoofdvestiging.get("adressen") or []) + (data.get("adressen") or [])
+    addr = next((a for a in addresses if a.get("type") in (None, "bezoekadres", "correspondentieadres")), addresses[0] if addresses else {})
     return {
         "kvk_number":  cleaned,
         "company_name": handelsnaam,
         "vat_number":  data.get("btwNummer") or "",
         "street":      addr.get("straatnaam") or "",
-        "house_number": str(addr.get("huisnummer") or ""),
+        "house_number": str(addr.get("huisnummer") or "") if addr.get("huisnummer") else "",
         "house_number_addition": addr.get("huisnummerToevoeging") or "",
         "postcode":    addr.get("postcode") or "",
         "city":        addr.get("plaats") or "",
         "address_country": "NL",
+        "trade_names": [h.get("naam") for h in (data.get("handelsnamen") or []) if h.get("naam")],
     }
 
 

@@ -63,7 +63,9 @@ export default function PartyPage({ kind }) {
       }));
       toast.success(`${data.company_name} · KvK ✓`);
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "KvK lookup failed");
+      const detail = e?.response?.data?.detail || "KvK lookup failed";
+      const isConfigMissing = e?.response?.status === 501;
+      toast.error(detail, isConfigMissing ? { duration: 10000, description: "Je kunt de gegevens ondertussen handmatig invullen." } : {});
     } finally { setKvkBusy(false); }
   };
 
@@ -317,6 +319,9 @@ export default function PartyPage({ kind }) {
                       </Button>
                     </div>
                   </div>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    اختياري — إذا لم يعمل الاستيراد التلقائي، أكمل الحقول يدوياً في الأسفل. لتفعيل الجلب من KvK اطلب مفتاحاً مجانياً من <a href="https://developers.kvk.nl" target="_blank" rel="noreferrer" className="text-emerald-700 dark:text-emerald-400 underline">developers.kvk.nl</a> وأضفه في <code className="font-mono">backend/.env</code>.
+                  </p>
                 </div>
               )}
 
