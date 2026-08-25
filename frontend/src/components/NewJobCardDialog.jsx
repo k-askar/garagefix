@@ -30,7 +30,7 @@ const EMPTY_FORM = {
   mechanic_id: "", complaint: "", notes: "",
 };
 
-const EMPTY_VEHICLE = { make: "", model: "", year: "", plate: "", color: "", km: "", country: "NL", apk_expiry: "" };
+const EMPTY_VEHICLE = { make: "", model: "", year: "", plate: "", color: "", km: "", country: "NL", apk_expiry: "", next_oil_change_km: "", vin: "", notes: "", meldcode: "", fuel: "", cc: "", doors: "", seats: "", weight: "", chassis_location: "", registration_date: "" };
 
 /**
  * NewJobCardDialog — a smarter, sectioned dialog for creating job cards.
@@ -46,9 +46,59 @@ export default function NewJobCardDialog({ open, onOpenChange, customers, users,
   const EMPTY_NEW_CUST = { name: "", phone: "", email: "", address: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL", customer_type: "individual", company_name: "", kvk_number: "", vat_number: "", contact_person: "" };
   const [newCustomer, setNewCustomer] = useState(EMPTY_NEW_CUST);
   const [kvkBusy, setKvkBusy] = useState(false);
+  const [rdwBusy, setRdwBusy] = useState(false);
   const [newVehicle, setNewVehicle] = useState(EMPTY_VEHICLE);
   const [addingVehicle, setAddingVehicle] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  /* Query RDW open-data for a plate and fan out the result into either the
+     "adding vehicle" draft (persisted to /customers/{id}/vehicles later) or the
+     top-level `car_*` fields on the job card itself (used for walk-ins). */
+  const rdwLookupInto = async () => {
+    const usingNewVeh = addingVehicle;
+    const country = usingNewVeh ? newVehicle.country : form.car_country;
+    const plate = usingNewVeh ? newVehicle.plate : form.car_plate;
+    if (country !== "NL") return toast.error("RDW = NL only");
+    const cleaned = (plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!cleaned || cleaned.length < 4) return toast.error(t("rdwEnterPlate"));
+    setRdwBusy(true);
+    try {
+      const { data } = await api.get(`/rdw/lookup?plate=${encodeURIComponent(cleaned)}`);
+      if (usingNewVeh) {
+        setNewVehicle(v => ({
+          ...v,
+          plate: data.plate || v.plate,
+          make: data.make || v.make,
+          model: data.model || v.model,
+          year: data.year || v.year,
+          color: data.color || v.color,
+          country: data.country || v.country,
+          apk_expiry: data.apk_expiry || v.apk_expiry,
+          fuel: data.fuel || v.fuel,
+          cc: data.cc || v.cc,
+          doors: data.doors || v.doors,
+          seats: data.seats || v.seats,
+          weight: data.weight || v.weight,
+          chassis_location: data.chassis_location || v.chassis_location,
+          registration_date: data.registration_date || v.registration_date,
+        }));
+      } else {
+        setForm(f => ({
+          ...f,
+          car_plate: data.plate || f.car_plate,
+          car_make: data.make || f.car_make,
+          car_model: data.model || f.car_model,
+          car_year: data.year || f.car_year,
+          car_color: data.color || f.car_color,
+          car_country: data.country || f.car_country,
+          car_apk_expiry: data.apk_expiry || f.car_apk_expiry,
+        }));
+      }
+      toast.success(`${data.make} ${data.model} ${data.year}`.trim() + " · RDW ✓");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "RDW lookup failed");
+    } finally { setRdwBusy(false); }
+  };
 
   /* Query KvK basisprofiel and merge company + address into the new-customer form.
      Mirrors the behaviour of the same lookup on the Customers page. */
@@ -261,6 +311,58 @@ export default function NewJobCardDialog({ open, onOpenChange, customers, users,
 
               {(addingVehicle || (!form.customer_id) || (!form.vehicle_id && cVehicles.length === 0 && form.customer_id)) && (
                 <div className="space-y-3">
+                  {/* RDW hero — plate + country + big search first (mirrors the Customers page) */}
+                  <div className="rounded-md border border-orange-500/40 bg-orange-500/5 p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Search className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-orange-700 dark:text-orange-400">{t("rdwLookup")}</div>
+                    </div>
+                    <div className="grid grid-cols-12 gap-2 items-end">
+                      <div className="col-span-4 space-y-1">
+                        <Label className="text-[10px]">{t("country")}</Label>
+                        <select
+                          value={addingVehicle ? newVehicle.country : form.car_country}
+                          onChange={(e) => addingVehicle
+                            ? setNewVehicle({ ...newVehicle, country: e.target.value })
+                            : setForm({ ...form, car_country: e.target.value })}
+                          className="w-full h-10 rounded-md border border-input bg-background px-2 text-sm"
+                          data-testid="new-repair-country"
+                        >
+                          {COUNTRIES.map(([c, label]) => <option key={c} value={c}>{label}</option>)}
+                        </select>
+                      </div>
+                      <div className="col-span-5 space-y-1">
+                        <Label className="text-[10px]">{t("plateNumber")}</Label>
+                        <Input
+                          value={addingVehicle ? newVehicle.plate : form.car_plate}
+                          onChange={(e) => addingVehicle
+                            ? setNewVehicle({ ...newVehicle, plate: e.target.value.toUpperCase() })
+                            : setForm({ ...form, car_plate: e.target.value.toUpperCase() })}
+                          onKeyDown={(e) => {
+                            const country = addingVehicle ? newVehicle.country : form.car_country;
+                            if (e.key === "Enter" && country === "NL") { e.preventDefault(); rdwLookupInto(); }
+                          }}
+                          placeholder="12-ABC-3"
+                          className="h-10 font-mono tracking-wider"
+                          data-testid="new-repair-plate"
+                        />
+                      </div>
+                      <div className="col-span-3">
+                        <Button
+                          type="button"
+                          className="w-full h-10 rounded-md bg-orange-500 hover:bg-orange-600 text-white shadow-sm disabled:opacity-60"
+                          onClick={rdwLookupInto}
+                          disabled={rdwBusy || (addingVehicle ? newVehicle.country : form.car_country) !== "NL" || !(addingVehicle ? newVehicle.plate : form.car_plate)}
+                          title={(addingVehicle ? newVehicle.country : form.car_country) !== "NL" ? "RDW = NL only" : t("rdwLookup")}
+                          data-testid="new-repair-rdw"
+                        >
+                          {rdwBusy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Search className="h-4 w-4 mr-1" />}
+                          RDW
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
                   <VehicleMakeModelYear
                     value={{
                       make: addingVehicle ? newVehicle.make : form.car_make,
@@ -274,22 +376,39 @@ export default function NewJobCardDialog({ open, onOpenChange, customers, users,
                     testIdPrefix={addingVehicle ? "new-veh" : "new-repair"}
                   />
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    <div className="space-y-1.5"><Label className="text-xs">Plate</Label><Input value={addingVehicle ? newVehicle.plate : form.car_plate} onChange={(e) => addingVehicle ? setNewVehicle({ ...newVehicle, plate: e.target.value }) : setForm({ ...form, car_plate: e.target.value })} data-testid="new-repair-plate" /></div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Country</Label>
-                      <select value={addingVehicle ? newVehicle.country : form.car_country} onChange={(e) => addingVehicle ? setNewVehicle({ ...newVehicle, country: e.target.value }) : setForm({ ...form, car_country: e.target.value })} className="w-full h-10 rounded-md border border-input bg-transparent px-3 text-sm" data-testid="new-repair-country">
-                        {COUNTRIES.map(([c, label]) => <option key={c} value={c}>{label}</option>)}
-                      </select>
-                    </div>
-                    <div className="space-y-1.5"><Label className="text-xs">Odometer (km)</Label><Input value={addingVehicle ? newVehicle.km : form.car_km} onChange={(e) => addingVehicle ? setNewVehicle({ ...newVehicle, km: e.target.value }) : setForm({ ...form, car_km: e.target.value })} /></div>
-                    <div className="space-y-1.5 md:col-span-2"><Label className="text-xs">APK expiry</Label><Input type="date" value={addingVehicle ? newVehicle.apk_expiry : form.car_apk_expiry} onChange={(e) => addingVehicle ? setNewVehicle({ ...newVehicle, apk_expiry: e.target.value }) : setForm({ ...form, car_apk_expiry: e.target.value })} data-testid="new-repair-apk" /></div>
+                    <div className="space-y-1.5"><Label className="text-xs">{t("color")}</Label>
+                      <Input value={addingVehicle ? newVehicle.color : form.car_color} onChange={(e) => addingVehicle ? setNewVehicle({ ...newVehicle, color: e.target.value }) : setForm({ ...form, car_color: e.target.value })} /></div>
+                    <div className="space-y-1.5"><Label className="text-xs">{t("odometer")} (km)</Label>
+                      <Input value={addingVehicle ? newVehicle.km : form.car_km} onChange={(e) => addingVehicle ? setNewVehicle({ ...newVehicle, km: e.target.value }) : setForm({ ...form, car_km: e.target.value })} /></div>
+                    <div className="space-y-1.5"><Label className="text-xs">{t("apkExpiry")}</Label>
+                      <Input type="date" value={addingVehicle ? newVehicle.apk_expiry : form.car_apk_expiry} onChange={(e) => addingVehicle ? setNewVehicle({ ...newVehicle, apk_expiry: e.target.value }) : setForm({ ...form, car_apk_expiry: e.target.value })} data-testid="new-repair-apk" /></div>
                     {addingVehicle && (
-                      <div className="md:col-span-3 flex justify-end gap-2">
-                        <Button type="button" variant="ghost" size="sm" onClick={() => { setAddingVehicle(false); setNewVehicle(EMPTY_VEHICLE); }}>Cancel</Button>
-                        <Button type="button" size="sm" onClick={saveVehicle} disabled={busy} className="rounded-full" data-testid="new-card-save-vehicle"><Plus className="h-3.5 w-3.5 mr-1" />Save vehicle</Button>
-                      </div>
+                      <div className="space-y-1.5"><Label className="text-xs">{t("nextOilChangeKm")}</Label>
+                        <Input type="number" value={newVehicle.next_oil_change_km} onChange={(e) => setNewVehicle({ ...newVehicle, next_oil_change_km: e.target.value })} placeholder="145000" data-testid="new-veh-oil" /></div>
                     )}
                   </div>
+
+                  {/* Auto-imported RDW technical details — visible only when saving to a customer */}
+                  {addingVehicle && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2 border-t border-border/50">
+                      <div className="space-y-1"><Label className="text-[10px]">Brandstof</Label><Input value={newVehicle.fuel} onChange={(e) => setNewVehicle({ ...newVehicle, fuel: e.target.value })} placeholder="Benzine / Diesel" /></div>
+                      <div className="space-y-1"><Label className="text-[10px]">CC</Label><Input value={newVehicle.cc} onChange={(e) => setNewVehicle({ ...newVehicle, cc: e.target.value })} /></div>
+                      <div className="space-y-1"><Label className="text-[10px]">Deuren</Label><Input value={newVehicle.doors} onChange={(e) => setNewVehicle({ ...newVehicle, doors: e.target.value })} /></div>
+                      <div className="space-y-1"><Label className="text-[10px]">Zitpl.</Label><Input value={newVehicle.seats} onChange={(e) => setNewVehicle({ ...newVehicle, seats: e.target.value })} /></div>
+                      <div className="space-y-1"><Label className="text-[10px]">Gewicht (kg)</Label><Input value={newVehicle.weight} onChange={(e) => setNewVehicle({ ...newVehicle, weight: e.target.value })} /></div>
+                      <div className="space-y-1"><Label className="text-[10px]">Tenaamstelling</Label><Input type="date" value={newVehicle.registration_date} onChange={(e) => setNewVehicle({ ...newVehicle, registration_date: e.target.value })} /></div>
+                      <div className="space-y-1 md:col-span-2"><Label className="text-[10px]">Chassis loc.</Label><Input value={newVehicle.chassis_location} onChange={(e) => setNewVehicle({ ...newVehicle, chassis_location: e.target.value })} /></div>
+                      <div className="space-y-1 md:col-span-2"><Label className="text-[10px]">Meldcode voertuig <span className="text-[9px] text-muted-foreground">(privé — يُدخل يدوياً)</span></Label><Input value={newVehicle.meldcode} onChange={(e) => setNewVehicle({ ...newVehicle, meldcode: e.target.value })} placeholder="4-cijferige code" className="font-mono" data-testid="new-veh-meldcode" /></div>
+                      <div className="space-y-1 md:col-span-2"><Label className="text-[10px]">VIN <span className="text-[9px] text-muted-foreground">(privé — يُدخل يدوياً)</span></Label><Input value={newVehicle.vin} onChange={(e) => setNewVehicle({ ...newVehicle, vin: e.target.value })} placeholder="17 حرف/رقم" className="font-mono" data-testid="new-veh-vin" /></div>
+                    </div>
+                  )}
+
+                  {addingVehicle && (
+                    <div className="flex justify-end gap-2">
+                      <Button type="button" variant="ghost" size="sm" onClick={() => { setAddingVehicle(false); setNewVehicle(EMPTY_VEHICLE); }}>Cancel</Button>
+                      <Button type="button" size="sm" onClick={saveVehicle} disabled={busy} className="rounded-full" data-testid="new-card-save-vehicle"><Plus className="h-3.5 w-3.5 mr-1" />Save vehicle</Button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
