@@ -84,12 +84,30 @@ def register(db, get_current_user, send_email):
             return
         settings = await db.settings.find_one({"_id": "garage"}, {"_id": 0}) or {}
         garage_name = settings.get("name") or "PitStock Garage"
-        html = _reminder_html(rem, garage_name)
+        # Per-tenant sender identity — the customer sees the garage name + can
+        # reply directly to the garage's own inbox.
+        from html import escape as _esc
+        reply_to = (settings.get("email") or "").strip() or None
+        parts = []
+        if settings.get("address"): parts.append(_esc(settings["address"]))
+        contact = []
+        if settings.get("phone"): contact.append(f'Phone: {_esc(settings["phone"])}')
+        if settings.get("email"): contact.append(f'Email: {_esc(settings["email"])}')
+        if contact: parts.append(" &middot; ".join(contact))
+        footer_html = (
+            f'<div style="margin-top:24px;padding-top:12px;border-top:1px solid #eee;'
+            f'font-family:Arial,sans-serif;color:#888;font-size:11px;line-height:1.5">'
+            f'<div style="color:#333;font-weight:600;margin-bottom:2px">{_esc(garage_name)}</div>'
+            f'{"<br/>".join(parts)}'
+            f'</div>'
+        )
+        html = _reminder_html(rem, garage_name).replace("</td></tr></table>", footer_html + "</td></tr></table>", 1)
         try:
             await send_email(to=rem["customer_email"],
                              subject=f"Service reminder — {rem.get('reason') or 'workshop visit'}",
                              html=html,
-                             purpose="service_reminder", related_id=rem.get("id"))
+                             purpose="service_reminder", related_id=rem.get("id"),
+                             from_name=garage_name, reply_to=reply_to)
             await db.reminders.update_one(
                 {"id": rem_id},
                 {"$set": {"status": "sent", "sent_at": datetime.now(timezone.utc).isoformat()}},

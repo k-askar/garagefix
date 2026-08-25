@@ -18,6 +18,15 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26d — Per-tenant sender identity (garage brand + Reply-To)
+- **`_tenant_email_meta()`** helper — reads the garage settings (name, email, phone, address, KvK) and returns `{from_name, reply_to, footer_html}`. Falls back to platform defaults if a tenant hasn't filled in its profile.
+- **`send_email(...)`** now accepts optional `from_name` and `reply_to` — the latter maps to Resend's `contact_email` (Reply-To header). The customer's inbox shows "Karam Askar Autoservice" as the sender and clicking Reply sends the response straight to `info@k-askar.nl` even though the actual From address stays on the platform-managed domain (Resend limitation — sender email is domain-locked).
+- **Every send path wired up**: invoice email, overdue reminder, service reminder, and staff password-setup — each fetches its own tenant's meta before sending. Overdue + invoice HTML also gets the per-tenant footer (garage name, address, phone, email, KvK) injected before the closing `</div>` so the customer sees who to call.
+- **Reminders route** (`routes/reminders.py`) — reads settings, builds the same footer inline (module runs before server.py's helper is imported) and passes `from_name` + `reply_to` to `send_email`.
+- Verified end-to-end: updated PitStock tenant settings with real contact (`info@k-askar.nl`, `+31 6 12345678`, Utrecht address, KvK) → sent a service reminder → provider returned HTTP 202 → email_log row stored `accepted`; manual `curl` to Emergent proxy with `contact_email` also returned 202 confirming Reply-To is honoured.
+
+
+
 ### Session 2026-02-26c — Subscription expiry reminders (payment nudge for super_admin)
 - **Tenant model** gains `subscription_expires_at` (ISO date) + `plan_started_at`. New tenants default to +14 days (trial) or +30 days (paid). Existing tenants backfilled via one-off script.
 - **`GET /api/tenants/expiring?within_days=14`** — returns every garage that is already expired OR expires within N days, sorted by soonest, with a computed `days_remaining` field. Used to power the amber "needs payment attention" banner.

@@ -1250,6 +1250,13 @@ async def create_user(payload: UserRegister, user: dict = Depends(require_owner)
             "password_pending": bool(setup_link)}
 
 
+# Forward declaration so `_send_password_setup_email` and `_send_overdue_email`
+# — defined higher up in this file — can reference the per-tenant email
+# personaliser without triggering ruff's F821 forward-reference warning.  The
+# real implementation lives just above `send_email` further down.
+_tenant_email_meta = None  # type: ignore[assignment]
+
+
 def _password_setup_link(token: str) -> str:
     """Absolute URL the staff member clicks to choose their password."""
     base = (os.environ.get("APP_PUBLIC_URL") or "").rstrip("/")
@@ -1259,9 +1266,10 @@ def _password_setup_link(token: str) -> str:
 async def _send_password_setup_email(user_doc: dict, link: str):
     settings = await db.settings.find_one({}, {"_id": 0}) or {}
     garage = settings.get("name") or "PitStock Garage"
+    meta = await _tenant_email_meta()
     html = f"""
     <div style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#111">
-      <h2 style="margin:0 0 8px 0">Welkom bij {esc_html(garage)} 👋</h2>
+      <h2 style="margin:0 0 8px 0">Welkom bij {esc_html(garage)}</h2>
       <p style="color:#555;line-height:1.6">Hoi {esc_html(user_doc.get('name') or '')},<br/>
       Er is een account voor jou aangemaakt in het garage-systeem.
       Klik op de knop hieronder om je eigen wachtwoord in te stellen —
@@ -1277,12 +1285,14 @@ async def _send_password_setup_email(user_doc: dict, link: str):
         Werkt de knop niet? Kopieer deze link in je browser:<br/>
         <span style="font-family:monospace;word-break:break-all">{esc_html(link)}</span>
       </p>
+      {meta["footer_html"]}
     </div>"""
     email = (user_doc.get("email") or "").strip()
     if not email:
         return
     await send_email(to=email, subject=f"Stel je wachtwoord in — {garage}", html=html,
-                     purpose="password_setup", related_id=user_doc.get("id"))
+                     purpose="password_setup", related_id=user_doc.get("id"),
+                     from_name=meta["from_name"], reply_to=meta["reply_to"])
 
 
 def esc_html(s: str) -> str:
@@ -1824,9 +1834,14 @@ async def _send_overdue_email(inv, stage: Optional[int] = None):
     tone = _OVERDUE_TONE.get(picked_stage, _OVERDUE_TONE[1])
     subject = tone["subject"].format(inv=inv["invoice_number"], days=days)
     html = _overdue_email_html(inv, garage_name, iban, picked_stage)
+    meta = await _tenant_email_meta()
+    # Append per-tenant footer so the customer sees the garage's own contact
+    # info even though the email leaves from the platform sender.
+    html = html.replace("</div>", meta["footer_html"] + "</div>", 1) if meta["footer_html"] else html
     try:
         await send_email(to=c["email"], subject=subject, html=html,
-                         purpose="invoice_overdue", related_id=inv.get("id"))
+                         purpose="invoice_overdue", related_id=inv.get("id"),
+                         from_name=meta["from_name"], reply_to=meta["reply_to"])
         now_iso = datetime.now(timezone.utc).isoformat()
         entry = {"stage": picked_stage, "sent_at": now_iso, "days_overdue": days}
         await db.invoices.update_one(
@@ -2049,6 +2064,11 @@ async def email_invoice(inv_id: str, payload: InvoiceEmailBody = InvoiceEmailBod
     garage_name = settings.get("name") or "PitStock Garage"
     subject = payload.subject or f"Invoice {inv['invoice_number']} from {garage_name}"
     html = _invoice_email_html(inv, settings, payload.message or "")
+    meta = await _tenant_email_meta()
+    # Append per-tenant footer (garage name, address, phone, KvK) so the
+    # customer instantly sees who to reply to.
+    if meta["footer_html"]:
+        html = html.replace("</div>", meta["footer_html"] + "</div>", 1)
     attachments = None
     if payload.attachment_base64:
         attachments = [{
@@ -2057,7 +2077,8 @@ async def email_invoice(inv_id: str, payload: InvoiceEmailBody = InvoiceEmailBod
         }]
     try:
         await send_email(to=to, subject=subject, html=html, attachments=attachments,
-                         purpose="invoice_send", related_id=inv.get("id"))
+                         purpose="invoice_send", related_id=inv.get("id"),
+                         from_name=meta["from_name"], reply_to=meta["reply_to"])
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Email failed: {str(e)[:180]}")
     await db.invoices.update_one({"id": inv_id}, {"$set": {"last_emailed_at": datetime.now(timezone.utc).isoformat(), "last_emailed_to": to}})
@@ -3619,9 +3640,51 @@ async def _log_email(*, to, subject, html, purpose, related_id, status, provider
         logger.warning(f"email log persist failed: {le}")
 
 
-async def send_email(*, to, subject, html, attachments=None, purpose="other", related_id=None):
+async def _tenant_email_meta():
+    """Return per-tenant email personalisation:
+        {from_name, reply_to, footer_html}
+
+    Falls back to platform defaults if the tenant hasn't filled in their
+    profile.  Called by every send-path so each garage's inbox shows the
+    garage brand + their own reply address instead of the platform ones."""
+    try:
+        s = await db.settings.find_one({"_id": "garage"}, {"_id": 0}) or {}
+    except Exception:
+        s = {}
+    name = (s.get("name") or "").strip() or EMAIL_FROM_NAME
+    reply = (s.get("email") or "").strip() or None
+    parts = []
+    if s.get("address"):
+        parts.append(esc_html(s["address"]))
+    contact_bits = []
+    if s.get("phone"):
+        contact_bits.append(f'Phone: <a href="tel:{esc_html(s["phone"])}" style="color:#666;text-decoration:none">{esc_html(s["phone"])}</a>')
+    if s.get("email"):
+        contact_bits.append(f'Email: <a href="mailto:{esc_html(s["email"])}" style="color:#666;text-decoration:none">{esc_html(s["email"])}</a>')
+    if contact_bits:
+        parts.append(" &middot; ".join(contact_bits))
+    if s.get("kvk_number"):
+        parts.append(f"KvK: {esc_html(s['kvk_number'])}")
+    body = "<br/>".join(parts) if parts else ""
+    footer_html = (
+        f'<div style="margin-top:24px;padding-top:12px;border-top:1px solid #eee;'
+        f'font-family:Arial,sans-serif;color:#888;font-size:11px;line-height:1.5">'
+        f'<div style="color:#333;font-weight:600;margin-bottom:2px">{esc_html(name)}</div>'
+        f'{body}'
+        f'</div>'
+    )
+    return {"from_name": name, "reply_to": reply, "footer_html": footer_html}
+
+
+async def send_email(*, to, subject, html, attachments=None, purpose="other", related_id=None,
+                     from_name=None, reply_to=None):
     _assert_safe_email(subject, html)
-    payload = {"to": [to], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME}
+    payload = {
+        "to": [to], "subject": subject, "html": html,
+        "from_name": from_name or EMAIL_FROM_NAME,
+    }
+    if reply_to:
+        payload["contact_email"] = reply_to
     # attachments: [{"filename": "invoice.pdf", "content_base64": "…"}]  — passed
     # through to the Resend proxy which forwards to Resend's /emails endpoint.
     if attachments:
