@@ -169,4 +169,33 @@ def register(db, get_current_user, require_super_admin, provision_owner=None):
             "inventory": await db._db.inventory.count_documents(f),
         }
 
+    @router.post("/tenants/{tenant_id}/impersonate")
+    async def impersonate_tenant(tenant_id: str, user: dict = Depends(require_super_admin)):
+        """Return a short-lived JWT that scopes every subsequent DB call to
+        `tenant_id`.  The frontend swaps its stored token and reloads — the UI
+        then shows the garage's own data (customers, invoices, settings...)
+        while the "Impersonating" banner stays visible.  Only super_admins can
+        do this; the impersonation claim is only honoured when the underlying
+        role is still super_admin."""
+        t = await db._db.tenants.find_one({"id": tenant_id}, {"_id": 0})
+        if not t:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+        token = _issue_impersonation_token(user, tenant_id)
+        return {"token": token, "tenant": {"id": t["id"], "name": t["name"], "country": t.get("country")}}
+
+    @router.post("/tenants/stop-impersonation")
+    async def stop_impersonation(user: dict = Depends(require_super_admin)):
+        """Return a plain super_admin JWT (impersonation claim stripped).
+        Called by the "Exit impersonation" banner button."""
+        token = _issue_impersonation_token(user, None)
+        return {"token": token}
+
     return router
+
+
+# Small factory kept here (instead of inside tenants.py) so it can reuse the
+# JWT helper without a circular import.  Assigned onto the module in
+# _register_tenants below.
+def _issue_impersonation_token(user, tenant_id):
+    from server import create_access_token as _mint
+    return _mint(user["id"], user["email"], user["role"], user.get("tenant_id"), impersonate_tenant_id=tenant_id)

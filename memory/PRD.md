@@ -18,6 +18,12 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-25k — Impersonate garage (support drop-in)
+- **`POST /api/tenants/{id}/impersonate`** (super_admin only) — issues a fresh JWT that carries an `impersonate_tenant_id` claim.  `get_current_user` reads the claim and, only if the underlying role is still `super_admin`, sets the ContextVar to the target tenant so every subsequent DB call is scoped to that garage.  Also attaches `user.impersonating = {id, name, country}` for the UI banner.
+- **`POST /api/tenants/stop-impersonation`** — returns a plain super_admin JWT (claim stripped).
+- **Frontend**: "Enter garage" primary button on every tenant row in `SuperAdmin.jsx`; swaps the stored token, refetches `/auth/me`, and redirects to `/` so the admin lands in the impersonated tenant's Dashboard.  Sticky amber `ImpersonationBanner` sits at the top of every page inside `DashboardLayout` with a one-click "Exit impersonation" button.
+- **Security guards** — 10/10 backend edge cases green (owner → 403, missing tenant → 404, forged claim on non-super_admin token is ignored, isolated `/customers` returns only the impersonated tenant's rows).  UI E2E verified: click → banner appears + dashboard loads FR-only data, exit → banner clears + returns to `/super-admin`.
+
 ### Session 2026-02-25j — My Profile page (self-service name + email editing)
 - **`PUT /api/auth/me/profile`** — accepts `{name?, email?, current_password}`. Verifies current password (rejects hijacked sessions), rejects email clashes globally (409), issues a fresh JWT after email changes so the token payload stays in sync, and stamps `profile_changed_at`. Works for super_admin, owner and staff alike (uses `_raw_db`).
 - **`MyProfile.jsx` page** at `/my-profile` — avatar + role badge, editable name + email, "Save changes" opens a confirmation dialog that re-asks for the current password before persisting. Also embeds `ChangePasswordDialog` for a one-stop account panel. Role-specific banner reminds super_admin to rotate off the `platform123` seed.

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/context/AuthContext";
 import { api, formatApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Building2, Plus, Power, PowerOff, Globe } from "lucide-react";
+import { Building2, Plus, Power, PowerOff, Globe, LogIn } from "lucide-react";
 import { toast } from "sonner";
 
 const COUNTRIES = ["NL", "BE", "DE", "FR", "ES", "IT", "GB", "TR", "MA", "SA", "AE", "EG"];
@@ -21,6 +22,7 @@ const COUNTRIES = ["NL", "BE", "DE", "FR", "ES", "IT", "GB", "TR", "MA", "SA", "
  */
 export default function SuperAdmin() {
   const qc = useQueryClient();
+  const { setUser } = useAuth();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: "", country: "NL", plan: "trial", owner_email: "", owner_name: "" });
   const { data: tenants = [], isLoading } = useQuery({
@@ -46,6 +48,25 @@ export default function SuperAdmin() {
       await api.put(`/tenants/${t.id}`, { active: !t.active });
       toast.success(t.active ? "Suspended" : "Reactivated");
       qc.invalidateQueries({ queryKey: ["tenants"] });
+    } catch (err) { toast.error(formatApiError(err)); }
+  };
+
+  /* "Enter garage" — swap the current super_admin JWT for one that scopes
+     every DB call to the target tenant.  We keep the identity (still
+     super_admin) so the impersonation banner is visible + can be exited.  */
+  const enterGarage = async (t) => {
+    try {
+      const { data } = await api.post(`/tenants/${t.id}/impersonate`);
+      localStorage.setItem("garage_token", data.token);
+      // Refetch our profile so `user.impersonating` populates and the banner
+      // shows immediately without a hard reload.
+      const me = await api.get("/auth/me");
+      setUser?.(me.data);
+      localStorage.setItem("garage_user", JSON.stringify(me.data));
+      toast.success(`Now viewing ${t.name}`);
+      // Send the admin to the dashboard of the impersonated tenant — most
+      // support requests start with "why doesn't my dashboard show X?".
+      window.location.href = "/";
     } catch (err) { toast.error(formatApiError(err)); }
   };
 
@@ -116,17 +137,29 @@ export default function SuperAdmin() {
                   }
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="rounded-full"
-                    onClick={() => toggleActive(t)}
-                    data-testid={`tenant-toggle-${t.id}`}
-                  >
-                    {t.active
-                      ? <><PowerOff className="h-3 w-3 mr-1" />Suspend</>
-                      : <><Power className="h-3 w-3 mr-1" />Reactivate</>}
-                  </Button>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      size="sm"
+                      className="rounded-full bg-primary hover:bg-primary/90"
+                      onClick={() => enterGarage(t)}
+                      disabled={!t.active}
+                      title={t.active ? "Sign in as this garage" : "Suspended — reactivate first"}
+                      data-testid={`tenant-impersonate-${t.id}`}
+                    >
+                      <LogIn className="h-3 w-3 mr-1" />Enter garage
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-full"
+                      onClick={() => toggleActive(t)}
+                      data-testid={`tenant-toggle-${t.id}`}
+                    >
+                      {t.active
+                        ? <><PowerOff className="h-3 w-3 mr-1" />Suspend</>
+                        : <><Power className="h-3 w-3 mr-1" />Reactivate</>}
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}

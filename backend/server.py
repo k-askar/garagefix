@@ -51,12 +51,14 @@ def hash_password(password: str) -> str:
 def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
 
-def create_access_token(user_id: str, email: str, role: str, tenant_id: Optional[str] = None) -> str:
+def create_access_token(user_id: str, email: str, role: str, tenant_id: Optional[str] = None, impersonate_tenant_id: Optional[str] = None) -> str:
     payload = {
         "sub": user_id, "email": email, "role": role, "tenant_id": tenant_id,
         "exp": datetime.now(timezone.utc) + timedelta(hours=12),
         "type": "access"
     }
+    if impersonate_tenant_id:
+        payload["impersonate_tenant_id"] = impersonate_tenant_id
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 # ── Permission catalog ────────────────────────────────────────────────────
@@ -148,7 +150,16 @@ async def get_current_user(request: Request) -> dict:
         # super_admin users have tenant_id == None → no scoping (they see the
         # whole platform).  Anyone else gets their tenant auto-injected on
         # every DB call via the TenantAwareDb wrapper.
-        if user.get("role") != "super_admin" and user.get("tenant_id"):
+        # Impersonation: when a super_admin has requested to drop into a
+        # specific garage the JWT carries `impersonate_tenant_id`.  Scope
+        # every DB call to that tenant AND surface the info back to the
+        # frontend so it can render the "you are impersonating" banner.
+        imp_tid = payload.get("impersonate_tenant_id")
+        if imp_tid and user.get("role") == "super_admin":
+            current_tenant_id.set(imp_tid)
+            imp_doc = await _raw_db.tenants.find_one({"id": imp_tid}, {"_id": 0, "id": 1, "name": 1, "country": 1})
+            user["impersonating"] = imp_doc or {"id": imp_tid, "name": "Unknown garage"}
+        elif user.get("role") != "super_admin" and user.get("tenant_id"):
             current_tenant_id.set(user["tenant_id"])
         else:
             current_tenant_id.set(None)

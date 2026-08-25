@@ -7,6 +7,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { LayoutDashboard, Package, ArrowLeftRight, ScrollText, Truck, Users, BarChart3, LogOut, Wrench, Menu, X, UserCog, Settings as SettingsIcon, ClipboardList, Receipt, ShoppingCart, Bell, Wallet, ScanLine, Banknote, Calendar, LayoutGrid, Monitor, PackageOpen, Building2 } from "lucide-react";
 import ChangePasswordDialog from "@/components/ChangePasswordDialog";
+import ImpersonationBanner from "@/components/ImpersonationBanner";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -150,6 +151,7 @@ export default function DashboardLayout({ children }) {
 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
+        <ImpersonationBanner />
         <header className="h-16 border-b border-border bg-card/60 backdrop-blur-sm flex items-center justify-between px-6 lg:px-8">
           <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setOpen(!open)} data-testid="sidebar-toggle">
             {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
