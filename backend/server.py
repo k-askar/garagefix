@@ -142,8 +142,16 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 async def require_owner(user: dict = Depends(get_current_user)) -> dict:
-    if user.get("role") != "owner":
+    # super_admin can do anything an owner can — needed so the platform-owner
+    # can browse/manage tenant data without impersonation.
+    if user.get("role") not in ("owner", "super_admin"):
         raise HTTPException(status_code=403, detail="Owner access required")
+    return user
+
+
+async def require_super_admin(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Platform admin only")
     return user
 
 # --- Models ---
@@ -151,13 +159,13 @@ class UserRegister(BaseModel):
     email: EmailStr
     password: Optional[str] = Field(default=None, min_length=6)
     name: str
-    role: Literal["owner", "staff"] = "staff"
+    role: Literal["super_admin", "owner", "staff"] = "staff"
     permissions: List[str] = []
 
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
-    role: Optional[Literal["owner", "staff"]] = None
+    role: Optional[Literal["super_admin", "owner", "staff"]] = None
     permissions: Optional[List[str]] = None
     password: Optional[str] = Field(default=None, min_length=6)
 
@@ -3475,12 +3483,14 @@ from routes.reminders import register as _register_reminders  # noqa: E402
 from routes.cron      import register as _register_cron       # noqa: E402
 from routes.rdw       import register as _register_rdw        # noqa: E402
 from routes.kvk       import register as _register_kvk        # noqa: E402
+from routes.tenants   import register as _register_tenants    # noqa: E402
 
 _reminders_router, _send_reminder = _register_reminders(db, get_current_user, send_email)
 api_router.include_router(_reminders_router)
 api_router.include_router(_register_cron(db, WEBHOOK_CRON_SECRET, _send_reminder))
 api_router.include_router(_register_rdw(get_current_user))
 api_router.include_router(_register_kvk(get_current_user))
+api_router.include_router(_register_tenants(db, get_current_user, require_super_admin))
 
 
 # --- Cash Register / Daily Till ---
@@ -4101,6 +4111,7 @@ async def startup():
     await db.inventory.create_index("sku", unique=True)
     await db.inventory.create_index("barcode", unique=True)
     await db.backups.create_index("created_at")
+    await db.tenants.create_index("id", unique=True)
     # Init cloud object storage (best-effort — backup UI still works locally without it)
     try:
         from backup import init_storage
@@ -4122,6 +4133,63 @@ async def startup():
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
         logger.info(f"Seeded admin user: {admin_email}")
+    # ------------------------------------------------------------------
+    # Phase 1 (multi-tenant): ensure a default tenant exists, backfill
+    # tenant_id on every business collection, and seed a platform-level
+    # super_admin login separate from the per-garage owner.
+    # ------------------------------------------------------------------
+    try:
+        default_tenant = await db.tenants.find_one({"is_default": True}, {"_id": 0})
+        if not default_tenant:
+            default_tenant = {
+                "id": str(uuid.uuid4()),
+                "name": os.environ.get("DEFAULT_TENANT_NAME", "PitStock Garage"),
+                "country": "NL",
+                "plan": "pro",
+                "active": True,
+                "is_default": True,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "owner_email": admin_email,
+            }
+            await db.tenants.insert_one(default_tenant)
+            logger.info(f"Seeded default tenant: {default_tenant['name']} ({default_tenant['id']})")
+        default_tid = default_tenant["id"]
+
+        # Backfill tenant_id everywhere it is missing so historic data belongs
+        # to the default garage.  Every collection we care about is patched.
+        tenant_scoped = [
+            "users", "settings", "suppliers", "customers", "vehicles",
+            "inventory", "parts_catalog", "transactions", "purchase_orders",
+            "repairs", "invoices", "appointments", "reminders",
+            "payment_methods", "payment_entries", "cash_movements",
+            "public_invoice_pdfs", "vehicle_events",
+        ]
+        patched_total = 0
+        for coll in tenant_scoped:
+            res = await db[coll].update_many(
+                {"$or": [{"tenant_id": {"$exists": False}}, {"tenant_id": None}, {"tenant_id": ""}]},
+                {"$set": {"tenant_id": default_tid}},
+            )
+            patched_total += res.modified_count
+        if patched_total:
+            logger.info(f"Multi-tenant backfill: assigned tenant_id on {patched_total} historic docs")
+
+        # Seed platform super_admin from env (never overrides an existing one).
+        sa_email = os.environ.get("SUPER_ADMIN_EMAIL", "platform@pitstock.app").lower()
+        sa_password = os.environ.get("SUPER_ADMIN_PASSWORD", "platform123")
+        if not await db.users.find_one({"email": sa_email}):
+            await db.users.insert_one({
+                "id": str(uuid.uuid4()),
+                "email": sa_email,
+                "name": "Platform Admin",
+                "role": "super_admin",
+                "tenant_id": None,  # super_admin transcends tenants
+                "password_hash": hash_password(sa_password),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+            logger.info(f"Seeded super_admin user: {sa_email}")
+    except Exception as e:
+        logger.exception(f"Multi-tenant startup migration failed: {e}")
     # ------------------------------------------------------------------
     # One-off backfill: copy `car_country` / `car_plate` from each linked
     # repair card onto historical invoices so the printed plate badge on

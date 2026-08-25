@@ -18,6 +18,14 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-25g — Multi-tenant SaaS foundation (Phase 1)
+- **Data model**: new `tenants` collection with `{id, name, country, plan, active, owner_email, created_at}`. Every business collection now carries a `tenant_id` field, back-filled to a seeded default tenant `PitStock Garage` for the historic dataset.
+- **Auth**: new `super_admin` role that transcends tenants; `require_owner` widened to accept super_admins too so the platform owner can drill into any garage without impersonation. New `require_super_admin` guard for platform endpoints.
+- **Endpoints** (routes/tenants.py): `GET /api/tenants` (super_admin), `POST /api/tenants` (super_admin, auto-provisions per-tenant settings doc), `PUT /api/tenants/{id}`, `DELETE /api/tenants/{id}` (soft-delete), `GET /api/tenants/{id}/stats` (counts), `GET /api/tenants/me` (any user).
+- **Seeded platform admin**: `platform@pitstock.app` / `platform123` (env-overridable) — separate from per-garage owner. All historic users/customers/vehicles/invoices/repairs/etc. now carry `tenant_id`.
+- **Frontend Super Admin dashboard** (`/super-admin`, super_admin-only route): total/active/suspended counters, garages table, "New garage" dialog with country + plan pickers, one-tap Suspend/Reactivate. Sidebar shows a dedicated "Platform · Garages" section when the current user is super_admin.
+- **Deliberately deferred to Phase 1b** (next session): actual per-tenant query filtering on the ~150 existing endpoints. Today super_admin sees the whole platform, owner still sees everything in their DB — the isolation middleware ships in Phase 1b after a testing-agent regression pass.
+
 ### Session 2026-02-25f — PDF attachments on email/WhatsApp + bulk reminder dispatch
 - **Invoice emails now carry the PDF as a real attachment** — `send_email` accepts `attachments=[{filename, content_base64}]` and forwards to the Resend proxy. `InvoiceEmailBody` gained `attachment_base64` + `attachment_filename`. Frontend `sendEmail` renders the invoice via `htmlToPdfBlob` (same look as the "Download PDF" action), base64-encodes the blob, and ships it in the POST body — customers now receive a downloadable file, not just an HTML summary.
 - **WhatsApp share now includes a public PDF link** — new endpoints `POST /api/invoices/{id}/public-pdf` (auth, base64 in) and `GET /api/public/invoice-pdf/{token}` (no auth, 30-day expiry). Frontend WhatsApp button uploads the freshly rendered PDF, gets a public URL back, and drops it into the wa.me message so customers can tap the link to download.

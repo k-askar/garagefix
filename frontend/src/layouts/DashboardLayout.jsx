@@ -5,7 +5,7 @@ import { useLang } from "@/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import ThemeToggle from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Package, ArrowLeftRight, ScrollText, Truck, Users, BarChart3, LogOut, Wrench, Menu, X, UserCog, Settings as SettingsIcon, ClipboardList, Receipt, ShoppingCart, Bell, Wallet, ScanLine, Banknote, Calendar, LayoutGrid, Monitor, PackageOpen } from "lucide-react";
+import { LayoutDashboard, Package, ArrowLeftRight, ScrollText, Truck, Users, BarChart3, LogOut, Wrench, Menu, X, UserCog, Settings as SettingsIcon, ClipboardList, Receipt, ShoppingCart, Bell, Wallet, ScanLine, Banknote, Calendar, LayoutGrid, Monitor, PackageOpen, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -93,6 +93,25 @@ export default function DashboardLayout({ children }) {
                   <span>{t(n.key)}</span>
                 </NavLink>
               ))}
+            </>
+          )}
+          {user?.role === "super_admin" && (
+            <>
+              <div className="pt-3 pb-1 px-3 text-[10px] font-mono uppercase tracking-widest text-primary/80">Platform</div>
+              <NavLink
+                to="/super-admin"
+                data-testid="nav-super-admin"
+                onClick={() => setOpen(false)}
+                className={({ isActive }) => cn(
+                  "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors duration-200",
+                  isActive
+                    ? "bg-primary/15 text-primary border border-primary/30"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent border border-transparent"
+                )}
+              >
+                <Building2 className="h-4 w-4" />
+                <span>Garages</span>
+              </NavLink>
             </>
           )}
         </nav>

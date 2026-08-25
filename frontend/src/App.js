@@ -28,6 +28,7 @@ import CarPassport from "@/pages/CarPassport";
 import BayBoard from "@/pages/BayBoard";
 import DeliveryScan from "@/pages/DeliveryScan";
 import PasswordSetup from "@/pages/PasswordSetup";
+import SuperAdmin from "@/pages/SuperAdmin";
 import "@/App.css";
 
 function ProtectedShell() {
@@ -45,7 +46,13 @@ function ProtectedShell() {
 
 function OwnerRoute({ children }) {
   const { user } = useAuth();
-  if (user && user.role !== "owner") return <Navigate to="/" replace />;
+  if (user && user.role !== "owner" && user.role !== "super_admin") return <Navigate to="/" replace />;
+  return children;
+}
+
+function SuperAdminRoute({ children }) {
+  const { user } = useAuth();
+  if (user && user.role !== "super_admin") return <Navigate to="/" replace />;
   return children;
 }
 
@@ -80,6 +87,7 @@ function App() {
               <Route path="/purchase-orders" element={<OwnerRoute><PurchaseOrders /></OwnerRoute>} />
               <Route path="/staff" element={<OwnerRoute><Staff /></OwnerRoute>} />
               <Route path="/settings" element={<OwnerRoute><Settings /></OwnerRoute>} />
+              <Route path="/super-admin" element={<SuperAdminRoute><SuperAdmin /></SuperAdminRoute>} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
