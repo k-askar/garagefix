@@ -18,6 +18,13 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-25h — Multi-tenant Phase 1b: query isolation + onboarding email + per-country defaults
+- **Query isolation via `tenant_scope.py`** — a `ContextVar`-driven `TenantAwareDb` proxy that wraps 18 business collections. Every filter, `insert_one`, `update_one`, upsert, `find_one_and_update` and aggregation pipeline auto-injects `tenant_id`. `get_current_user` sets the ContextVar on each authenticated request; super_admin, background tasks, cron and startup migrations leave it unset (raw multi-tenant view). Special `_id` rewrite maps legacy `settings._id: "garage"` to `garage:<tenant_id>` — the 11 existing settings queries in server.py + routes stayed untouched.
+- **Legacy settings migration at startup** — the singleton `settings._id: "garage"` doc is copied into `settings._id: "garage:<default_tid>"` (with `tenant_id` stamped) and the legacy row is deleted, so the default garage keeps its historic branding.
+- **Onboarding email on new tenant creation** — `POST /api/tenants` (super_admin) now provisions the owner user with a pending-password record and fires the existing `_send_password_setup_email` flow. Response includes `{onboarding: {email, link, emailed}}` so the super_admin can copy the link if the SMTP proxy is down. Verified end-to-end: created FR "Isolation Test Garage" → owner set password via link → logged in → saw 0 customers (fully isolated).
+- **Country-driven settings defaults** — `COUNTRY_DEFAULTS` matrix (NL/BE/DE/FR/ES/IT/GB/TR/MA/SA/AE/EG) applied on tenant creation: tax_rate, currency_symbol/code, plate_country, and feature toggles (`rdw`, `kvk`, `ideal_qr`). Berlin Auto (DE) got 19% VAT + €; Isolation Test Garage (FR) got 20%; Riyadh Auto (SA) would get 15% + ﷼.
+- **Cross-tenant leak test passed** — FR owner created "FR-only Customer" → default owner's customer list count stayed at 6 and did NOT include the FR customer (`[False]*6`).
+
 ### Session 2026-02-25g — Multi-tenant SaaS foundation (Phase 1)
 - **Data model**: new `tenants` collection with `{id, name, country, plan, active, owner_email, created_at}`. Every business collection now carries a `tenant_id` field, back-filled to a seeded default tenant `PitStock Garage` for the historic dataset.
 - **Auth**: new `super_admin` role that transcends tenants; `require_owner` widened to accept super_admins too so the platform owner can drill into any garage without impersonation. New `require_super_admin` guard for platform endpoints.

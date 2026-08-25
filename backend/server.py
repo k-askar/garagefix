@@ -25,7 +25,14 @@ from urllib.parse import urlparse
 # --- DB ---
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+_raw_db = client[os.environ['DB_NAME']]
+# Phase 1b — wrap in a tenant-aware proxy so every read/write auto-scopes to
+# `current_tenant_id`.  Endpoint code keeps saying `db.customers.find(...)`
+# unchanged; the proxy injects tenant_id on every filter/doc.  Super_admin,
+# background tasks and startup migrations run without a set ContextVar so they
+# still see the full multi-tenant view.
+from tenant_scope import TenantAwareDb, current_tenant_id  # noqa: E402
+db = TenantAwareDb(_raw_db)
 
 # --- App ---
 app = FastAPI(title="Garage Inventory API")
@@ -44,9 +51,9 @@ def hash_password(password: str) -> str:
 def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
 
-def create_access_token(user_id: str, email: str, role: str) -> str:
+def create_access_token(user_id: str, email: str, role: str, tenant_id: Optional[str] = None) -> str:
     payload = {
-        "sub": user_id, "email": email, "role": role,
+        "sub": user_id, "email": email, "role": role, "tenant_id": tenant_id,
         "exp": datetime.now(timezone.utc) + timedelta(hours=12),
         "type": "access"
     }
@@ -130,11 +137,21 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
+        # Look up the user against the RAW db so this bootstrap fetch is not
+        # itself scoped (users of tenant A must be able to log in even though
+        # the ContextVar isn't set yet).
+        user = await _raw_db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
-        # Ensure a permissions list is always returned (older docs may lack it).
         user["permissions"] = user.get("permissions") or []
+        # Phase 1b — activate tenant scoping for the rest of this request.
+        # super_admin users have tenant_id == None → no scoping (they see the
+        # whole platform).  Anyone else gets their tenant auto-injected on
+        # every DB call via the TenantAwareDb wrapper.
+        if user.get("role") != "super_admin" and user.get("tenant_id"):
+            current_tenant_id.set(user["tenant_id"])
+        else:
+            current_tenant_id.set(None)
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
@@ -3485,12 +3502,45 @@ from routes.rdw       import register as _register_rdw        # noqa: E402
 from routes.kvk       import register as _register_kvk        # noqa: E402
 from routes.tenants   import register as _register_tenants    # noqa: E402
 
+# Helper passed into routes/tenants.py so the super-admin "Create garage"
+# endpoint can auto-provision a pending-password owner user and email the
+# setup link — reuses the existing password-setup pipeline.
+async def _provision_tenant_owner(tenant_id: str, email: str, name: str):
+    email = (email or "").lower().strip()
+    if not email:
+        return None
+    if await _raw_db.users.find_one({"email": email}):
+        return {"email": email, "link": None, "already_exists": True}
+    token = secrets.token_urlsafe(32)
+    uid = str(uuid.uuid4())
+    doc = {
+        "id": uid,
+        "email": email,
+        "name": name or email.split("@")[0],
+        "role": "owner",
+        "tenant_id": tenant_id,
+        "password_hash": "",
+        "password_setup_token": token,
+        "password_setup_expires": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        "permissions": [],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await _raw_db.users.insert_one(doc)
+    link = _password_setup_link(token)
+    try:
+        await _send_password_setup_email(doc, link)
+        emailed = True
+    except Exception as e:
+        logger.warning(f"Onboarding email failed for {email}: {e}")
+        emailed = False
+    return {"email": email, "link": link, "emailed": emailed, "already_exists": False}
+
 _reminders_router, _send_reminder = _register_reminders(db, get_current_user, send_email)
 api_router.include_router(_reminders_router)
 api_router.include_router(_register_cron(db, WEBHOOK_CRON_SECRET, _send_reminder))
 api_router.include_router(_register_rdw(get_current_user))
 api_router.include_router(_register_kvk(get_current_user))
-api_router.include_router(_register_tenants(db, get_current_user, require_super_admin))
+api_router.include_router(_register_tenants(db, get_current_user, require_super_admin, _provision_tenant_owner))
 
 
 # --- Cash Register / Daily Till ---
@@ -4139,7 +4189,7 @@ async def startup():
     # super_admin login separate from the per-garage owner.
     # ------------------------------------------------------------------
     try:
-        default_tenant = await db.tenants.find_one({"is_default": True}, {"_id": 0})
+        default_tenant = await _raw_db.tenants.find_one({"is_default": True}, {"_id": 0})
         if not default_tenant:
             default_tenant = {
                 "id": str(uuid.uuid4()),
@@ -4151,12 +4201,14 @@ async def startup():
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "owner_email": admin_email,
             }
-            await db.tenants.insert_one(default_tenant)
+            await _raw_db.tenants.insert_one(default_tenant)
             logger.info(f"Seeded default tenant: {default_tenant['name']} ({default_tenant['id']})")
         default_tid = default_tenant["id"]
 
         # Backfill tenant_id everywhere it is missing so historic data belongs
         # to the default garage.  Every collection we care about is patched.
+        # NB: use `_raw_db` so the update itself isn't scoped by the proxy —
+        # the whole point is to reach docs that DON'T yet have tenant_id.
         tenant_scoped = [
             "users", "settings", "suppliers", "customers", "vehicles",
             "inventory", "parts_catalog", "transactions", "purchase_orders",
@@ -4166,7 +4218,7 @@ async def startup():
         ]
         patched_total = 0
         for coll in tenant_scoped:
-            res = await db[coll].update_many(
+            res = await _raw_db[coll].update_many(
                 {"$or": [{"tenant_id": {"$exists": False}}, {"tenant_id": None}, {"tenant_id": ""}]},
                 {"$set": {"tenant_id": default_tid}},
             )
@@ -4174,11 +4226,23 @@ async def startup():
         if patched_total:
             logger.info(f"Multi-tenant backfill: assigned tenant_id on {patched_total} historic docs")
 
+        # Migrate the legacy singleton settings doc (_id: "garage") to the
+        # per-tenant convention (_id: "garage:<default_tid>").  New tenants
+        # already get created with the new id.
+        legacy = await _raw_db.settings.find_one({"_id": "garage"})
+        if legacy:
+            new_id = f"garage:{default_tid}"
+            if not await _raw_db.settings.find_one({"_id": new_id}):
+                new_doc = {**legacy, "_id": new_id, "tenant_id": default_tid}
+                await _raw_db.settings.insert_one(new_doc)
+            await _raw_db.settings.delete_one({"_id": "garage"})
+            logger.info(f"Migrated legacy settings doc to {new_id}")
+
         # Seed platform super_admin from env (never overrides an existing one).
         sa_email = os.environ.get("SUPER_ADMIN_EMAIL", "platform@pitstock.app").lower()
         sa_password = os.environ.get("SUPER_ADMIN_PASSWORD", "platform123")
-        if not await db.users.find_one({"email": sa_email}):
-            await db.users.insert_one({
+        if not await _raw_db.users.find_one({"email": sa_email}):
+            await _raw_db.users.insert_one({
                 "id": str(uuid.uuid4()),
                 "email": sa_email,
                 "name": "Platform Admin",
