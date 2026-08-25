@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Building2, Plus, Power, PowerOff, Globe, LogIn, Trash2, AlertTriangle } from "lucide-react";
+import { Building2, Plus, Power, PowerOff, Globe, LogIn, Trash2, AlertTriangle, CalendarClock, Bell, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 const COUNTRIES = ["NL", "BE", "DE", "FR", "ES", "IT", "GB", "TR", "MA", "SA", "AE", "EG"];
@@ -33,6 +33,20 @@ export default function SuperAdmin() {
     queryFn: () => api.get("/tenants").then(r => r.data),
     refetchInterval: 30000,
   });
+  const { data: expiring = [] } = useQuery({
+    queryKey: ["tenants-expiring"],
+    queryFn: () => api.get("/tenants/expiring", { params: { within_days: 14 } }).then(r => r.data),
+    refetchInterval: 60000,
+  });
+
+  const extendSubscription = async (t, days = 30) => {
+    try {
+      const { data } = await api.post(`/tenants/${t.id}/extend`, { days });
+      toast.success(`"${t.name}" renewed until ${data.subscription_expires_at}`);
+      qc.invalidateQueries({ queryKey: ["tenants"] });
+      qc.invalidateQueries({ queryKey: ["tenants-expiring"] });
+    } catch (err) { toast.error(formatApiError(err)); }
+  };
 
   const create = async (e) => {
     e.preventDefault();
@@ -119,11 +133,62 @@ export default function SuperAdmin() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <StatCard label="Total garages" value={tenants.length} tone="primary" />
         <StatCard label="Active" value={tenants.filter(t => t.active).length} tone="emerald" />
         <StatCard label="Suspended" value={tenants.filter(t => !t.active).length} tone="rose" />
+        <StatCard label="Expiring / expired" value={expiring.length} tone={expiring.length ? "amber" : "primary"} />
       </div>
+
+      {expiring.length > 0 && (
+        <Card className="border-amber-500/40 bg-amber-500/5 p-4" data-testid="expiring-banner">
+          <div className="flex items-start gap-3">
+            <div className="h-9 w-9 rounded-md bg-amber-500/15 border border-amber-500/40 flex items-center justify-center shrink-0">
+              <Bell className="h-4 w-4 text-amber-600" />
+            </div>
+            <div className="flex-1">
+              <div className="font-semibold text-amber-700 dark:text-amber-400">
+                {expiring.length} garage{expiring.length > 1 ? "s" : ""} need payment attention
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                Renew each one after collecting payment — the "Renew 30d" button rolls the expiry date forward.
+              </div>
+              <div className="mt-3 flex flex-col gap-1.5">
+                {expiring.slice(0, 8).map(e => {
+                  const dr = e.days_remaining;
+                  const tone = dr < 0
+                    ? "text-rose-700 dark:text-rose-400"
+                    : dr <= 3
+                      ? "text-amber-700 dark:text-amber-400"
+                      : "text-muted-foreground";
+                  const label = dr == null ? "no date"
+                    : dr < 0 ? `expired ${Math.abs(dr)}d ago`
+                    : dr === 0 ? "expires today"
+                    : `${dr}d left`;
+                  return (
+                    <div key={e.id} className="flex items-center justify-between gap-3 text-sm" data-testid={`expiring-row-${e.id}`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <CalendarClock className={`h-3.5 w-3.5 shrink-0 ${tone}`} />
+                        <span className="font-semibold truncate">{e.name}</span>
+                        <span className="text-[10px] font-mono text-muted-foreground truncate">{e.owner_email || "—"}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className={`font-mono text-[10px] ${tone}`}>{label}</Badge>
+                        <Button size="sm" variant="outline" className="rounded-full h-7 px-3 border-amber-500/40 text-amber-700 dark:text-amber-400" onClick={() => extendSubscription(e, 30)} data-testid={`extend-${e.id}`}>
+                          <RefreshCw className="h-3 w-3 mr-1" />Renew 30d
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {expiring.length > 8 && (
+                  <div className="text-xs text-muted-foreground pt-1">+ {expiring.length - 8} more in the table below</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <Card className="border-border overflow-x-auto">
         <Table>
@@ -134,14 +199,15 @@ export default function SuperAdmin() {
               <TableHead>Plan</TableHead>
               <TableHead>Owner email</TableHead>
               <TableHead>Created</TableHead>
+              <TableHead>Expires</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading && <TableRow><TableCell colSpan={7} className="text-center py-12 text-muted-foreground">Loading…</TableCell></TableRow>}
+            {isLoading && <TableRow><TableCell colSpan={8} className="text-center py-12 text-muted-foreground">Loading…</TableCell></TableRow>}
             {!isLoading && !tenants.length && (
-              <TableRow><TableCell colSpan={7} className="text-center py-16 text-muted-foreground">
+              <TableRow><TableCell colSpan={8} className="text-center py-16 text-muted-foreground">
                 No garages yet. Click "New garage" to onboard the first one.
               </TableCell></TableRow>
             )}
@@ -163,6 +229,9 @@ export default function SuperAdmin() {
                 <TableCell className="font-mono text-xs text-muted-foreground">{t.owner_email || "—"}</TableCell>
                 <TableCell className="font-mono text-xs">{(t.created_at || "").slice(0, 10)}</TableCell>
                 <TableCell>
+                  <ExpiryBadge expires={t.subscription_expires_at} />
+                </TableCell>
+                <TableCell>
                   {t.active
                     ? <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">Active</Badge>
                     : <Badge className="bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/15">Suspended</Badge>
@@ -179,6 +248,16 @@ export default function SuperAdmin() {
                       data-testid={`tenant-impersonate-${t.id}`}
                     >
                       <LogIn className="h-3 w-3 mr-1" />Enter garage
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-full border-emerald-500/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10"
+                      onClick={() => extendSubscription(t, 30)}
+                      title="Mark subscription as paid — extend by 30 days"
+                      data-testid={`tenant-extend-${t.id}`}
+                    >
+                      <RefreshCw className="h-3 w-3 mr-1" />Renew 30d
                     </Button>
                     <Button
                       size="sm"
@@ -311,11 +390,30 @@ function StatCard({ label, value, tone = "primary" }) {
     primary: "text-primary bg-primary/10 border-primary/30",
     emerald: "text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
     rose:    "text-rose-700 dark:text-rose-400 bg-rose-500/10 border-rose-500/30",
+    amber:   "text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-500/30",
   }[tone] || "text-primary bg-primary/10 border-primary/30";
   return (
     <Card className={`p-5 border ${toneClass}`}>
       <div className="text-[10px] font-mono uppercase tracking-widest opacity-80">{label}</div>
       <div className="text-4xl font-black font-display mt-1">{value}</div>
     </Card>
+  );
+}
+
+function ExpiryBadge({ expires }) {
+  if (!expires) return <span className="text-xs text-muted-foreground">—</span>;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const exp = new Date(expires); exp.setHours(0, 0, 0, 0);
+  const days = Math.round((exp - today) / 86400000);
+  let cls = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30";
+  let label = `${days}d left`;
+  if (days < 0) { cls = "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30"; label = `expired ${Math.abs(days)}d ago`; }
+  else if (days === 0) { cls = "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30"; label = "expires today"; }
+  else if (days <= 7) { cls = "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"; }
+  return (
+    <div className="flex flex-col gap-0.5">
+      <Badge className={`${cls} font-mono text-[10px]`}>{label}</Badge>
+      <span className="text-[10px] font-mono text-muted-foreground">{expires}</span>
+    </div>
   );
 }

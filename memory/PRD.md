@@ -18,6 +18,15 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26c — Subscription expiry reminders (payment nudge for super_admin)
+- **Tenant model** gains `subscription_expires_at` (ISO date) + `plan_started_at`. New tenants default to +14 days (trial) or +30 days (paid). Existing tenants backfilled via one-off script.
+- **`GET /api/tenants/expiring?within_days=14`** — returns every garage that is already expired OR expires within N days, sorted by soonest, with a computed `days_remaining` field. Used to power the amber "needs payment attention" banner.
+- **`POST /api/tenants/{id}/extend`** (body `{days: 30}`) — pushes the expiry forward by N days, snapping the base to `max(today, current_expiry)` so an already-expired garage renews from today instead of stacking on a past date. Also reactivates the tenant.
+- **`SuperAdmin.jsx`** — 4th stat card "Expiring / expired", amber banner above the table listing the first 8 expiring garages with per-row **Renew 30d** button, new "Expires" column showing coloured `Nd left / expires today / expired Nd ago` badge, and a **Renew 30d** action button on every tenant row for one-click renewal after payment.
+- Verified end-to-end: created a garage expiring in 3 days → appeared in `/tenants/expiring` with `days_remaining=3` → hit `/extend` with 30 days → banner cleared and expiry moved to 2026-09-27; UI screenshot shows new stat card, coloured `14d left` badge, and green "Renew 30d" buttons on every row.
+
+
+
 ### Session 2026-02-26b — Permanent garage delete (subscription cancellation)
 - **`DELETE /api/tenants/{id}?purge=true`** — cascades a hard delete across every scoped collection (users, customers, vehicles, invoices, repairs, inventory, suppliers, transactions, purchase_orders, appointments, reminders, payment_methods/entries, cash_movements, public_invoice_pdfs, vehicle_events, parts_catalog, email_logs, audit_events) + `settings` (via `_id="garage:<tid>"`) + the tenant row itself. Returns per-collection counts so the UI can toast "N records removed". Default `purge=false` still soft-suspends for backwards compat.
 - **`SuperAdmin.jsx` Delete button** — red destructive button next to Suspend/Enter garage on every tenant row. Opens a confirm dialog that (a) explains the cascade, (b) reminds the admin to use "Suspend" if they only want to disable login, and (c) requires the admin to retype the garage name before enabling "Delete forever".

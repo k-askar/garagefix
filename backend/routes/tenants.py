@@ -10,7 +10,7 @@ Tenant management — Phase 1 + 1b of the multi-tenant SaaS refactor.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -56,6 +56,11 @@ class Tenant(BaseModel):
     active: bool = True
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     owner_email: str = ""
+    # Billing lifecycle — every garage has an expiry date so the super_admin
+    # can see who is close to lapsing and nudge them to pay.  Trials default to
+    # 14 days from creation, paid plans to 30 days.
+    subscription_expires_at: Optional[str] = None   # ISO date (YYYY-MM-DD)
+    plan_started_at: Optional[str] = None           # ISO date the current billing window began
 
 
 class TenantCreate(BaseModel):
@@ -64,6 +69,7 @@ class TenantCreate(BaseModel):
     plan: Optional[Literal["trial", "starter", "pro"]] = "trial"
     owner_email: Optional[str] = None
     owner_name: Optional[str] = None
+    subscription_expires_at: Optional[str] = None   # optional override
 
 
 class TenantUpdate(BaseModel):
@@ -71,6 +77,11 @@ class TenantUpdate(BaseModel):
     country: Optional[str] = None
     plan: Optional[Literal["trial", "starter", "pro"]] = None
     active: Optional[bool] = None
+    subscription_expires_at: Optional[str] = None
+
+
+class TenantExtendBody(BaseModel):
+    days: int = 30   # default: renew for a month
 
 
 def register(db, get_current_user, require_super_admin, provision_owner=None):
@@ -95,11 +106,18 @@ def register(db, get_current_user, require_super_admin, provision_owner=None):
     @router.post("/tenants")
     async def create_tenant(payload: TenantCreate, user: dict = Depends(require_super_admin)):
         country = (payload.country or "NL").upper()
+        plan = payload.plan or "trial"
+        # Default lifecycle: 14 days for trial, 30 days for paid plans.
+        today = datetime.now(timezone.utc).date()
+        default_days = 14 if plan == "trial" else 30
+        expires = payload.subscription_expires_at or (today + timedelta(days=default_days)).isoformat()
         t = Tenant(
             name=payload.name.strip(),
             country=country,
-            plan=payload.plan or "trial",
+            plan=plan,
             owner_email=(payload.owner_email or "").lower().strip(),
+            subscription_expires_at=expires,
+            plan_started_at=today.isoformat(),
         )
         await db._db.tenants.insert_one(t.model_dump())
 
@@ -134,6 +152,52 @@ def register(db, get_current_user, require_super_admin, provision_owner=None):
                 onboarding = {"error": str(e)[:180]}
 
         return {**t.model_dump(), "onboarding": onboarding, "defaults_applied": country}
+
+    @router.get("/tenants/expiring")
+    async def expiring_tenants(within_days: int = 14, user: dict = Depends(require_super_admin)):
+        """Return every garage whose subscription is already expired OR
+        expires within `within_days` (default 14).  Used to power the
+        "expiring soon" banner on the super-admin dashboard so the platform
+        owner can nudge them to renew before losing access."""
+        today = datetime.now(timezone.utc).date()
+        cutoff = (today + timedelta(days=within_days)).isoformat()
+        rows = await db._db.tenants.find(
+            {"subscription_expires_at": {"$ne": None, "$lte": cutoff}},
+            {"_id": 0},
+        ).sort("subscription_expires_at", 1).to_list(500)
+        # Enrich each row with days_remaining so the UI doesn't recompute.
+        out = []
+        for r in rows:
+            exp = r.get("subscription_expires_at")
+            try:
+                d = datetime.fromisoformat(exp).date() if exp else None
+                r["days_remaining"] = (d - today).days if d else None
+            except Exception:
+                r["days_remaining"] = None
+            out.append(r)
+        return out
+
+    @router.post("/tenants/{tenant_id}/extend")
+    async def extend_subscription(tenant_id: str, payload: TenantExtendBody, user: dict = Depends(require_super_admin)):
+        """Push the tenant's `subscription_expires_at` forward by N days.
+        Base is the later of (today, current expiry) so an already-expired
+        garage renews from today instead of stacking on a past date."""
+        t = await db._db.tenants.find_one({"id": tenant_id}, {"_id": 0})
+        if not t:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+        today = datetime.now(timezone.utc).date()
+        current = t.get("subscription_expires_at")
+        try:
+            base = datetime.fromisoformat(current).date() if current else today
+        except Exception:
+            base = today
+        base = max(base, today)
+        new_expiry = (base + timedelta(days=int(payload.days))).isoformat()
+        await db._db.tenants.update_one(
+            {"id": tenant_id},
+            {"$set": {"subscription_expires_at": new_expiry, "plan_started_at": today.isoformat(), "active": True}},
+        )
+        return {"ok": True, "subscription_expires_at": new_expiry, "extended_by_days": int(payload.days)}
 
     @router.put("/tenants/{tenant_id}", response_model=Tenant)
     async def update_tenant(tenant_id: str, payload: TenantUpdate, user: dict = Depends(require_super_admin)):
