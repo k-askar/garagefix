@@ -118,15 +118,15 @@ function InvoicePreview({ form }) {
       {template === "classic" && <div style={{ height: 6, background: accent, marginTop: -24, marginLeft: -24, marginRight: -24, marginBottom: 18 }} />}
       {template === "bold"    && <div style={{ height: 3, background: "#000", marginTop: -24, marginLeft: -24, marginRight: -24, marginBottom: 18 }} />}
 
-      {/* Header row — alignment dynamic */}
-      <div className={`flex ${flexDir} items-start justify-between gap-3 ${align === "center" ? "flex-col " + alignClass : ""}`}>
-        <div className={`flex ${align === "center" ? "flex-col items-center" : "items-start"} gap-3 min-w-0`}>
-          {logoSrc && <img src={logoSrc} alt="logo" className="h-12 w-auto object-contain shrink-0" />}
+      {/* Header row — alignment dynamic, mirrors invoice-render.js layout */}
+      <div className={`flex ${align === "right" ? "flex-row-reverse" : "flex-row"} items-start justify-between gap-3 ${align === "center" ? "!flex-col " + alignClass : ""}`}>
+        <div className={`flex ${align === "center" ? "flex-col items-center" : "items-center"} gap-3 min-w-0`}>
+          {logoSrc && <img src={logoSrc} alt="logo" className="h-12 w-auto object-contain shrink-0" style={{ maxWidth: 130 }} />}
           <div className={align === "center" ? "text-center" : ""}>
             <div className={template === "bold" ? "font-black text-xl leading-tight" : "font-bold text-lg leading-tight"}>{form.name || "Garage"}</div>
             <div className="text-[11px] text-gray-500 whitespace-pre-line">{form.address}</div>
             <div className="text-[11px] text-gray-500">{form.phone}{form.email ? " · " + form.email : ""}</div>
-            {form.tax_id && <div className="text-[11px] text-gray-500">VAT / BTW: {form.tax_id}</div>}
+            {form.tax_id && <div className="text-[11px] text-gray-500">BTW: {form.tax_id}</div>}
             {form.kvk_number && <div className="text-[11px] text-gray-500">KvK: {form.kvk_number}</div>}
           </div>
         </div>

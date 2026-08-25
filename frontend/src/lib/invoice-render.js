@@ -276,9 +276,9 @@ export async function renderInvoiceHtml(inv, settings) {
     </div>`;
 
   const headerLeft = `
-    <div style="display:flex;gap:12px;align-items:flex-start">
-      ${logoData ? `<img src="${logoData}" alt="logo" style="height:52px;width:auto;object-fit:contain"/>` : ""}
-      <div>
+    <div style="display:flex;gap:12px;align-items:center">
+      ${logoData ? `<img src="${logoData}" alt="logo" style="height:52px;max-width:160px;width:auto;object-fit:contain;flex-shrink:0"/>` : ""}
+      <div style="min-width:0">
         <h1 class="doc-h1">${esc(s.name || "Garage")}</h1>
         <div class="muted">${esc(s.address || "").replace(/\n/g, "<br/>")}</div>
         <div class="muted">${esc(s.phone || "")}${s.email ? " · " + esc(s.email) : ""}</div>
