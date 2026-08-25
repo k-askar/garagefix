@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, formatEUR, formatApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
@@ -8,10 +8,46 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Save, Upload, Palette, Image as ImageIcon } from "lucide-react";
+import { Save, Upload, Palette, Image as ImageIcon, AlertTriangle, QrCode } from "lucide-react";
 import { toast } from "sonner";
+import QRCode from "qrcode";
 import { useLang } from "@/i18n";
 import BackupPanel from "@/components/BackupPanel";
+
+/* Small live SEPA/iDEAL QR preview so the owner can see what will be printed. */
+function SepaQrPreview({ iban, bic, name, amount = 121, reference = "INV-DEMO" }) {
+  const [dataUrl, setDataUrl] = useState("");
+  const cleanIban = String(iban || "").replace(/\s+/g, "").toUpperCase();
+  useEffect(() => {
+    let cancelled = false;
+    if (!cleanIban) { setDataUrl(""); return; }
+    const payload = [
+      "BCD", "002", "1", "SCT",
+      String(bic || "").toUpperCase().trim(),
+      String(name || "Garage").slice(0, 70),
+      cleanIban,
+      `EUR${Number(amount || 0).toFixed(2)}`,
+      "", "",
+      String(reference || "").slice(0, 140),
+      "",
+    ].join("\n");
+    QRCode.toDataURL(payload, { margin: 1, width: 180, errorCorrectionLevel: "M" })
+      .then((u) => { if (!cancelled) setDataUrl(u); })
+      .catch(() => { if (!cancelled) setDataUrl(""); });
+    return () => { cancelled = true; };
+  }, [cleanIban, bic, name, amount, reference]);
+  if (!dataUrl) return null;
+  return (
+    <div className="flex items-center gap-3 rounded-md border border-primary/30 bg-primary/5 p-3" data-testid="sepa-qr-preview">
+      <img src={dataUrl} alt="SEPA QR preview" className="w-20 h-20 rounded bg-white p-1 border border-border" />
+      <div className="text-[11px] text-muted-foreground leading-relaxed">
+        <div className="font-semibold text-foreground">iDEAL / SEPA GiroCode</div>
+        <div>يمسحه العميل بأي تطبيق مصرفي (ING · ABN · Rabobank …)</div>
+        <div className="font-mono mt-1">IBAN {cleanIban.match(/.{1,4}/g)?.join(" ")}</div>
+      </div>
+    </div>
+  );
+}
 
 const DEFAULT_FORM = {
   name: "", address: "", phone: "", email: "", tax_id: "",
@@ -236,6 +272,12 @@ export default function Settings() {
               <div className="space-y-1.5">
                 <Label>IBAN (bank account)</Label>
                 <Input value={form.iban} onChange={(e) => set("iban", e.target.value)} placeholder="NL91 ABNA 0417 1643 00" className="font-mono" data-testid="settings-iban" />
+                {!form.iban && form.invoice_show_qr && (
+                  <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-[11px] text-amber-800 dark:text-amber-300" data-testid="iban-missing-warning">
+                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span>أدخل رقم IBAN لتظهر رمزية الدفع iDEAL / SEPA على الفواتير.</span>
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
@@ -247,6 +289,9 @@ export default function Settings() {
                   <Input value={form.bic} onChange={(e) => set("bic", e.target.value)} placeholder="ABNANL2A" className="font-mono uppercase" data-testid="settings-bic" />
                 </div>
               </div>
+              {form.iban && form.invoice_show_qr && (
+                <SepaQrPreview iban={form.iban} bic={form.bic} name={form.name} />
+              )}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-1.5">
                   <Label>Header alignment</Label>
@@ -281,10 +326,13 @@ export default function Settings() {
                   </Select>
                 </div>
               </div>
-              <div className="flex items-center justify-between rounded-md border border-border p-3">
-                <div>
-                  <Label className="cursor-pointer">Show SEPA payment QR code</Label>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">Adds a scannable QR (IBAN + total + reference) so customers can pay in one tap with any banking app.</p>
+              <div className="flex items-center justify-between rounded-md border border-primary/30 bg-primary/5 p-3">
+                <div className="flex items-start gap-2">
+                  <QrCode className="h-4 w-4 text-primary mt-0.5" />
+                  <div>
+                    <Label className="cursor-pointer">Show iDEAL / SEPA payment QR code</Label>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">يضيف رمز QR على كل فاتورة (IBAN + المبلغ + رقم الفاتورة). يمسحه العميل بأي تطبيق مصرفي هولندي (ING · ABN · Rabobank …) ليدفع بضغطة واحدة.</p>
+                  </div>
                 </div>
                 <Switch checked={!!form.invoice_show_qr} onCheckedChange={(v) => set("invoice_show_qr", v)} data-testid="settings-show-qr" />
               </div>

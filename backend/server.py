@@ -1043,6 +1043,9 @@ async def root():
 
 # --- Users / Staff (owner only) ---
 @api_router.get("/permissions/catalog")
+async def get_permissions_catalog(user: dict = Depends(require_owner)):
+    """Return the master list of permission sections used by the Staff editor."""
+    return {"sections": PERMISSION_CATALOG}
 
 
 @api_router.get("/users")
@@ -4025,6 +4028,60 @@ async def ocr_delivery_note(payload: OcrDeliveryPayload, user: dict = Depends(ge
     if out["unit_cost"] and not out["unit_price"]:
         out["unit_price"] = out["unit_cost"]
     return out
+
+
+# =========================
+# RDW (Netherlands) open-data plate lookup
+# =========================
+@api_router.get("/rdw/lookup")
+async def rdw_lookup(plate: str, user: dict = Depends(get_current_user)):
+    """Fetch make/model/year/color/apk_expiry from the public RDW open-data API.
+    The plate is normalised (uppercase, no separators). Returns 404 when the
+    plate is unknown so the frontend can show a friendly toast."""
+    cleaned = re.sub(r"[^A-Z0-9]", "", (plate or "").upper())
+    if len(cleaned) < 4:
+        raise HTTPException(status_code=400, detail="Plate too short")
+    url = f"https://opendata.rdw.nl/resource/m9d7-ebf2.json?kenteken={cleaned}"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url, headers={"Accept": "application/json"})
+            r.raise_for_status()
+            rows = r.json()
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"RDW unreachable: {e}")
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"Plate {cleaned} not found in RDW")
+    row = rows[0]
+    # Format the plate back with the classical Dutch dashes (e.g. KK-555-D)
+    def _format_plate(k: str) -> str:
+        k = k.upper()
+        # Heuristic: split into groups of alternating letters/digits
+        groups, buf = [], ""
+        for ch in k:
+            if not buf:
+                buf = ch; continue
+            if (buf[-1].isdigit()) == (ch.isdigit()):
+                buf += ch
+            else:
+                groups.append(buf); buf = ch
+        if buf:
+            groups.append(buf)
+        return "-".join(groups) if groups else k
+    apk_raw = row.get("vervaldatum_apk") or ""    # yyyymmdd
+    apk = f"{apk_raw[0:4]}-{apk_raw[4:6]}-{apk_raw[6:8]}" if len(apk_raw) == 8 else ""
+    bouw = row.get("datum_eerste_toelating") or ""
+    year = bouw[:4] if len(bouw) >= 4 else ""
+    return {
+        "plate":       _format_plate(cleaned),
+        "make":        (row.get("merk") or "").title(),
+        "model":       (row.get("handelsbenaming") or "").title(),
+        "year":        year,
+        "color":       (row.get("eerste_kleur") or "").title(),
+        "country":     "NL",
+        "apk_expiry":  apk,
+        "vehicle_type": row.get("voertuigsoort") or "",
+        "fuel":        row.get("brandstof_omschrijving") or "",
+    }
 
 
 # Re-include the router now that new routes have been declared.
