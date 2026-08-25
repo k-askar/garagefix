@@ -221,8 +221,10 @@ class InventoryItem(BaseModel):
     sku: str
     barcode: str
     name: str
+    name_ar: str = ""          # Arabic label shown under the primary name
     category: str = "General"
     description: Optional[str] = ""
+    notes: Optional[str] = ""  # Free-form operational notes (where to find it, alternative parts, …)
     cost_price: float = 0.0
     selling_price: float = 0.0
     quantity: int = 0
@@ -238,8 +240,10 @@ class InventoryItemCreate(BaseModel):
     sku: Optional[str] = None
     barcode: Optional[str] = None
     name: str
+    name_ar: str = ""
     category: str = "General"
     description: Optional[str] = ""
+    notes: Optional[str] = ""
     cost_price: float = 0.0
     selling_price: float = 0.0
     quantity: int = 0
@@ -253,8 +257,10 @@ class InventoryItemUpdate(BaseModel):
     sku: Optional[str] = None
     barcode: Optional[str] = None
     name: Optional[str] = None
+    name_ar: Optional[str] = None
     category: Optional[str] = None
     description: Optional[str] = None
+    notes: Optional[str] = None
     cost_price: Optional[float] = None
     selling_price: Optional[float] = None
     quantity: Optional[int] = None
@@ -280,8 +286,14 @@ class Transaction(BaseModel):
     customer_name: Optional[str] = ""
     note: Optional[str] = ""
     repair_id: Optional[str] = None
+    repair_number: Optional[str] = ""
     invoice_id: Optional[str] = None
+    # Withdraw-for-garage flags (OUT only): true when the part was consumed
+    # internally (e.g. workshop consumables) instead of being fitted to a car.
+    internal_use: bool = False
+    internal_reason: str = ""
     created_by: str = ""
+    created_by_name: str = ""
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 class MarkPaidPayload(BaseModel):
@@ -295,6 +307,11 @@ class TransactionCreate(BaseModel):
     supplier_id: Optional[str] = None
     customer_id: Optional[str] = None
     note: Optional[str] = ""
+    # NEW — OUT withdrawals now MUST specify a destination:
+    # either a specific repair card, or set internal_use=True (garage use).
+    repair_id: Optional[str] = None
+    internal_use: bool = False
+    internal_reason: str = ""
 
 # --- Auth Routes ---
 @api_router.post("/auth/register")
@@ -729,6 +746,22 @@ async def create_transaction(payload: TransactionCreate, user: dict = Depends(ge
     if payload.type == "OUT" and payload.quantity > item["quantity"]:
         raise HTTPException(status_code=400, detail=f"Not enough stock. Available: {item['quantity']}")
 
+    # ── OUT withdrawals must have a destination ──────────────────────────
+    # Either a specific open repair card OR internal (garage) use with a reason.
+    repair_number = ""
+    if payload.type == "OUT":
+        if not payload.repair_id and not payload.internal_use:
+            raise HTTPException(status_code=400, detail="OUT requires either an open repair card or internal_use=true")
+        if payload.internal_use and not (payload.internal_reason or "").strip():
+            raise HTTPException(status_code=400, detail="internal_reason is required when withdrawing for the garage")
+        if payload.repair_id:
+            rc = await db.repairs.find_one({"id": payload.repair_id}, {"_id": 0})
+            if not rc:
+                raise HTTPException(status_code=404, detail="Repair card not found")
+            if rc.get("status") not in ("open", "in_progress"):
+                raise HTTPException(status_code=400, detail="Can only withdraw parts to an OPEN or IN_PROGRESS card")
+            repair_number = rc.get("card_number", "")
+
     supplier_name = ""
     customer_name = ""
     if payload.supplier_id:
@@ -752,7 +785,13 @@ async def create_transaction(payload: TransactionCreate, user: dict = Depends(ge
         customer_id=payload.customer_id,
         customer_name=customer_name,
         note=payload.note or "",
+        repair_id=payload.repair_id,
+        repair_number=repair_number,
+        internal_use=bool(payload.internal_use),
+        internal_reason=(payload.internal_reason or "").strip(),
+        # Employee identity taken from the JWT — cannot be spoofed by client.
         created_by=user.get("email", ""),
+        created_by_name=(user.get("name") or user.get("email", "")),
     )
     await db.transactions.insert_one(txn.model_dump())
 
@@ -762,6 +801,25 @@ async def create_transaction(payload: TransactionCreate, user: dict = Depends(ge
     if payload.type == "IN":
         update_fields["cost_price"] = payload.unit_price
     await db.inventory.update_one({"id": item["id"]}, {"$set": update_fields})
+
+    # If the OUT is bound to a repair card, mirror the part on the card so it
+    # shows up in the parts_used list and totals immediately.
+    if payload.type == "OUT" and payload.repair_id:
+        card = await db.repairs.find_one({"id": payload.repair_id}, {"_id": 0})
+        if card:
+            part = PartUsed(
+                txn_id=txn.id, item_id=item["id"], sku=item["sku"], name=item["name"],
+                quantity=payload.quantity, unit_price=payload.unit_price,
+                total=round(payload.unit_price * payload.quantity, 2),
+            )
+            card["parts_used"] = (card.get("parts_used") or []) + [part.model_dump()]
+            card = _recalc_repair(card)
+            await db.repairs.update_one({"id": payload.repair_id}, {"$set": {
+                "parts_used": card["parts_used"],
+                **_recalc_fields(card),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }})
+
     return txn
 
 # --- Dashboard ---
