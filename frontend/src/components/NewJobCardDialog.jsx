@@ -8,12 +8,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { UserPlus, Car, Plus, Sparkles } from "lucide-react";
+import { UserPlus, Car, Plus, Sparkles, Search, Loader2 } from "lucide-react";
 import SearchableSelect from "@/components/SearchableSelect";
 import PlateBadge from "@/components/PlateBadge";
 import AddressFields from "@/components/AddressFields";
 import VehicleMakeModelYear from "@/components/VehicleMakeModelYear";
 import { toast } from "sonner";
+import { useLang } from "@/i18n";
 
 const COUNTRIES = [
   ["NL", "🇳🇱 NL"], ["DE", "🇩🇪 DE"], ["FR", "🇫🇷 FR"], ["BE", "🇧🇪 BE"], ["IT", "🇮🇹 IT"], ["ES", "🇪🇸 ES"],
@@ -39,12 +40,44 @@ const EMPTY_VEHICLE = { make: "", model: "", year: "", plate: "", color: "", km:
  */
 export default function NewJobCardDialog({ open, onOpenChange, customers, users, onCreated }) {
   const qc = useQueryClient();
+  const { t } = useLang();
   const [form, setForm] = useState(EMPTY_FORM);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
-  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", email: "", address: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL" });
+  const EMPTY_NEW_CUST = { name: "", phone: "", email: "", address: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL", customer_type: "individual", company_name: "", kvk_number: "", vat_number: "", contact_person: "" };
+  const [newCustomer, setNewCustomer] = useState(EMPTY_NEW_CUST);
+  const [kvkBusy, setKvkBusy] = useState(false);
   const [newVehicle, setNewVehicle] = useState(EMPTY_VEHICLE);
   const [addingVehicle, setAddingVehicle] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  /* Query KvK basisprofiel and merge company + address into the new-customer form.
+     Mirrors the behaviour of the same lookup on the Customers page. */
+  const kvkLookup = async () => {
+    const cleaned = (newCustomer.kvk_number || "").replace(/[^0-9]/g, "");
+    if (cleaned.length !== 8) return toast.error("KvK = 8 cijfers");
+    setKvkBusy(true);
+    try {
+      const { data } = await api.get(`/kvk/lookup?kvk=${cleaned}`);
+      setNewCustomer(f => ({
+        ...f,
+        name: data.company_name || f.name,
+        company_name: data.company_name || f.company_name,
+        kvk_number: data.kvk_number,
+        vat_number: data.vat_number || f.vat_number,
+        street: data.street || f.street,
+        house_number: data.house_number || f.house_number,
+        house_number_addition: data.house_number_addition || f.house_number_addition,
+        postcode: data.postcode || f.postcode,
+        city: data.city || f.city,
+        address_country: data.address_country || f.address_country,
+      }));
+      toast.success(`${data.company_name} · KvK ✓`);
+    } catch (e) {
+      const isConfigMissing = e?.response?.status === 501;
+      toast.error(e?.response?.data?.detail || "KvK lookup failed",
+        isConfigMissing ? { duration: 10000, description: "Je kunt de gegevens ondertussen handmatig invullen." } : {});
+    } finally { setKvkBusy(false); }
+  };
 
   // Reset when opened/closed
   useEffect(() => { if (!open) { setForm(EMPTY_FORM); setAddingVehicle(false); setNewVehicle(EMPTY_VEHICLE); } }, [open]);
@@ -84,16 +117,21 @@ export default function NewJobCardDialog({ open, onOpenChange, customers, users,
   const canPickVehicle = !!form.customer_id && cVehicles.length > 0;
 
   const createNewCustomer = async () => {
-    if (!newCustomer.name?.trim()) return toast.error("Customer name is required");
+    const nameField = newCustomer.customer_type === "company" ? newCustomer.company_name : newCustomer.name;
+    if (!nameField?.trim()) return toast.error(newCustomer.customer_type === "company" ? "Bedrijfsnaam is verplicht" : "Customer name is required");
     setBusy(true);
     try {
-      const { data } = await api.post("/customers", newCustomer);
+      // Ensure the top-level `name` field is populated for both types (used by the
+      // rest of the app that keys off `name`).
+      const payload = { ...newCustomer, name: nameField };
+      const { data } = await api.post("/customers", payload);
       toast.success(`Customer ${data.name} added`);
       setForm(f => ({ ...f, customer_id: data.id, customer_name: data.name, customer_phone: data.phone || "" }));
-      setNewCustomer({ name: "", phone: "", email: "", address: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL" });
+      setNewCustomer(EMPTY_NEW_CUST);
       setShowNewCustomer(false);
       // Refresh the customer list dropdown so the newly-added customer appears
       // without needing a page reload.
+      qc.invalidateQueries({ queryKey: ["cus"] });
       qc.invalidateQueries({ queryKey: ["customers"] });
     } catch (e) { toast.error(formatApiError(e)); }
     finally { setBusy(false); }
@@ -282,21 +320,94 @@ export default function NewJobCardDialog({ open, onOpenChange, customers, users,
         </DialogContent>
       </Dialog>
 
-      {/* Quick "New customer" modal */}
-      <Dialog open={showNewCustomer} onOpenChange={setShowNewCustomer}>
-        <DialogContent className="max-w-xl max-h-[92vh] overflow-y-auto">
+      {/* Quick "New customer" modal — mirrors the full form on the Customers page */}
+      <Dialog open={showNewCustomer} onOpenChange={(v) => { setShowNewCustomer(v); if (!v) setNewCustomer(EMPTY_NEW_CUST); }}>
+        <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="font-display">New customer</DialogTitle>
+            <DialogTitle className="font-display">{t("newCustomer") || "New customer"}</DialogTitle>
             <DialogDescription>Save the customer once — later you'll just pick them from the list.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1.5"><Label>Name *</Label><Input value={newCustomer.name} onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })} data-testid="quick-new-customer-name" /></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5"><Label>Phone</Label><Input value={newCustomer.phone} onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })} data-testid="quick-new-customer-phone" /></div>
-              <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={newCustomer.email} onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })} data-testid="quick-new-customer-email" /></div>
+          <div className="space-y-4">
+            {/* Individual / Company toggle */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-muted/40 rounded-full border border-border" data-testid="quick-cust-type-toggle">
+              <button
+                type="button"
+                onClick={() => setNewCustomer({ ...newCustomer, customer_type: "individual" })}
+                className={`h-9 rounded-full text-sm font-medium transition-colors ${newCustomer.customer_type !== "company" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                data-testid="quick-cust-type-individual"
+              >
+                <span className="inline-flex items-center gap-1.5"><span>👤</span>{t("customerTypeIndividual")}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewCustomer({ ...newCustomer, customer_type: "company" })}
+                className={`h-9 rounded-full text-sm font-medium transition-colors ${newCustomer.customer_type === "company" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                data-testid="quick-cust-type-company"
+              >
+                <span className="inline-flex items-center gap-1.5"><span>🏢</span>{t("customerTypeCompany")}</span>
+              </button>
             </div>
+
+            {/* KvK hero for companies */}
+            {newCustomer.customer_type === "company" && (
+              <div className="rounded-md border border-emerald-500/40 bg-emerald-500/5 p-3 space-y-2" data-testid="quick-kvk-hero">
+                <div className="flex items-center gap-2">
+                  <Search className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-emerald-700 dark:text-emerald-400">{t("kvkLookup")}</div>
+                </div>
+                <div className="grid grid-cols-12 gap-2 items-end">
+                  <div className="col-span-9 space-y-1">
+                    <Label className="text-[10px]">{t("kvkNumber")}</Label>
+                    <Input
+                      value={newCustomer.kvk_number}
+                      onChange={(e) => setNewCustomer({ ...newCustomer, kvk_number: e.target.value.replace(/[^0-9]/g, "").slice(0, 8) })}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); kvkLookup(); } }}
+                      placeholder="12345678"
+                      className="h-10 font-mono tracking-wider"
+                      data-testid="quick-cust-kvk-input"
+                    />
+                  </div>
+                  <div className="col-span-3">
+                    <Button type="button" className="w-full h-10 rounded-md bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm disabled:opacity-60"
+                      onClick={kvkLookup}
+                      disabled={kvkBusy || !newCustomer.kvk_number}
+                      data-testid="quick-cust-kvk-btn"
+                    >
+                      {kvkBusy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Search className="h-4 w-4 mr-1" />}
+                      KvK
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground leading-relaxed">
+                  اختياري — إذا لم يعمل الاستيراد التلقائي، أكمل الحقول يدوياً في الأسفل.
+                </p>
+              </div>
+            )}
+
+            {/* Company-only fields */}
+            {newCustomer.customer_type === "company" && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5"><Label>{t("companyName")} *</Label>
+                  <Input required value={newCustomer.company_name} onChange={(e) => setNewCustomer({ ...newCustomer, company_name: e.target.value, name: e.target.value })} data-testid="quick-cust-company-name" /></div>
+                <div className="space-y-1.5"><Label>{t("vatNumber")}</Label>
+                  <Input value={newCustomer.vat_number} onChange={(e) => setNewCustomer({ ...newCustomer, vat_number: e.target.value.toUpperCase() })} placeholder="NL812345678B01" className="font-mono" data-testid="quick-cust-vat-input" /></div>
+                <div className="space-y-1.5 col-span-2"><Label>{t("contactPerson")}</Label>
+                  <Input value={newCustomer.contact_person} onChange={(e) => setNewCustomer({ ...newCustomer, contact_person: e.target.value })} placeholder={t("contactPersonPlaceholder")} data-testid="quick-cust-contact-person" /></div>
+              </div>
+            )}
+
+            {/* Name (individual) */}
+            {newCustomer.customer_type !== "company" && (
+              <div className="space-y-1.5"><Label>{t("name")} *</Label><Input required value={newCustomer.name} onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })} data-testid="quick-new-customer-name" /></div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5"><Label>{t("phone")}</Label><Input value={newCustomer.phone} onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })} data-testid="quick-new-customer-phone" /></div>
+              <div className="space-y-1.5"><Label>{t("email")}</Label><Input type="email" value={newCustomer.email} onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })} data-testid="quick-new-customer-email" /></div>
+            </div>
+
             <div className="space-y-2 p-3 rounded-md border border-border bg-muted/20">
-              <div className="text-[10px] font-mono uppercase tracking-widest text-primary">Address</div>
+              <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("address")}</div>
               <AddressFields
                 value={{
                   postcode: newCustomer.postcode,
@@ -313,9 +424,9 @@ export default function NewJobCardDialog({ open, onOpenChange, customers, users,
             </div>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setShowNewCustomer(false)}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setShowNewCustomer(false)}>{t("cancel") || "Cancel"}</Button>
             <Button onClick={createNewCustomer} disabled={busy} className="rounded-full bg-primary" data-testid="quick-new-customer-save">
-              <UserPlus className="h-4 w-4 mr-2" />{busy ? "..." : "Add customer"}
+              <UserPlus className="h-4 w-4 mr-2" />{busy ? "..." : (t("addCustomer") || "Add customer")}
             </Button>
           </DialogFooter>
         </DialogContent>
