@@ -266,6 +266,15 @@ class Vehicle(BaseModel):
     apk_expiry: Optional[str] = None          # YYYY-MM-DD — Dutch technical inspection expiry
     next_oil_change_km: Optional[int] = None  # odometer at which oil is due
     notes: Optional[str] = ""
+    # Extra RDW-imported / manual details -------------------------------------
+    meldcode: Optional[str] = ""              # RDW meldcode voertuig (private, entered manually from vehicle papers)
+    fuel: Optional[str] = ""                  # Benzine / Diesel / Elektriciteit / …
+    cc: Optional[str] = ""                    # cilinderinhoud
+    doors: Optional[str] = ""                 # aantal_deuren
+    seats: Optional[str] = ""                 # aantal_zitplaatsen
+    weight: Optional[str] = ""                # massa_ledig_voertuig (kg)
+    chassis_location: Optional[str] = ""      # plaats_chassisnummer — where VIN plate lives
+    registration_date: Optional[str] = ""     # datum_tenaamstelling
     passport_token: str = Field(default_factory=lambda: secrets.token_urlsafe(12))  # shareable public link token
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -281,6 +290,14 @@ class VehicleCreate(BaseModel):
     apk_expiry: Optional[str] = None
     next_oil_change_km: Optional[int] = None
     notes: Optional[str] = ""
+    meldcode: Optional[str] = ""
+    fuel: Optional[str] = ""
+    cc: Optional[str] = ""
+    doors: Optional[str] = ""
+    seats: Optional[str] = ""
+    weight: Optional[str] = ""
+    chassis_location: Optional[str] = ""
+    registration_date: Optional[str] = ""
 
 class VehicleUpdate(BaseModel):
     make: Optional[str] = None
@@ -294,6 +311,14 @@ class VehicleUpdate(BaseModel):
     apk_expiry: Optional[str] = None
     next_oil_change_km: Optional[int] = None
     notes: Optional[str] = None
+    meldcode: Optional[str] = None
+    fuel: Optional[str] = None
+    cc: Optional[str] = None
+    doors: Optional[str] = None
+    seats: Optional[str] = None
+    weight: Optional[str] = None
+    chassis_location: Optional[str] = None
+    registration_date: Optional[str] = None
 
 class InventoryItem(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -4084,6 +4109,8 @@ async def rdw_lookup(plate: str, user: dict = Depends(get_current_user)):
         return "-".join(groups) if groups else k
     apk_raw = row.get("vervaldatum_apk") or ""    # yyyymmdd
     apk = f"{apk_raw[0:4]}-{apk_raw[4:6]}-{apk_raw[6:8]}" if len(apk_raw) == 8 else ""
+    reg_raw = row.get("datum_tenaamstelling") or ""
+    reg_date = f"{reg_raw[0:4]}-{reg_raw[4:6]}-{reg_raw[6:8]}" if len(reg_raw) == 8 else ""
     bouw = row.get("datum_eerste_toelating") or ""
     year = bouw[:4] if len(bouw) >= 4 else ""
     return {
@@ -4094,6 +4121,7 @@ async def rdw_lookup(plate: str, user: dict = Depends(get_current_user)):
         "color":       (row.get("eerste_kleur") or "").title(),
         "country":     "NL",
         "apk_expiry":  apk,
+        "registration_date": reg_date,
         "vehicle_type": row.get("voertuigsoort") or "",
         "fuel":        (fuel_row.get("brandstof_omschrijving") or row.get("brandstof_omschrijving") or "").title(),
         "cc":          row.get("cilinderinhoud") or "",
@@ -4101,6 +4129,12 @@ async def rdw_lookup(plate: str, user: dict = Depends(get_current_user)):
         "seats":       row.get("aantal_zitplaatsen") or "",
         "chassis_location": row.get("plaats_chassisnummer") or "",
         "weight":      row.get("massa_ledig_voertuig") or "",
+        "eco_class":   row.get("zuinigheidsclassificatie") or "",
+        "open_recall": row.get("openstaande_terugroepactie_indicator") or "",
+        # Meldcode voertuig is NOT part of the RDW open data feed (privacy — it is
+        # only printed on the owner's registration paper).  We surface it as an
+        # empty string so the frontend can prompt the owner to type it manually.
+        "meldcode":    "",
     }
 
 

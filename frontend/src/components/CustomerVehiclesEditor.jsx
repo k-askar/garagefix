@@ -11,7 +11,7 @@ import PlateBadge from "@/components/PlateBadge";
 import { useLang } from "@/i18n";
 
 const COUNTRIES = ["NL", "DE", "BE", "FR", "IT", "ES", "PL", "GB", "TR", "MA", "DZ", "SA", "AE", "EG", "SY", "LB", "JO", "IQ"];
-const EMPTY = { make: "", model: "", year: "", plate: "", color: "", km: "", country: "NL", apk_expiry: "", next_oil_change_km: "", vin: "", notes: "" };
+const EMPTY = { make: "", model: "", year: "", plate: "", color: "", km: "", country: "NL", apk_expiry: "", next_oil_change_km: "", vin: "", notes: "", meldcode: "", fuel: "", cc: "", doors: "", seats: "", weight: "", chassis_location: "", registration_date: "" };
 
 /**
  * Fetch RDW data for a plate and merge it into the caller's form state.
@@ -25,20 +25,12 @@ async function lookupRdwInto(plate, applyPatch, t) {
   }
   try {
     const { data } = await api.get(`/rdw/lookup?plate=${encodeURIComponent(cleaned)}`);
-    // Merge every non-empty field into the form (never overwrite with a blank)
+    // Merge every non-empty imported field into the form (never overwrite with blanks)
     const patch = {};
-    ["make", "model", "year", "color", "country", "apk_expiry"].forEach(k => {
-      if (data[k]) patch[k] = data[k];
-    });
+    ["make", "model", "year", "color", "country", "apk_expiry",
+     "fuel", "cc", "doors", "seats", "weight", "chassis_location", "registration_date"
+    ].forEach(k => { if (data[k]) patch[k] = data[k]; });
     patch.plate = data.plate;
-    // Append fuel + engine + chassis-location hint into notes so nothing is lost
-    const extras = [];
-    if (data.fuel) extras.push(data.fuel);
-    if (data.cc) extras.push(`${data.cc}cc`);
-    if (data.doors) extras.push(`${data.doors}-drs`);
-    if (data.seats) extras.push(`${data.seats} zitpl.`);
-    if (data.chassis_location) extras.push(`VIN @ ${data.chassis_location}`);
-    if (extras.length) patch.notes = extras.join(" · ");
     applyPatch(patch);
     toast.success(`${data.make} ${data.model} ${data.year}`.trim() + " · RDW ✓");
     return true;
@@ -227,6 +219,25 @@ export default function CustomerVehiclesEditor({ customerId }) {
             </div>
             <div className="space-y-1"><Label className="text-[10px]">{t("nextOilChangeKm")}</Label><Input type="number" value={newForm.next_oil_change_km} onChange={(e) => setNewForm({ ...newForm, next_oil_change_km: e.target.value })} data-testid="cust-veh-new-oil" /></div>
           </div>
+
+          {/* Auto-imported RDW technical details (read-only unless the user overrides) */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2 border-t border-primary/20">
+            <div className="space-y-1"><Label className="text-[10px]">Brandstof</Label><Input value={newForm.fuel || ""} onChange={(e) => setNewForm({ ...newForm, fuel: e.target.value })} placeholder="Benzine / Diesel …" data-testid="cust-veh-new-fuel" /></div>
+            <div className="space-y-1"><Label className="text-[10px]">CC</Label><Input value={newForm.cc || ""} onChange={(e) => setNewForm({ ...newForm, cc: e.target.value })} placeholder="1339" data-testid="cust-veh-new-cc" /></div>
+            <div className="space-y-1"><Label className="text-[10px]">Deuren</Label><Input value={newForm.doors || ""} onChange={(e) => setNewForm({ ...newForm, doors: e.target.value })} data-testid="cust-veh-new-doors" /></div>
+            <div className="space-y-1"><Label className="text-[10px]">Zitplaatsen</Label><Input value={newForm.seats || ""} onChange={(e) => setNewForm({ ...newForm, seats: e.target.value })} data-testid="cust-veh-new-seats" /></div>
+            <div className="space-y-1"><Label className="text-[10px]">Gewicht (kg)</Label><Input value={newForm.weight || ""} onChange={(e) => setNewForm({ ...newForm, weight: e.target.value })} data-testid="cust-veh-new-weight" /></div>
+            <div className="space-y-1"><Label className="text-[10px]">Tenaamstelling</Label><Input type="date" value={newForm.registration_date || ""} onChange={(e) => setNewForm({ ...newForm, registration_date: e.target.value })} data-testid="cust-veh-new-regdate" /></div>
+            <div className="space-y-1 md:col-span-2"><Label className="text-[10px]">Chassis loc.</Label><Input value={newForm.chassis_location || ""} onChange={(e) => setNewForm({ ...newForm, chassis_location: e.target.value })} placeholder="r. tegen schutbord …" data-testid="cust-veh-new-chassis" /></div>
+            <div className="space-y-1 md:col-span-2">
+              <Label className="text-[10px] flex items-center gap-1">Meldcode voertuig <span className="text-[9px] text-muted-foreground">(privé — يُدخل يدوياً)</span></Label>
+              <Input value={newForm.meldcode || ""} onChange={(e) => setNewForm({ ...newForm, meldcode: e.target.value })} placeholder="4-cijferige code" className="font-mono" data-testid="cust-veh-new-meldcode" />
+            </div>
+            <div className="space-y-1 md:col-span-2">
+              <Label className="text-[10px] flex items-center gap-1">VIN <span className="text-[9px] text-muted-foreground">(privé — يُدخل يدوياً)</span></Label>
+              <Input value={newForm.vin || ""} onChange={(e) => setNewForm({ ...newForm, vin: e.target.value })} placeholder="17 حرف/رقم" className="font-mono" data-testid="cust-veh-new-vin" />
+            </div>
+          </div>
           <div className="flex justify-end">
             <Button type="button" size="sm" className="rounded-full bg-primary" onClick={addNew} disabled={busy} data-testid="cust-veh-new-save">
               <Save className="h-3 w-3 mr-1" /> {t("addVehicle")}
@@ -299,6 +310,18 @@ export default function CustomerVehiclesEditor({ customerId }) {
                     <div className="space-y-1"><Label className="text-[10px]">{t("odometer")}</Label><Input value={d.km || ""} onChange={(e) => setDraft(v.id, { km: e.target.value })} /></div>
                     <div className="space-y-1"><Label className="text-[10px]">{t("apkExpiry")}</Label><Input type="date" value={d.apk_expiry || ""} onChange={(e) => setDraft(v.id, { apk_expiry: e.target.value })} /></div>
                     <div className="space-y-1"><Label className="text-[10px]">{t("nextOilChangeKm")}</Label><Input type="number" value={d.next_oil_change_km ?? ""} onChange={(e) => setDraft(v.id, { next_oil_change_km: e.target.value })} /></div>
+                  </div>
+                  {/* Extra RDW / manual details */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2 border-t border-border/50">
+                    <div className="space-y-1"><Label className="text-[10px]">Brandstof</Label><Input value={d.fuel || ""} onChange={(e) => setDraft(v.id, { fuel: e.target.value })} /></div>
+                    <div className="space-y-1"><Label className="text-[10px]">CC</Label><Input value={d.cc || ""} onChange={(e) => setDraft(v.id, { cc: e.target.value })} /></div>
+                    <div className="space-y-1"><Label className="text-[10px]">Deuren</Label><Input value={d.doors || ""} onChange={(e) => setDraft(v.id, { doors: e.target.value })} /></div>
+                    <div className="space-y-1"><Label className="text-[10px]">Zitpl.</Label><Input value={d.seats || ""} onChange={(e) => setDraft(v.id, { seats: e.target.value })} /></div>
+                    <div className="space-y-1"><Label className="text-[10px]">Gewicht (kg)</Label><Input value={d.weight || ""} onChange={(e) => setDraft(v.id, { weight: e.target.value })} /></div>
+                    <div className="space-y-1"><Label className="text-[10px]">Tenaamstelling</Label><Input type="date" value={d.registration_date || ""} onChange={(e) => setDraft(v.id, { registration_date: e.target.value })} /></div>
+                    <div className="space-y-1 md:col-span-2"><Label className="text-[10px]">Chassis loc.</Label><Input value={d.chassis_location || ""} onChange={(e) => setDraft(v.id, { chassis_location: e.target.value })} /></div>
+                    <div className="space-y-1 md:col-span-2"><Label className="text-[10px]">Meldcode voertuig</Label><Input value={d.meldcode || ""} onChange={(e) => setDraft(v.id, { meldcode: e.target.value })} placeholder="4-cijferige code" className="font-mono" data-testid={`cust-veh-meldcode-${v.id}`} /></div>
+                    <div className="space-y-1 md:col-span-2"><Label className="text-[10px]">VIN</Label><Input value={d.vin || ""} onChange={(e) => setDraft(v.id, { vin: e.target.value })} className="font-mono" /></div>
                   </div>
                   <div className="flex justify-end gap-2">
                     {isDirty(v) && (
