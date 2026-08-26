@@ -18,6 +18,16 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26j — Full Dutch/Arabic invoice + receipt translation
+- **`invoice-render.js`** — extracted all invoice labels into an `I18N` map (`en` / `nl` / `ar`) covering paid/invoice badge, "Bill to", table headers (Item/Qty/Unit/Total), Subtotal/Total row, bank block (Bank / IBAN / BIC / Reference / Amount + "Pay with iDEAL/SEPA" heading + "Scan met bank-app" hint), "Payment due within X days", walk-in fallback, footer thank-you note, and `Date.toLocaleDateString` locale. `renderInvoiceHtml(inv, settings, { lang })` now defaults to Dutch when no lang given — the majority audience.
+- **`receipt.js`** — same treatment for the kassabon: RECEIPT badge, Date / Customer / Note / Part / Qty / Price / Total / Tax ID / thank-you.
+- **`invoice-zip.js`** — added `lang` parameter forwarded to `renderInvoiceHtml` for bulk PDF export.
+- **`Invoices.jsx`** — pulls `lang` from `useLang()` and passes it to every `renderInvoiceHtml` / `printInvoice` / `downloadInvoicesZip` call; hardcoded `window.confirm("Delete invoice?")`, "Preparing PDF...", "Pick at least one transaction", "Invoice X created" toast, "Paid" button, WhatsApp share header/note now use `t(...)` with EN/NL/AR translations.
+- **`StockMovement.jsx`** + **`Transactions.jsx`** — pull `lang` from `useLang()` and pass into `printReceipt`.
+- **i18n** — added 13 new keys (confirmSendReminders, invoiceCreated, print, invoiceEmailSubject, ourGarage, deleteInvoiceConfirm, deleted, pickAtLeastOneTxn, preparingPdf, invoice, paidStatusText, waPleaseSettle, markPaid) with proper Dutch and Arabic values.
+
+
+
 ### Session 2026-02-26i — Public landing page + rebrand to "GarageFix"
 - **`Landing.jsx`** new public page at `/` — dark hero with grid + glow, brand mark ("GarageFix · Workshop OS"), gradient headline, three feature cards ("Live cash register", "Scan any pakbon", "Multi-tenant secure"), footer sign-in link. Login CTA is discreet: a small pill button top-right + a matching link in the footer, so future marketing sections (pricing, screenshots, testimonials) can drop in without redesigning.
 - **Routing**: `/` now serves the public landing; the authenticated Dashboard moved to `/dashboard`. Unknown routes redirect to `/dashboard` (which itself redirects to `/` when not logged in). Sidebar Dashboard link + login redirect + OwnerRoute/SuperAdminRoute fallbacks all updated to `/dashboard`. Guest bounces from a protected route now go to `/` (landing), not the login screen — cleaner first impression.

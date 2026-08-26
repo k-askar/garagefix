@@ -9,8 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { ArrowDownRight, ArrowUpRight, Search, Printer } from "lucide-react";
 import { printReceipt } from "@/lib/receipt";
+import { useLang } from "@/i18n";
 
 export default function Transactions() {
+  const { lang } = useLang();
   const { data: rows = [] } = useQuery({ queryKey: ["txns"], queryFn: () => api.get("/transactions").then((r) => r.data) });
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: () => api.get("/settings").then((r) => r.data) });
   const [q, setQ] = useState("");
@@ -82,7 +84,7 @@ export default function Transactions() {
                       <Button
                         size="icon"
                         variant="ghost"
-                        onClick={() => printReceipt({ txn: t, item: null, settings: settings || {} })}
+                        onClick={() => printReceipt({ txn: t, item: null, settings: settings || {}, lang })}
                         data-testid={`receipt-${t.id}`}
                         title="Print receipt"
                       >

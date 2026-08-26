@@ -13,6 +13,7 @@ import { ArrowDownRight, ArrowUpRight, ScanLine, CameraOff, Search, Receipt } fr
 import { toast } from "sonner";
 import { Html5Qrcode } from "html5-qrcode";
 import { printReceipt } from "@/lib/receipt";
+import { useLang } from "@/i18n";
 
 function ScannerModal({ open, onClose, onDetected }) {
   const ref = useRef(null);
@@ -57,6 +58,7 @@ function ScannerModal({ open, onClose, onDetected }) {
 }
 
 function MovementForm({ type }) {
+  const { lang } = useLang();
   const qc = useQueryClient();
   const [scan, setScan] = useState(false);
   const [code, setCode] = useState("");
@@ -102,7 +104,7 @@ function MovementForm({ type }) {
         toast.success("Stock OUT recorded", {
           action: {
             label: "Print receipt",
-            onClick: () => printReceipt({ txn, item, settings: settings || {} }),
+            onClick: () => printReceipt({ txn, item, settings: settings || {}, lang }),
           },
           duration: 8000,
         });

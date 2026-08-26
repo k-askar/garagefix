@@ -28,8 +28,8 @@ function extractPlate(note) {
   return candidates.length ? candidates[candidates.length - 1] : null;
 }
 
-async function printInvoice(inv, settings) {
-  const html = await renderInvoiceHtml(inv, settings);
+async function printInvoice(inv, settings, lang) {
+  const html = await renderInvoiceHtml(inv, settings, { lang });
   printHtml(html, { title: inv.invoice_number });
 }
 
@@ -49,7 +49,7 @@ function blobToBase64(blob) {
 
 export default function Invoices() {
   const qc = useQueryClient();
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const [showCreate, setShowCreate] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [taxRate, setTaxRate] = useState(0);
@@ -74,7 +74,7 @@ export default function Invoices() {
   const todayISO = new Date().toISOString().slice(0, 10);
 
   const sendOverdueReminders = async () => {
-    if (!window.confirm(`Send email reminders to customers on ${overdue.length} overdue invoice(s)?`)) return;
+    if (!window.confirm(t("confirmSendReminders", { count: overdue.length }))) return;
     setSendingReminders(true);
     try {
       const res = await api.post("/invoices/overdue/send-reminders");
@@ -97,7 +97,7 @@ export default function Invoices() {
   const toggle = (id) => setSelectedTxns(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
 
   const submit = async () => {
-    if (!selectedTxns.length) return toast.error("Pick at least one transaction");
+    if (!selectedTxns.length) return toast.error(t("pickAtLeastOneTxn"));
     try {
       const { data } = await api.post("/invoices/from-transactions", {
         customer_id: customerId || null,
@@ -105,8 +105,8 @@ export default function Invoices() {
         tax_rate: Number(taxRate),
         note,
       });
-      toast.success(`Invoice ${data.invoice_number} created`, {
-        action: { label: "Print", onClick: () => { printInvoice(data, settings); } },
+      toast.success(t("invoiceCreated", { number: data.invoice_number }), {
+        action: { label: t("print"), onClick: () => { printInvoice(data, settings, lang); } },
       });
       setShowCreate(false); setSelectedTxns([]); setCustomerId(""); setNote(""); setTaxRate(0);
       qc.invalidateQueries();
@@ -128,7 +128,7 @@ export default function Invoices() {
     setEmailTarget(inv);
     setEmailForm({
       to: cust?.email || "",
-      subject: `Invoice ${inv.invoice_number} from ${settings?.name || "our garage"}`,
+      subject: t("invoiceEmailSubject", { number: inv.invoice_number, garage: settings?.name || t("ourGarage") }),
       message: "",
     });
   };
@@ -142,7 +142,7 @@ export default function Invoices() {
       // attachment they can save/print — same look as the "Download PDF" button.
       let attachment_base64, attachment_filename;
       try {
-        const html = await renderInvoiceHtml(emailTarget, settings);
+        const html = await renderInvoiceHtml(emailTarget, settings, { lang });
         const blob = await htmlToPdfBlob(html);
         attachment_base64 = await blobToBase64(blob);
         attachment_filename = `${emailTarget.invoice_number}.pdf`;
@@ -166,8 +166,8 @@ export default function Invoices() {
   };
 
   const del = async (id) => {
-    if (!window.confirm("Delete invoice?")) return;
-    try { await api.delete(`/invoices/${id}`); toast.success("Deleted"); qc.invalidateQueries(); }
+    if (!window.confirm(t("deleteInvoiceConfirm"))) return;
+    try { await api.delete(`/invoices/${id}`); toast.success(t("deleted")); qc.invalidateQueries(); }
     catch (e) { toast.error(formatApiError(e)); }
   };
 
@@ -219,7 +219,8 @@ export default function Invoices() {
                 await downloadInvoicesZip(
                   list, settings,
                   `invoices-${new Date().toISOString().slice(0, 10)}.zip`,
-                  (done, total) => setZipProgress({ done, total })
+                  (done, total) => setZipProgress({ done, total }),
+                  lang,
                 );
                 toast.success(t("zipDownloaded"));
               } catch (e) { toast.error(formatApiError(e)); }
@@ -353,7 +354,7 @@ export default function Invoices() {
                       data-testid={`invoice-pdf-${inv.invoice_number}`}
                       onClick={async () => {
                         try {
-                          const html = await renderInvoiceHtml(inv, settings);
+                          const html = await renderInvoiceHtml(inv, settings, { lang });
                           await downloadHtmlAsPdf(html, `${inv.invoice_number}.pdf`);
                         } catch (e) { toast.error(formatApiError(e)); }
                       }}
@@ -370,9 +371,9 @@ export default function Invoices() {
                       let pdfUrl = "";
                       // Try to attach a real downloadable PDF link to the WhatsApp
                       // message so the customer can open the invoice with one tap.
-                      const tid = toast.loading("Preparing PDF...");
+                      const tid = toast.loading(t("preparingPdf"));
                       try {
-                        const html = await renderInvoiceHtml(inv, settings);
+                        const html = await renderInvoiceHtml(inv, settings, { lang });
                         const blob = await htmlToPdfBlob(html);
                         const b64 = await blobToBase64(blob);
                         const { data } = await api.post(`/invoices/${inv.id}/public-pdf`, {
@@ -384,14 +385,14 @@ export default function Invoices() {
                       finally { toast.dismiss(tid); }
                       whatsappShare({
                         phone: cust?.phone, garageName: settings?.name,
-                        header: `Invoice ${inv.invoice_number}`,
+                        header: `${t("invoice")} ${inv.invoice_number}`,
                         lines: inv.lines.map(l => `• ${l.name} × ${l.quantity} — ${l.total.toFixed(2)}€`),
                         total: inv.total,
-                        note: inv.status === "paid" ? "PAID" : "Please settle at your earliest.",
+                        note: inv.status === "paid" ? t("paidStatusText") : t("waPleaseSettle"),
                         url: pdfUrl || undefined,
                       });
                     }} data-testid={`invoice-wa-${inv.invoice_number}`}><MessageCircle className="h-4 w-4" /></Button>
-                    {inv.status !== "paid" && <Button size="sm" variant="outline" className="rounded-full" onClick={() => { setPayTarget(inv); setPayMethodId(methods[0]?.id || ""); }} data-testid={`invoice-paid-${inv.invoice_number}`}><CheckCircle2 className="h-3 w-3 mr-1" />Paid</Button>}
+                    {inv.status !== "paid" && <Button size="sm" variant="outline" className="rounded-full" onClick={() => { setPayTarget(inv); setPayMethodId(methods[0]?.id || ""); }} data-testid={`invoice-paid-${inv.invoice_number}`}><CheckCircle2 className="h-3 w-3 mr-1" />{t("markPaid")}</Button>}
                     <Button size="icon" variant="ghost" onClick={() => del(inv.id)}><Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" /></Button>
                   </div>
                 </TableCell>

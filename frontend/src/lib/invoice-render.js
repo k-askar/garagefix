@@ -196,11 +196,67 @@ function templateStyles(name, accent) {
   }
 }
 
+/* All the strings the printed / downloaded invoice needs.  Keep them next to
+   the renderer so the same file that decides layout also decides wording. */
+const I18N = {
+  en: {
+    paid: "PAID", invoice: "INVOICE",
+    billTo: "Bill to",
+    walkIn: "Walk-in customer",
+    item: "Item", qty: "Qty", unit: "Unit", total: "Total",
+    subtotal: "Subtotal", grandTotal: "Total",
+    reference: "Reference", amount: "Amount", bank: "Bank",
+    paymentDetails: "Payment details",
+    paymentDue: "Payment due within {days} days",
+    paymentDueBy: " (by {date})",
+    payWithIdeal: "Pay with iDEAL / SEPA · Scan & pay",
+    scanWithApp: "Scan with your banking app",
+    thankYou: "Thank you!",
+    dateLocale: "en-GB",
+  },
+  nl: {
+    paid: "BETAALD", invoice: "FACTUUR",
+    billTo: "Aan",
+    walkIn: "Balieklant",
+    item: "Artikel", qty: "Aantal", unit: "Prijs", total: "Totaal",
+    subtotal: "Subtotaal", grandTotal: "Totaal",
+    reference: "Kenmerk", amount: "Bedrag", bank: "Bank",
+    paymentDetails: "Betaalgegevens",
+    paymentDue: "Te voldoen binnen {days} dagen",
+    paymentDueBy: " (uiterlijk {date})",
+    payWithIdeal: "Betaal met iDEAL / SEPA · Scan & betaal",
+    scanWithApp: "Scan met uw bank-app",
+    thankYou: "Bedankt voor uw vertrouwen!",
+    dateLocale: "nl-NL",
+  },
+  ar: {
+    paid: "مدفوعة", invoice: "فاتورة",
+    billTo: "إلى",
+    walkIn: "عميل زائر",
+    item: "الصنف", qty: "الكمية", unit: "السعر", total: "الإجمالي",
+    subtotal: "المجموع الفرعي", grandTotal: "الإجمالي",
+    reference: "المرجع", amount: "المبلغ", bank: "البنك",
+    paymentDetails: "بيانات الدفع",
+    paymentDue: "الدفع خلال {days} يوم",
+    paymentDueBy: " (بحلول {date})",
+    payWithIdeal: "ادفع عبر iDEAL / SEPA · امسح وادفع",
+    scanWithApp: "امسح بتطبيق البنك",
+    thankYou: "شكراً لثقتكم!",
+    dateLocale: "ar",
+  },
+};
+
 /**
+ * @param {object} inv       invoice document
+ * @param {object} settings  garage settings
+ * @param {object} [opts]    { lang: "en"|"nl"|"ar" } — defaults to Dutch since
+ *                           the app's primary audience is NL workshops.
  * @returns {Promise<string>} full HTML document ready to open in a new window
  *   or feed into html2canvas.
  */
-export async function renderInvoiceHtml(inv, settings) {
+export async function renderInvoiceHtml(inv, settings, opts = {}) {
+  const lang = (opts.lang || settings?.language || "nl").toLowerCase();
+  const L = I18N[lang] || I18N.nl;
   const s = settings || {};
   const accent = s.invoice_accent_color || "#0EA5E9";
   const tpl = templateStyles(s.invoice_template || "classic", accent);
@@ -224,7 +280,7 @@ export async function renderInvoiceHtml(inv, settings) {
     </tr>`).join("");
 
   const paidBadge = inv.status === "paid" ? "paid" : "";
-  const paidLabel = inv.status === "paid" ? "PAID" : "INVOICE";
+  const paidLabel = inv.status === "paid" ? L.paid : L.invoice;
 
   /* Prominent payment block — SEPA/iDEAL QR left, bank details right.
      Shown whenever the QR toggle is on so the customer always sees how to pay.
@@ -237,22 +293,22 @@ export async function renderInvoiceHtml(inv, settings) {
       <div style="background:${accent};color:#fff;padding:8px 14px;font-size:11px;
                   letter-spacing:.14em;text-transform:uppercase;font-weight:700;
                   -webkit-print-color-adjust:exact;print-color-adjust:exact;">
-        Betaal met iDEAL / SEPA · Scan &amp; pay
+        ${esc(L.payWithIdeal)}
       </div>
       <table style="width:100%;border-collapse:collapse;background:#fff">
         <tr>
           <td style="width:150px;padding:16px;text-align:center;vertical-align:middle">
             <img src="${qrData}" alt="SEPA payment QR" style="width:130px;height:130px;display:block;border:1px solid #eee;padding:4px;background:#fff"/>
-            <div style="font-size:8px;color:#888;letter-spacing:.14em;margin-top:4px;text-transform:uppercase">Scan met bank-app</div>
+            <div style="font-size:8px;color:#888;letter-spacing:.14em;margin-top:4px;text-transform:uppercase">${esc(L.scanWithApp)}</div>
           </td>
           <td style="padding:16px 16px 16px 4px;font-size:12px;color:#222;line-height:1.7;vertical-align:middle">
-            ${s.bank_name ? `<div><span style="color:#888;font-size:10px;letter-spacing:.1em;text-transform:uppercase">Bank</span><br/><strong>${esc(s.bank_name)}</strong></div>` : ""}
+            ${s.bank_name ? `<div><span style="color:#888;font-size:10px;letter-spacing:.1em;text-transform:uppercase">${esc(L.bank)}</span><br/><strong>${esc(s.bank_name)}</strong></div>` : ""}
             <div style="margin-top:6px"><span style="color:#888;font-size:10px;letter-spacing:.1em;text-transform:uppercase">IBAN</span><br/>
               <span style="font-family:monospace;font-size:13px;letter-spacing:.05em">${esc(String(s.iban).replace(/\s+/g,"").toUpperCase().match(/.{1,4}/g)?.join(" ") || String(s.iban).toUpperCase())}</span></div>
             ${s.bic ? `<div style="margin-top:6px"><span style="color:#888;font-size:10px;letter-spacing:.1em;text-transform:uppercase">BIC</span><br/><span style="font-family:monospace">${esc(String(s.bic).toUpperCase())}</span></div>` : ""}
-            <div style="margin-top:6px"><span style="color:#888;font-size:10px;letter-spacing:.1em;text-transform:uppercase">Reference</span><br/>
+            <div style="margin-top:6px"><span style="color:#888;font-size:10px;letter-spacing:.1em;text-transform:uppercase">${esc(L.reference)}</span><br/>
               <strong style="font-family:monospace">${esc(inv.invoice_number)}</strong></div>
-            <div style="margin-top:6px"><span style="color:#888;font-size:10px;letter-spacing:.1em;text-transform:uppercase">Amount</span><br/>
+            <div style="margin-top:6px"><span style="color:#888;font-size:10px;letter-spacing:.1em;text-transform:uppercase">${esc(L.amount)}</span><br/>
               <strong style="font-size:15px;color:${accent}">${fmtMoney(inv.total, s)}</strong></div>
           </td>
         </tr>
@@ -260,12 +316,12 @@ export async function renderInvoiceHtml(inv, settings) {
     </div>` : (s.iban || s.bank_name || s.bic) ? `
     <div style="margin-top:22px;padding:14px 16px;border:1px solid #eee;border-radius:8px;background:#fbfbfb;
                 page-break-inside:avoid;break-inside:avoid;-webkit-column-break-inside:avoid">
-      <div style="font-size:10px;color:#888;letter-spacing:.14em;text-transform:uppercase;font-weight:700;margin-bottom:6px">Payment details</div>
+      <div style="font-size:10px;color:#888;letter-spacing:.14em;text-transform:uppercase;font-weight:700;margin-bottom:6px">${esc(L.paymentDetails)}</div>
       <div style="font-size:12px;line-height:1.7">
         ${s.bank_name ? `<div><strong>${esc(s.bank_name)}</strong></div>` : ""}
         ${s.iban ? `<div style="font-family:monospace">IBAN&nbsp;${esc(s.iban)}</div>` : ""}
         ${s.bic ? `<div style="font-family:monospace">BIC&nbsp;${esc(s.bic)}</div>` : ""}
-        <div style="color:#666;margin-top:2px">Reference: <strong>${esc(inv.invoice_number)}</strong></div>
+        <div style="color:#666;margin-top:2px">${esc(L.reference)}: <strong>${esc(inv.invoice_number)}</strong></div>
       </div>
     </div>` : ""
   ) : "";
@@ -274,7 +330,7 @@ export async function renderInvoiceHtml(inv, settings) {
     <div style="text-align:right">
       <span class="badge ${paidBadge}">${paidLabel}</span>
       <div style="font-size:14px;margin-top:6px;font-weight:700">${esc(inv.invoice_number)}</div>
-      <div class="muted">${new Date(inv.created_at).toLocaleDateString("en-GB")}</div>
+      <div class="muted">${new Date(inv.created_at).toLocaleDateString(L.dateLocale)}</div>
     </div>`;
 
   const headerLeft = `
@@ -324,16 +380,16 @@ export async function renderInvoiceHtml(inv, settings) {
     <hr class="accent"/>
     ${wrapOpen}
     <div class="customer-block">
-      <div class="muted" style="text-transform:uppercase;letter-spacing:.14em;font-size:9px;font-weight:700">Bill to</div>
-      <div style="font-size:16px;font-weight:700;margin-top:3px;color:#111">${esc(inv.customer_name || "Walk-in customer")}</div>
+      <div class="muted" style="text-transform:uppercase;letter-spacing:.14em;font-size:9px;font-weight:700">${esc(L.billTo)}</div>
+      <div style="font-size:16px;font-weight:700;margin-top:3px;color:#111">${esc(inv.customer_name || L.walkIn)}</div>
     </div>
     <table class="items"><thead><tr>
-      <th style="padding-left:14px">Item</th><th class="right">Qty</th><th class="right">Unit</th><th class="right" style="padding-right:14px">Total</th>
+      <th style="padding-left:14px">${esc(L.item)}</th><th class="right">${esc(L.qty)}</th><th class="right">${esc(L.unit)}</th><th class="right" style="padding-right:14px">${esc(L.total)}</th>
     </tr></thead>
     <tbody>${rows}</tbody></table>
     <table style="margin-top:18px;margin-left:auto;margin-right:0;background:#fafafa;border:1px solid #eee;border-radius:8px;border-collapse:collapse;min-width:260px">
       <tr>
-        <td style="padding:6px 24px 6px 14px;color:#666;font-size:12px;text-align:left;white-space:nowrap">Subtotal</td>
+        <td style="padding:6px 24px 6px 14px;color:#666;font-size:12px;text-align:left;white-space:nowrap">${esc(L.subtotal)}</td>
         <td style="padding:6px 14px 6px 12px;color:#666;font-size:12px;text-align:right;font-family:monospace;white-space:nowrap">${fmtMoney(inv.subtotal, s)}</td>
       </tr>
       ${inv.tax ? `<tr>
@@ -341,15 +397,15 @@ export async function renderInvoiceHtml(inv, settings) {
         <td style="padding:4px 14px 4px 12px;color:#666;font-size:12px;text-align:right;font-family:monospace;white-space:nowrap">${fmtMoney(inv.tax, s)}</td>
       </tr>` : ""}
       <tr>
-        <td style="padding:10px 24px 12px 14px;border-top:1px solid #ddd;font-size:11px;color:#888;letter-spacing:.1em;text-transform:uppercase;font-weight:700;text-align:left;white-space:nowrap">Total</td>
+        <td style="padding:10px 24px 12px 14px;border-top:1px solid #ddd;font-size:11px;color:#888;letter-spacing:.1em;text-transform:uppercase;font-weight:700;text-align:left;white-space:nowrap">${esc(L.grandTotal)}</td>
         <td style="padding:10px 14px 12px 12px;border-top:1px solid #ddd;text-align:right;font-family:monospace;font-size:18px;font-weight:800;color:${accent};white-space:nowrap">${fmtMoney(inv.total, s)}</td>
       </tr>
     </table>
     ${inv.note ? `<p class="muted" style="margin-top:20px">${noteWithPlate(inv.note, showPlate, inv.car_country || "NL")}</p>` : ""}
     ${bankBlock}
-    <p class="muted" style="margin-top:14px">Payment due within ${s.payment_terms_days || 14} days${inv.due_date ? ` (by ${esc(inv.due_date)})` : ""}.</p>
+    <p class="muted" style="margin-top:14px">${esc(L.paymentDue.replace("{days}", String(s.payment_terms_days || 14)))}${inv.due_date ? esc(L.paymentDueBy.replace("{date}", inv.due_date)) : ""}.</p>
     ${s.invoice_terms ? `<div class="terms">${esc(s.invoice_terms)}</div>` : ""}
-    <p class="muted" style="margin-top:24px;text-align:center">${esc(s.footer_note || "Thank you!")}</p>
+    <p class="muted" style="margin-top:24px;text-align:center">${esc(s.footer_note || L.thankYou)}</p>
     ${wrapClose}
     </body></html>`;
 }
