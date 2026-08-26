@@ -68,6 +68,11 @@ function TimeClockPanel({ card, setData, settings, refetch }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  // Manual time entry — sometimes a mechanic worked on the car with the timer
+  // off (phone call, break, forgot to press Start).  Add the exact minutes
+  // after the fact plus an optional custom amount override.
+  const [manualMinutes, setManualMinutes] = useState("");
+  const [manualAmount, setManualAmount] = useState("");
   const rate = Number(settings?.labor_rate || 45);
   const logs = card.time_logs || [];
   const running = useMemo(() => logs.find(l => !l.stopped_at), [logs]);
@@ -104,6 +109,33 @@ function TimeClockPanel({ card, setData, settings, refetch }) {
     finally { setBusy(false); }
   };
 
+  const addManual = async () => {
+    const mins = Number(manualMinutes);
+    if (!mins || mins <= 0) return toast.error(t("enterMinutes"));
+    setBusy(true);
+    try {
+      // Backend accepts started_at / stopped_at only, so compute a window
+      // ending now.  Any custom amount override is stashed in the note so
+      // the owner can spot it when auditing labour.
+      const stopped = new Date();
+      const started = new Date(stopped.getTime() - mins * 60000);
+      const amt = Number(manualAmount);
+      const noteText = amt > 0
+        ? `${note || t("manualEntry")} · ${t("customAmount")}: € ${amt.toFixed(2)}`
+        : (note || t("manualEntry"));
+      const { data: updated } = await api.post(`/repairs/${card.id}/time-logs`, {
+        started_at: started.toISOString(),
+        stopped_at: stopped.toISOString(),
+        note: noteText,
+      });
+      setData(updated);
+      setManualMinutes(""); setManualAmount(""); setNote("");
+      toast.success(t("manualEntryAdded"));
+      refetch();
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setBusy(false); }
+  };
+
   const removeLog = async (logId) => {
     if (!window.confirm(t("delete") + "?")) return;
     try {
@@ -125,29 +157,59 @@ function TimeClockPanel({ card, setData, settings, refetch }) {
         <div className="text-[11px] font-mono text-muted-foreground">{t("rate")}: {formatEUR(rate)} / {t("hours")}</div>
       </div>
 
-      {/* Live timer + clock in/out */}
-      <div className={`rounded-md border p-4 flex items-center justify-between gap-3 ${running ? "border-emerald-500/40 bg-emerald-500/5" : "border-border bg-muted/30"}`}>
-        <div>
-          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-            {running ? `${t("running")} · ${running.mechanic_name || t("mechanic")}` : t("stopped")}
+      {/* Modern hero display — big digits on a dark card, pulsing dot when live */}
+      <div className={`relative overflow-hidden rounded-xl border p-6 ${running ? "border-emerald-500/50 bg-gradient-to-br from-emerald-950/50 via-slate-900 to-slate-950" : "border-border bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900"}`}>
+        <div className="pointer-events-none absolute inset-0 opacity-[0.06]" style={{
+          backgroundImage: "linear-gradient(rgba(255,255,255,.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.5) 1px, transparent 1px)",
+          backgroundSize: "24px 24px",
+        }} />
+        <div className="relative flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-widest text-slate-400 mb-2">
+              <span className={`h-1.5 w-1.5 rounded-full ${running ? "bg-emerald-400 animate-pulse" : "bg-slate-600"}`} />
+              {running ? `${t("running")} · ${running.mechanic_name || t("mechanic")}` : t("stopped")}
+            </div>
+            <div className={`font-mono text-5xl md:text-6xl font-black tabular-nums leading-none tracking-tight ${running ? "text-emerald-300" : "text-slate-400"}`} data-testid="time-clock-live">
+              {running ? fmtLive(liveSeconds) : "00:00:00"}
+            </div>
+            {running && <div className="text-[11px] font-mono text-slate-400 mt-2">{t("startedAt")}: {new Date(running.started_at).toLocaleTimeString(localeStr, { hour: "2-digit", minute: "2-digit" })}</div>}
           </div>
-          <div className={`font-display text-3xl font-black tabular-nums mt-1 ${running ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`} data-testid="time-clock-live">
-            {running ? fmtLive(liveSeconds) : "00:00:00"}
+          <div className="flex flex-col gap-2 min-w-[220px] flex-1 max-w-xs">
+            <Input placeholder={t("logNote")} value={note} onChange={(e) => setNote(e.target.value)} data-testid="time-clock-note" className="bg-slate-950/60 border-slate-800 text-slate-100" />
+            {running ? (
+              <Button onClick={clockOut} disabled={busy} className="rounded-full bg-rose-500 hover:bg-rose-500/90 text-white h-11" data-testid="time-clock-out">
+                <Square className="h-4 w-4 mr-2" /> {t("clockOut")}
+              </Button>
+            ) : (
+              <Button onClick={clockIn} disabled={busy} className="rounded-full bg-emerald-500 hover:bg-emerald-500/90 text-white h-11" data-testid="time-clock-in">
+                <Play className="h-4 w-4 mr-2" /> {t("clockIn")}
+              </Button>
+            )}
           </div>
-          {running && <div className="text-[11px] font-mono text-muted-foreground mt-1">{t("startedAt")}: {new Date(running.started_at).toLocaleTimeString(localeStr, { hour: "2-digit", minute: "2-digit" })}</div>}
         </div>
-        <div className="flex flex-col gap-2 min-w-[220px]">
-          <Input placeholder={t("logNote")} value={note} onChange={(e) => setNote(e.target.value)} data-testid="time-clock-note" />
-          {running ? (
-            <Button onClick={clockOut} disabled={busy} className="rounded-full bg-rose-500 hover:bg-rose-500/90 text-white" data-testid="time-clock-out">
-              <Square className="h-4 w-4 mr-2" /> {t("clockOut")}
-            </Button>
-          ) : (
-            <Button onClick={clockIn} disabled={busy} className="rounded-full bg-emerald-500 hover:bg-emerald-500/90 text-white" data-testid="time-clock-in">
-              <Play className="h-4 w-4 mr-2" /> {t("clockIn")}
-            </Button>
-          )}
+      </div>
+
+      {/* Manual entry — separate row, minimal footprint */}
+      <div className="rounded-lg border border-dashed border-border p-3 space-y-2" data-testid="time-clock-manual">
+        <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+          <Timer className="h-3 w-3" /> {t("manualEntry")}
         </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <Input
+            type="number" min="1" step="1" placeholder={t("minutesPlaceholder")}
+            value={manualMinutes} onChange={(e) => setManualMinutes(e.target.value)}
+            data-testid="time-clock-manual-minutes"
+          />
+          <Input
+            type="number" min="0" step="0.01" placeholder={t("customAmountPlaceholder")}
+            value={manualAmount} onChange={(e) => setManualAmount(e.target.value)}
+            data-testid="time-clock-manual-amount"
+          />
+          <Button onClick={addManual} disabled={busy || !manualMinutes} variant="outline" className="rounded-full" data-testid="time-clock-manual-add">
+            <Plus className="h-4 w-4 mr-2" /> {t("addTime")}
+          </Button>
+        </div>
+        <p className="text-[10px] text-muted-foreground">{t("manualEntryHint")}</p>
       </div>
 
       {/* Summary */}

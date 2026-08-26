@@ -18,6 +18,12 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26n — Modern time-clock + manual entry + clearer vehicle picker
+- **TimeClockPanel redesign** (`Repairs.jsx`): hero card now uses a dark gradient with a soft grid, a live pulsing dot, and a 5xl→6xl monospace timer in emerald when running / slate when idle.  Clock-in / Clock-out actions moved into the same hero card so the primary action is always one tap away.
+- **Manual entry row**: brand-new dashed-border section under the timer with three inputs (`minutes`, optional `custom € amount`, add-button).  Posts to the existing `POST /repairs/{rid}/time-logs` endpoint (computes `started_at = now - N minutes`, `stopped_at = now`).  Any custom amount is appended to the note (`… · Custom amount: € 55.00`) so the owner can spot overrides in the audit trail.  9 new i18n keys in EN/NL/AR.
+- **Job-card vehicle picker empty state** (`NewJobCardDialog.jsx`): the "no vehicles yet" text became a full amber card with a `<Car>` icon, a clear headline ("Nog geen voertuig gekoppeld") and a big amber CTA button that jumps straight into the add-vehicle form ("Voertuig toevoegen aan {customer}").  The existing pick-from-vehicles grid (top of the section) is unchanged — it appears whenever the customer already has one or more saved vehicles.
+
+
 ### Session 2026-02-26m — Show-password toggle + Forgot-password flow
 - **Backend `POST /api/auth/forgot-password`** — public endpoint. Accepts `{email}`, mints a fresh `password_setup_token` (24h TTL) on the matching user, sends the existing Dutch "Stel je wachtwoord in" email via `_send_password_setup_email`. Always returns `{ok:true, sent:true}` whether the address exists or not to prevent account enumeration.
 - **`Login.jsx`** — eye-icon toggle on the password field (`<Eye>/<EyeOff>`), "Forgot?" link next to the label that opens a dialog with an email input + "Send reset link" button, non-blocking toast confirms the request regardless of email validity.

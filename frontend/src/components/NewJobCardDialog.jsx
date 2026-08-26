@@ -304,8 +304,17 @@ export default function NewJobCardDialog({ open, onOpenChange, customers, users,
                 </div>
               )}
               {form.customer_id && cVehicles.length === 0 && !addingVehicle && (
-                <div className="text-xs text-muted-foreground italic p-3 bg-muted/30 rounded-md">
-                  This customer has no vehicles yet. Use <strong>+ New vehicle</strong> to add one.
+                <div className="rounded-md bg-amber-500/5 border border-amber-500/30 p-4 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <Car className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                    <div className="text-sm">
+                      <div className="font-semibold text-amber-800 dark:text-amber-300">Nog geen voertuig gekoppeld</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">Deze klant heeft nog geen voertuig in het systeem. Voeg er nu een toe of laat het veld leeg om later te vullen.</div>
+                    </div>
+                  </div>
+                  <Button type="button" size="sm" className="rounded-full bg-amber-500 hover:bg-amber-500/90 text-slate-950 w-full" onClick={() => setAddingVehicle(true)} data-testid="new-card-add-veh-cta">
+                    <Plus className="h-4 w-4 mr-2" /> Voertuig toevoegen aan {linkedCust?.name || "klant"}
+                  </Button>
                 </div>
               )}
 
