@@ -7,10 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Search, Car, Wrench, Phone, Mail, User, ClipboardList, X, Calendar as CalIcon, FileText, ShieldAlert, ShieldCheck as ShieldOk } from "lucide-react";
+import { Search, Car, Wrench, Phone, Mail, User, ClipboardList, X, Calendar as CalIcon, FileText, ShieldAlert, ShieldCheck as ShieldOk, QrCode } from "lucide-react";
 import { useLang } from "@/i18n";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import CarPassportQrDialog from "@/components/CarPassportQrDialog";
 
 const STATUS_TONE = {
   completed:   "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/40",
@@ -23,6 +24,7 @@ export default function Vehicles() {
   const nav = useNavigate();
   const [search, setSearch] = useState("");
   const [detail, setDetail] = useState(null);
+  const [qrVehicle, setQrVehicle] = useState(null);
   // "all" | "apk_due" — quick filter to show only vehicles whose APK expires soon.
   const [apkFilter, setApkFilter] = useState("all");
 
@@ -243,15 +245,26 @@ export default function Vehicles() {
                   )}
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="rounded-full"
-                    onClick={(e) => { e.stopPropagation(); setDetail(v); }}
-                    data-testid={`vehicle-open-${v.plate || v.id}`}
-                  >
-                    <ClipboardList className="h-3.5 w-3.5 mr-1.5" /> {t("timeline") || "Timeline"}
-                  </Button>
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={(e) => { e.stopPropagation(); setQrVehicle(v); }}
+                      title={t("printQrSticker") || "Print QR sticker"}
+                      data-testid={`vehicle-qr-${v.plate || v.id}`}
+                    >
+                      <QrCode className="h-4 w-4 text-primary" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-full"
+                      onClick={(e) => { e.stopPropagation(); setDetail(v); }}
+                      data-testid={`vehicle-open-${v.plate || v.id}`}
+                    >
+                      <ClipboardList className="h-3.5 w-3.5 mr-1.5" /> {t("timeline") || "Timeline"}
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
               );
@@ -297,10 +310,21 @@ export default function Vehicles() {
 
               {/* Full repair history */}
               <div>
-                <div className="flex items-center gap-2 mb-2 font-semibold">
-                  <ClipboardList className="h-4 w-4 text-primary" />
-                  {t("repairHistory") || "Repair history"}
-                  <span className="text-xs font-mono text-muted-foreground">· {allRepairs.length}</span>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2 font-semibold">
+                    <ClipboardList className="h-4 w-4 text-primary" />
+                    {t("repairHistory") || "Repair history"}
+                    <span className="text-xs font-mono text-muted-foreground">· {allRepairs.length}</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-full text-primary border-primary/40 hover:bg-primary/10"
+                    onClick={() => { setQrVehicle(detail); }}
+                    data-testid="vehicle-detail-qr"
+                  >
+                    <QrCode className="h-3.5 w-3.5 mr-1.5" /> {t("qrSticker") || "QR sticker"}
+                  </Button>
                 </div>
                 {allRepairs.length === 0 && (
                   <div className="text-sm text-muted-foreground p-4 text-center border-2 border-dashed border-border rounded-lg">
@@ -365,6 +389,13 @@ export default function Vehicles() {
           )}
         </DialogContent>
       </Dialog>
+      {/* Reusable QR passport dialog — mints a public sticker link that opens
+          the customer-facing service timeline when scanned from any phone. */}
+      <CarPassportQrDialog
+        vehicle={qrVehicle}
+        open={!!qrVehicle}
+        onOpenChange={(v) => { if (!v) setQrVehicle(null); }}
+      />
     </div>
   );
 }

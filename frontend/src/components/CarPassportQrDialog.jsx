@@ -50,23 +50,59 @@ export default function CarPassportQrDialog({ vehicle, open, onOpenChange }) {
   const printQr = () => {
     if (!dataUrl) return;
     const label = [vehicle?.make, vehicle?.model, vehicle?.year].filter(Boolean).join(" ");
-    const w = window.open("", "_blank", "width=500,height=650");
+    const w = window.open("", "_blank", "width=500,height=700");
     if (!w) return;
+    // Modern sticker layout — full-bleed accent band on top, giant QR, plate
+    // badge underneath, and a "SCAN VOOR SERVICEGESCHIEDENIS" strapline in
+    // Dutch (matches the invoice PDFs which are always Dutch).
     w.document.write(`
-      <html><head><title>Car Passport — ${label || vehicle?.plate || ""}</title>
-      <style>body{font-family:Arial,sans-serif;text-align:center;padding:24px;color:#111}
-      h1{margin:0 0 4px;font-size:20px}h2{margin:0 0 24px;font-size:14px;font-weight:400;color:#555}
-      img{width:280px;height:280px}p{font-size:11px;color:#666;margin-top:16px;word-break:break-all}
-      .plate{display:inline-block;background:#FFC900;color:#000;padding:4px 10px;border:2px solid #000;border-radius:4px;font-weight:900;letter-spacing:0.08em;margin-top:8px}
+      <html><head><title>QR sticker — ${label || vehicle?.plate || ""}</title>
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+      <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;900&display=swap" rel="stylesheet">
+      <style>
+        @page { margin: 8mm; size: A5; }
+        *{box-sizing:border-box;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}
+        body{font-family:-apple-system,'Helvetica Neue',Arial,sans-serif;margin:0;padding:0;color:#0f172a;background:#fff}
+        .sticker{border:3px solid #0f172a;border-radius:18px;overflow:hidden;max-width:380px;margin:12px auto;
+                 box-shadow:0 8px 24px rgba(15,23,42,0.15)}
+        .band{background:#0EA5E9;color:#fff;padding:14px 18px;text-align:center;font-weight:800;
+              letter-spacing:.16em;text-transform:uppercase;font-size:12px}
+        .band .brand{font-size:15px;letter-spacing:.06em;margin-bottom:2px;text-transform:none;font-weight:900}
+        .body{padding:20px 20px 22px;text-align:center;background:#fff}
+        .plate{display:inline-block;background:#FFCB05;color:#000;padding:6px 14px 6px 34px;
+               border:2.5px solid #000;border-radius:5px;font-family:'Arial Black',Impact,sans-serif;
+               font-weight:900;font-size:20px;letter-spacing:.16em;position:relative;margin-bottom:12px}
+        .plate::before{content:'NL';position:absolute;left:0;top:0;bottom:0;background:#003399;color:#FFCB05;
+                       padding:0 6px;font-size:9px;display:flex;align-items:center;letter-spacing:.05em;
+                       border-right:2px solid #000;border-radius:2px 0 0 2px}
+        h1{margin:2px 0 4px;font-size:18px;font-weight:900;line-height:1.2}
+        .subtitle{color:#64748b;font-size:11px;margin:0 0 16px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+        .qr{border:2px solid #0f172a;padding:10px;border-radius:12px;display:inline-block;background:#fff}
+        .qr img{width:240px;height:240px;display:block}
+        .scan-line{margin-top:14px;font-weight:900;font-size:16px;color:#0EA5E9;letter-spacing:.08em}
+        .scan-line-ar{font-family:'Cairo',sans-serif;font-size:14px;color:#334155;margin-top:4px;direction:rtl;font-weight:700}
+        .footer{padding:12px 16px;background:#f1f5f9;text-align:center;font-family:monospace;
+                font-size:9px;color:#64748b;word-break:break-all;border-top:1px solid #e2e8f0}
+        @media print{ body{background:#fff} .sticker{box-shadow:none;margin:0 auto} }
       </style></head><body>
-        <h1>${label || "Car passport"}</h1>
-        ${vehicle?.plate ? `<div class="plate">${vehicle.plate}</div>` : ""}
-        <h2>Scan to see the full service history</h2>
-        <img src="${dataUrl}" />
-        <p>${passportUrl}</p>
+        <div class="sticker">
+          <div class="band">
+            <div class="brand">🔧 Servicedossier</div>
+            <div>Scan met uw telefoon</div>
+          </div>
+          <div class="body">
+            ${vehicle?.plate ? `<div class="plate">${vehicle.plate}</div>` : ""}
+            <h1>${label || "Voertuig"}</h1>
+            <p class="subtitle">${vehicle?.color ? vehicle.color + ' · ' : ''}${vehicle?.vin ? 'VIN ' + vehicle.vin : ''}</p>
+            <div class="qr"><img src="${dataUrl}" alt="passport QR" /></div>
+            <div class="scan-line">Scan voor volledige historie</div>
+            <div class="scan-line-ar">امسح لعرض سجل الصيانة الكامل</div>
+          </div>
+          <div class="footer">${passportUrl}</div>
+        </div>
       </body></html>`);
     w.document.close(); w.focus();
-    setTimeout(() => { try { w.print(); } catch {} }, 400);
+    setTimeout(() => { try { w.print(); } catch {} }, 700);
   };
 
   return (
