@@ -11,20 +11,20 @@ import ImpersonationBanner from "@/components/ImpersonationBanner";
 import { cn } from "@/lib/utils";
 
 const NAV = [
-  { to: "/dashboard", key: "dashboard", icon: LayoutDashboard, testId: "nav-dashboard" },
-  { to: "/calendar", key: "calendar", icon: Calendar, testId: "nav-calendar" },
-  { to: "/workboard", key: "workboard", icon: LayoutGrid, testId: "nav-workboard" },
-  { to: "/bay-board", key: "bayBoard", icon: Monitor, testId: "nav-bayboard" },
-  { to: "/delivery-scan", key: "deliveryScan", icon: PackageOpen, testId: "nav-delivery-scan" },
-  { to: "/repairs", key: "jobCards", icon: ClipboardList, testId: "nav-repairs" },
-  { to: "/inventory", key: "inventory", icon: Package, testId: "nav-inventory" },
-  { to: "/invoices", key: "invoices", icon: Receipt, testId: "nav-invoices" },
-  { to: "/cash-register", key: "cashRegister", icon: Wallet, testId: "nav-till" },
-  { to: "/accounts", key: "accounts", icon: Banknote, testId: "nav-accounts" },
-  { to: "/reminders", key: "reminders", icon: Bell, testId: "nav-reminders" },
-  { to: "/suppliers", key: "suppliers", icon: Truck, testId: "nav-suppliers" },
-  { to: "/customers", key: "customers", icon: Users, testId: "nav-customers" },
-  { to: "/reports", key: "reports", icon: BarChart3, testId: "nav-reports" },
+  { to: "/dashboard", key: "dashboard", icon: LayoutDashboard, testId: "nav-dashboard", perm: "reports.view" },
+  { to: "/calendar", key: "calendar", icon: Calendar, testId: "nav-calendar", perm: "calendar.view" },
+  { to: "/workboard", key: "workboard", icon: LayoutGrid, testId: "nav-workboard", perm: "calendar.view" },
+  { to: "/bay-board", key: "bayBoard", icon: Monitor, testId: "nav-bayboard", perm: "calendar.view" },
+  { to: "/delivery-scan", key: "deliveryScan", icon: PackageOpen, testId: "nav-delivery-scan", perm: "delivery_scan.use" },
+  { to: "/repairs", key: "jobCards", icon: ClipboardList, testId: "nav-repairs", perm: "repairs.view" },
+  { to: "/inventory", key: "inventory", icon: Package, testId: "nav-inventory", perm: "inventory.view" },
+  { to: "/invoices", key: "invoices", icon: Receipt, testId: "nav-invoices", perm: "invoices.view" },
+  { to: "/cash-register", key: "cashRegister", icon: Wallet, testId: "nav-till", perm: "cash.view" },
+  { to: "/accounts", key: "accounts", icon: Banknote, testId: "nav-accounts", perm: "accounts.view" },
+  { to: "/reminders", key: "reminders", icon: Bell, testId: "nav-reminders", perm: "reminders.view" },
+  { to: "/suppliers", key: "suppliers", icon: Truck, testId: "nav-suppliers", perm: "suppliers.view" },
+  { to: "/customers", key: "customers", icon: Users, testId: "nav-customers", perm: "customers.view" },
+  { to: "/reports", key: "reports", icon: BarChart3, testId: "nav-reports", perm: "reports.view" },
 ];
 
 const OWNER_NAV = [
@@ -35,10 +35,13 @@ const OWNER_NAV = [
 ];
 
 export default function DashboardLayout({ children }) {
-  const { user, logout } = useAuth();
+  const { user, logout, hasPermission } = useAuth();
   const { t, meta } = useLang();
   const [open, setOpen] = useState(false);
   const isRTL = meta.dir === "rtl";
+  // Staff without a nav item's permission simply don't see it. Owner &
+  // super_admin bypass this filter (hasPermission returns true for them).
+  const visibleNav = NAV.filter((n) => !n.perm || hasPermission(n.perm));
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -57,8 +60,8 @@ export default function DashboardLayout({ children }) {
             <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">Workshop OS</div>
           </div>
         </div>
-        <nav className="flex-1 p-3 space-y-1">
-          {NAV.map((n) => (
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+          {visibleNav.map((n) => (
             <NavLink
               key={n.to}
               to={n.to}

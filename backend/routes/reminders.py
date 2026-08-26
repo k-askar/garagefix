@@ -72,8 +72,14 @@ def _reminder_html(rem, garage_name):
             f'</td></tr></table>')
 
 
-def register(db, get_current_user, send_email):
+def register(db, get_current_user, send_email, require_permission=None):
     router = APIRouter()
+
+    # Fallback (dev-only path): if a caller didn't wire `require_permission`
+    # from server.py yet, treat the endpoints as authenticated-only so nothing
+    # 500s in local runs.  Production always passes the real factory.
+    def _perm(scope: str):
+        return require_permission(scope) if require_permission else get_current_user
 
     async def _send_reminder(rem_id: str):
         rem = await db.reminders.find_one({"id": rem_id}, {"_id": 0})
@@ -116,7 +122,7 @@ def register(db, get_current_user, send_email):
             logger.error(f"reminder send failed: {e}")
 
     @router.post("/reminders/scan-vehicles")
-    async def scan_vehicle_reminders(user: dict = Depends(get_current_user)):
+    async def scan_vehicle_reminders(user: dict = Depends(_perm("reminders.send"))):
         """Scan every registered vehicle and auto-create pending reminders for:
            - APK expiring within 30 days (kind='apk')
            - Odometer within 500 km of next_oil_change_km (kind='oil')
@@ -183,11 +189,11 @@ def register(db, get_current_user, send_email):
         return {"created": created, "total": created["apk"] + created["oil"], "scanned": len(vehicles)}
 
     @router.get("/reminders", response_model=List[Reminder])
-    async def list_reminders(user: dict = Depends(get_current_user)):
+    async def list_reminders(user: dict = Depends(_perm("reminders.view"))):
         return await db.reminders.find({}, {"_id": 0}).sort("due_date", 1).to_list(500)
 
     @router.post("/reminders", response_model=Reminder)
-    async def create_reminder(payload: ReminderCreate, user: dict = Depends(get_current_user)):
+    async def create_reminder(payload: ReminderCreate, user: dict = Depends(_perm("reminders.send"))):
         c = await db.customers.find_one({"id": payload.customer_id}, {"_id": 0})
         if not c:
             raise HTTPException(status_code=404, detail="Customer not found")
@@ -198,7 +204,7 @@ def register(db, get_current_user, send_email):
         return rem
 
     @router.post("/reminders/{rid}/send")
-    async def send_reminder_now(rid: str, background: BackgroundTasks, user: dict = Depends(get_current_user)):
+    async def send_reminder_now(rid: str, background: BackgroundTasks, user: dict = Depends(_perm("reminders.send"))):
         rem = await db.reminders.find_one({"id": rid}, {"_id": 0})
         if not rem:
             raise HTTPException(status_code=404, detail="Not found")
@@ -208,7 +214,7 @@ def register(db, get_current_user, send_email):
         return {"ok": True}
 
     @router.post("/reminders/{rid}/mark-sent")
-    async def mark_reminder_sent(rid: str, payload: dict = Body(default={}), user: dict = Depends(get_current_user)):
+    async def mark_reminder_sent(rid: str, payload: dict = Body(default={}), user: dict = Depends(_perm("reminders.send"))):
         """Mark a reminder as manually sent (e.g. via WhatsApp) so the row flips
            from Pending to Sent in the UI. `channel` is stored for reporting."""
         rem = await db.reminders.find_one({"id": rid}, {"_id": 0})
@@ -223,7 +229,7 @@ def register(db, get_current_user, send_email):
         return {"ok": True}
 
     @router.post("/reminders/send-all-pending")
-    async def send_all_pending(background: BackgroundTasks, user: dict = Depends(get_current_user)):
+    async def send_all_pending(background: BackgroundTasks, user: dict = Depends(_perm("reminders.send"))):
         """Bulk-dispatch every pending reminder whose customer has an email on
         file. Reminders without email are skipped (owner can WhatsApp those
         one-by-one from the row action)."""
@@ -240,7 +246,7 @@ def register(db, get_current_user, send_email):
         return {"queued": queued, "skipped": skipped, "total": len(pending)}
 
     @router.delete("/reminders/{rid}")
-    async def delete_reminder(rid: str, user: dict = Depends(get_current_user)):
+    async def delete_reminder(rid: str, user: dict = Depends(_perm("reminders.send"))):
         await db.reminders.delete_one({"id": rid})
         return {"ok": True}
 

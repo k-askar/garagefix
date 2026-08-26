@@ -13,11 +13,14 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Bell, Send, Plus, Trash2, RefreshCw, Wrench, Droplet, ShieldCheck, Mail, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { whatsappShare } from "@/lib/whatsapp";
+import { useAuth } from "@/context/AuthContext";
 
 function todayISO(offset = 0) { const d = new Date(); d.setDate(d.getDate() + offset); return d.toISOString().slice(0, 10); }
 
 export default function Reminders() {
   const qc = useQueryClient();
+  const { hasPermission } = useAuth();
+  const canSend = hasPermission("reminders.send");
   const [open, setOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [form, setForm] = useState({ customer_id: "", reason: "Oil & filter service", due_date: todayISO(30), due_km: "", car_plate: "", car_make: "", car_model: "" });
@@ -112,27 +115,33 @@ export default function Reminders() {
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <div className="flex gap-2 flex-wrap">
-            <Button variant="outline" className="rounded-full" onClick={scanVehicles} disabled={scanning} data-testid="reminders-scan-vehicles">
-              <RefreshCw className={`h-4 w-4 mr-2 ${scanning ? "animate-spin" : ""}`} /> {scanning ? "Scanning..." : "Scan vehicles (APK + oil)"}
-            </Button>
-            <Button
-              variant="outline"
-              className="rounded-full text-primary border-primary/40 hover:bg-primary/10"
-              onClick={sendAllPending}
-              disabled={!rows.some(r => r.status === "pending" && r.customer_email)}
-              data-testid="reminders-send-all-pending"
-            >
-              <Send className="h-4 w-4 mr-2" />
-              Send all pending
-              {rows.filter(r => r.status === "pending" && r.customer_email).length > 0 && (
-                <span className="ml-1.5 inline-flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold">
-                  {rows.filter(r => r.status === "pending" && r.customer_email).length}
-                </span>
-              )}
-            </Button>
-            <DialogTrigger asChild>
-              <Button className="rounded-full bg-primary hover:bg-primary/90" data-testid="reminder-new-button"><Plus className="h-4 w-4 mr-2" /> New reminder</Button>
-            </DialogTrigger>
+            {canSend && (
+              <Button variant="outline" className="rounded-full" onClick={scanVehicles} disabled={scanning} data-testid="reminders-scan-vehicles">
+                <RefreshCw className={`h-4 w-4 mr-2 ${scanning ? "animate-spin" : ""}`} /> {scanning ? "Scanning..." : "Scan vehicles (APK + oil)"}
+              </Button>
+            )}
+            {canSend && (
+              <Button
+                variant="outline"
+                className="rounded-full text-primary border-primary/40 hover:bg-primary/10"
+                onClick={sendAllPending}
+                disabled={!rows.some(r => r.status === "pending" && r.customer_email)}
+                data-testid="reminders-send-all-pending"
+              >
+                <Send className="h-4 w-4 mr-2" />
+                Send all pending
+                {rows.filter(r => r.status === "pending" && r.customer_email).length > 0 && (
+                  <span className="ml-1.5 inline-flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold">
+                    {rows.filter(r => r.status === "pending" && r.customer_email).length}
+                  </span>
+                )}
+              </Button>
+            )}
+            {canSend && (
+              <DialogTrigger asChild>
+                <Button className="rounded-full bg-primary hover:bg-primary/90" data-testid="reminder-new-button"><Plus className="h-4 w-4 mr-2" /> New reminder</Button>
+              </DialogTrigger>
+            )}
           </div>
           <DialogContent className="max-w-lg">
             <DialogHeader><DialogTitle className="font-display">Schedule service reminder</DialogTitle></DialogHeader>

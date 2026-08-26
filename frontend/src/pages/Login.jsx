@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { api, formatApiError } from "@/lib/api";
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, pathForUser } = useAuth();
   const { t } = useLang();
   const nav = useNavigate();
   const [email, setEmail] = useState("");
@@ -29,9 +29,11 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     try {
-      await login(email, password);
+      const u = await login(email, password);
       toast.success(t("welcomeBack"));
-      nav("/dashboard");
+      // Redirect to the first section this user is allowed to see (staff with
+      // e.g. only inventory.view will land on /inventory, not /dashboard).
+      nav(pathForUser(u));
     } catch (err) {
       toast.error(formatApiError(err));
     } finally {

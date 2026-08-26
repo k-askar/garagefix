@@ -450,9 +450,13 @@ function ReportPanel({ t }) {
    ───────────────────────────────────────────────────────────── */
 export default function Inventory() {
   const qc = useQueryClient();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const { t, meta } = useLang();
   const isOwner = user?.role === "owner";
+  const canEdit = hasPermission("inventory.edit");
+  const canDelete = hasPermission("inventory.delete");
+  const canImport = hasPermission("inventory.import");
+  const canWithdraw = hasPermission("inventory.withdraw");
   const [tab, setTab] = useState("overview");
   const [q, setQ] = useState("");
   const [vehicle, setVehicle] = useState("");
@@ -466,7 +470,13 @@ export default function Inventory() {
   const [exporting, setExporting] = useState(false);
 
   const { data: items = [] } = useQuery({ queryKey: ["inv"], queryFn: () => api.get("/inventory").then(r => r.data) });
-  const { data: suppliers = [] } = useQuery({ queryKey: ["sup"], queryFn: () => api.get("/suppliers").then(r => r.data) });
+  const { data: suppliers = [] } = useQuery({
+    queryKey: ["sup"],
+    queryFn: () => api.get("/suppliers").then(r => r.data),
+    // Only fetch suppliers if the current user can actually see them —
+    // otherwise the endpoint 403s and we get noise in the console.
+    enabled: hasPermission("suppliers.view"),
+  });
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: () => api.get("/settings").then(r => r.data) });
 
   const invalidate = () => qc.invalidateQueries();
@@ -640,7 +650,7 @@ export default function Inventory() {
       <Tabs value={tab} onValueChange={setTab} className="w-full">
         <TabsList className="grid grid-cols-3 max-w-lg">
           <TabsTrigger value="overview" data-testid="tab-overview"><Package className="h-3.5 w-3.5 mr-1.5" />{t("overview")}</TabsTrigger>
-          <TabsTrigger value="withdraw" data-testid="tab-withdraw"><PackageMinus className="h-3.5 w-3.5 mr-1.5" />{t("withdraw")}</TabsTrigger>
+          <TabsTrigger value="withdraw" data-testid="tab-withdraw" disabled={!canWithdraw} className={!canWithdraw ? "opacity-40 cursor-not-allowed" : ""}><PackageMinus className="h-3.5 w-3.5 mr-1.5" />{t("withdraw")}</TabsTrigger>
           <TabsTrigger value="report" data-testid="tab-report"><ClipboardList className="h-3.5 w-3.5 mr-1.5" />{t("report")}</TabsTrigger>
         </TabsList>
 
@@ -676,7 +686,7 @@ export default function Inventory() {
                   <Button variant="outline" size="sm" className="rounded-full" onClick={() => exportReport("pdf")} disabled={exporting} data-testid="inventory-pdf-button">
                     <FileDown className="h-4 w-4 mr-2" /> {exporting ? t("loading") : t("pdf")}
                   </Button>
-                  {isOwner && (
+                  {canImport && (
                     <>
                       <Button variant="outline" size="sm" className="rounded-full" onClick={downloadTemplate}>
                         <Download className="h-4 w-4 mr-2" /> {t("template")}
@@ -689,11 +699,13 @@ export default function Inventory() {
                       </label>
                     </>
                   )}
-                  <DialogTrigger asChild>
-                    <Button size="sm" className="rounded-full bg-primary hover:bg-primary/90" data-testid="add-item-button">
-                      <Plus className="h-4 w-4 mr-2" /> {t("newPart")}
-                    </Button>
-                  </DialogTrigger>
+                  {canEdit && (
+                    <DialogTrigger asChild>
+                      <Button size="sm" className="rounded-full bg-primary hover:bg-primary/90" data-testid="add-item-button">
+                        <Plus className="h-4 w-4 mr-2" /> {t("newPart")}
+                      </Button>
+                    </DialogTrigger>
+                  )}
                 </div>
                 <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                   <DialogHeader><DialogTitle className="font-display">{editing ? t("editPart") : t("newPart")}</DialogTitle></DialogHeader>
@@ -746,8 +758,8 @@ export default function Inventory() {
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
                             <Button size="icon" variant="ghost" onClick={() => setLabelItem(i)} data-testid={`print-${i.sku}`}><Printer className="h-4 w-4" /></Button>
-                            {isOwner && <Button size="icon" variant="ghost" onClick={() => { setEditing(i); setOpen(true); }} data-testid={`edit-${i.sku}`}><Pencil className="h-4 w-4" /></Button>}
-                            {isOwner && <Button size="icon" variant="ghost" onClick={() => del(i.id)} data-testid={`delete-${i.sku}`}><Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" /></Button>}
+                            {canEdit && <Button size="icon" variant="ghost" onClick={() => { setEditing(i); setOpen(true); }} data-testid={`edit-${i.sku}`}><Pencil className="h-4 w-4" /></Button>}
+                            {canDelete && <Button size="icon" variant="ghost" onClick={() => del(i.id)} data-testid={`delete-${i.sku}`}><Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" /></Button>}
                           </div>
                         </TableCell>
                       </TableRow>

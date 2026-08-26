@@ -107,6 +107,17 @@ PERMISSION_CATALOG = [
         {"key": "calendar.view", "label": "View calendar / workboard / bay-board"},
         {"key": "calendar.edit", "label": "Book / move appointments"},
     ]},
+    {"section": "accounts", "label": "Accounts & payments", "icon": "banknote", "perms": [
+        {"key": "accounts.view", "label": "View accounts, payment methods, ledger"},
+        {"key": "accounts.edit", "label": "Add / edit payment entries"},
+    ]},
+    {"section": "reminders", "label": "Reminders", "icon": "bell", "perms": [
+        {"key": "reminders.view", "label": "View overdue invoices & reminders"},
+        {"key": "reminders.send", "label": "Send reminder emails / batch reminders"},
+    ]},
+    {"section": "delivery_scan", "label": "Delivery scan (OCR)", "icon": "package-open", "perms": [
+        {"key": "delivery_scan.use", "label": "Scan / OCR delivery notes"},
+    ]},
 ]
 
 def all_permission_keys() -> List[str]:
@@ -114,10 +125,12 @@ def all_permission_keys() -> List[str]:
 
 
 def has_permission(user: dict, perm: str) -> bool:
-    """Owner bypasses; staff need `perm` in their `permissions` list."""
+    """Owner + super_admin bypass every scope check; staff need `perm`
+    in their `permissions` list.  Kept in sync with require_owner so a
+    platform admin impersonating a tenant doesn't get 403 on data endpoints."""
     if not user:
         return False
-    if user.get("role") == "owner":
+    if user.get("role") in ("owner", "super_admin"):
         return True
     return perm in (user.get("permissions") or [])
 
@@ -583,7 +596,7 @@ async def me(user: dict = Depends(get_current_user)):
 
 # --- Suppliers ---
 @api_router.get("/suppliers", response_model=List[Supplier])
-async def list_suppliers(user: dict = Depends(get_current_user)):
+async def list_suppliers(user: dict = Depends(require_permission("suppliers.view"))):
     rows = await db.suppliers.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     return rows
 
@@ -611,19 +624,19 @@ def _with_composed_address(payload_dict: dict) -> dict:
 
 
 @api_router.post("/suppliers", response_model=Supplier)
-async def create_supplier(payload: SupplierCreate, user: dict = Depends(get_current_user)):
+async def create_supplier(payload: SupplierCreate, user: dict = Depends(require_permission("suppliers.edit"))):
     obj = Supplier(**_with_composed_address(payload.model_dump()))
     await db.suppliers.insert_one(obj.model_dump())
     return obj
 
 @api_router.delete("/suppliers/{supplier_id}")
-async def delete_supplier(supplier_id: str, user: dict = Depends(get_current_user)):
+async def delete_supplier(supplier_id: str, user: dict = Depends(require_permission("suppliers.edit"))):
     await db.suppliers.delete_one({"id": supplier_id})
     return {"ok": True}
 
 
 @api_router.put("/suppliers/{supplier_id}", response_model=Supplier)
-async def update_supplier(supplier_id: str, payload: SupplierUpdate, user: dict = Depends(get_current_user)):
+async def update_supplier(supplier_id: str, payload: SupplierUpdate, user: dict = Depends(require_permission("suppliers.edit"))):
     updates = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
@@ -639,25 +652,25 @@ async def update_supplier(supplier_id: str, payload: SupplierUpdate, user: dict 
 
 # --- Customers ---
 @api_router.get("/customers", response_model=List[Customer])
-async def list_customers(user: dict = Depends(get_current_user)):
+async def list_customers(user: dict = Depends(require_permission("customers.view"))):
     rows = await db.customers.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     return rows
 
 @api_router.post("/customers", response_model=Customer)
-async def create_customer(payload: CustomerCreate, user: dict = Depends(get_current_user)):
+async def create_customer(payload: CustomerCreate, user: dict = Depends(require_permission("customers.edit"))):
     obj = Customer(**_with_composed_address(payload.model_dump()))
     await db.customers.insert_one(obj.model_dump())
     return obj
 
 @api_router.delete("/customers/{customer_id}")
-async def delete_customer(customer_id: str, user: dict = Depends(get_current_user)):
+async def delete_customer(customer_id: str, user: dict = Depends(require_permission("customers.delete"))):
     await db.customers.delete_one({"id": customer_id})
     await db.vehicles.delete_many({"customer_id": customer_id})
     return {"ok": True}
 
 
 @api_router.put("/customers/{customer_id}", response_model=Customer)
-async def update_customer(customer_id: str, payload: CustomerUpdate, user: dict = Depends(get_current_user)):
+async def update_customer(customer_id: str, payload: CustomerUpdate, user: dict = Depends(require_permission("customers.edit"))):
     updates = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
@@ -685,11 +698,11 @@ async def update_customer(customer_id: str, payload: CustomerUpdate, user: dict 
 
 # --- Vehicles (linked to customers) ---
 @api_router.get("/customers/{cid}/vehicles", response_model=List[Vehicle])
-async def list_customer_vehicles(cid: str, user: dict = Depends(get_current_user)):
+async def list_customer_vehicles(cid: str, user: dict = Depends(require_permission("customers.view"))):
     return await db.vehicles.find({"customer_id": cid}, {"_id": 0}).sort("created_at", -1).to_list(200)
 
 @api_router.post("/customers/{cid}/vehicles", response_model=Vehicle)
-async def add_customer_vehicle(cid: str, payload: VehicleCreate, user: dict = Depends(get_current_user)):
+async def add_customer_vehicle(cid: str, payload: VehicleCreate, user: dict = Depends(require_permission("customers.edit"))):
     c = await db.customers.find_one({"id": cid}, {"_id": 0})
     if not c:
         raise HTTPException(status_code=404, detail="Customer not found")
@@ -701,7 +714,7 @@ async def add_customer_vehicle(cid: str, payload: VehicleCreate, user: dict = De
     return obj
 
 @api_router.put("/vehicles/{vid}", response_model=Vehicle)
-async def update_vehicle(vid: str, payload: VehicleUpdate, user: dict = Depends(get_current_user)):
+async def update_vehicle(vid: str, payload: VehicleUpdate, user: dict = Depends(require_permission("customers.edit"))):
     existing = await db.vehicles.find_one({"id": vid}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Vehicle not found")
@@ -711,7 +724,7 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, user: dict = Depends(
     return await db.vehicles.find_one({"id": vid}, {"_id": 0})
 
 @api_router.delete("/vehicles/{vid}")
-async def delete_vehicle(vid: str, user: dict = Depends(get_current_user)):
+async def delete_vehicle(vid: str, user: dict = Depends(require_permission("customers.edit"))):
     await db.vehicles.delete_one({"id": vid})
     return {"ok": True}
 
@@ -767,7 +780,7 @@ async def _resolve_appointment_meta(customer_id, vehicle_id, mechanic_id):
 
 @api_router.get("/appointments", response_model=List[Appointment])
 async def list_appointments(start: Optional[str] = None, end: Optional[str] = None,
-                             user: dict = Depends(get_current_user)):
+                             user: dict = Depends(require_permission("calendar.view"))):
     q = {}
     if start or end:
         rng = {}
@@ -792,7 +805,7 @@ async def find_appointment_conflicts(
     start: str,
     duration_min: int = 60,
     exclude: Optional[str] = None,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_permission("calendar.view")),
 ):
     """Return every appointment that overlaps the given mechanic slot.
     Used by the calendar's new-appointment dialog to warn about double-booking."""
@@ -825,7 +838,7 @@ async def find_appointment_conflicts(
 
 
 @api_router.post("/appointments", response_model=Appointment)
-async def create_appointment(payload: AppointmentCreate, user: dict = Depends(get_current_user)):
+async def create_appointment(payload: AppointmentCreate, user: dict = Depends(require_permission("calendar.edit"))):
     try:
         datetime.fromisoformat(payload.scheduled_at.replace("Z", "+00:00"))
     except ValueError:
@@ -852,7 +865,7 @@ async def create_appointment(payload: AppointmentCreate, user: dict = Depends(ge
     return obj
 
 @api_router.put("/appointments/{aid}", response_model=Appointment)
-async def update_appointment(aid: str, payload: AppointmentUpdate, user: dict = Depends(get_current_user)):
+async def update_appointment(aid: str, payload: AppointmentUpdate, user: dict = Depends(require_permission("calendar.edit"))):
     existing = await db.appointments.find_one({"id": aid}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Appointment not found")
@@ -875,12 +888,12 @@ async def update_appointment(aid: str, payload: AppointmentUpdate, user: dict = 
     return await db.appointments.find_one({"id": aid}, {"_id": 0})
 
 @api_router.delete("/appointments/{aid}")
-async def delete_appointment(aid: str, user: dict = Depends(get_current_user)):
+async def delete_appointment(aid: str, user: dict = Depends(require_permission("calendar.edit"))):
     await db.appointments.delete_one({"id": aid})
     return {"ok": True}
 
 @api_router.post("/appointments/{aid}/convert")
-async def convert_appointment_to_repair(aid: str, user: dict = Depends(get_current_user)):
+async def convert_appointment_to_repair(aid: str, user: dict = Depends(require_permission("repairs.create"))):
     appt = await db.appointments.find_one({"id": aid}, {"_id": 0})
     if not appt:
         raise HTTPException(status_code=404, detail="Appointment not found")
@@ -921,7 +934,7 @@ def _generate_barcode() -> str:
     return "".join([str(random.randint(0, 9)) for _ in range(12)])
 
 @api_router.get("/inventory", response_model=List[InventoryItem])
-async def list_inventory(vehicle: Optional[str] = None, user: dict = Depends(get_current_user)):
+async def list_inventory(vehicle: Optional[str] = None, user: dict = Depends(require_permission("inventory.view"))):
     query = {}
     if vehicle:
         query["compatible_vehicles"] = {"$regex": vehicle, "$options": "i"}
@@ -929,21 +942,21 @@ async def list_inventory(vehicle: Optional[str] = None, user: dict = Depends(get
     return rows
 
 @api_router.get("/inventory/lookup")
-async def lookup_inventory(code: str, user: dict = Depends(get_current_user)):
+async def lookup_inventory(code: str, user: dict = Depends(require_permission("inventory.view"))):
     item = await db.inventory.find_one({"$or": [{"barcode": code}, {"sku": code}]}, {"_id": 0})
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     return item
 
 @api_router.get("/inventory/{item_id}", response_model=InventoryItem)
-async def get_inventory(item_id: str, user: dict = Depends(get_current_user)):
+async def get_inventory(item_id: str, user: dict = Depends(require_permission("inventory.view"))):
     item = await db.inventory.find_one({"id": item_id}, {"_id": 0})
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     return item
 
 @api_router.post("/inventory", response_model=InventoryItem)
-async def create_inventory(payload: InventoryItemCreate, user: dict = Depends(get_current_user)):
+async def create_inventory(payload: InventoryItemCreate, user: dict = Depends(require_permission("inventory.edit"))):
     data = payload.model_dump()
     if not data.get("sku"):
         data["sku"] = _generate_sku()
@@ -956,7 +969,7 @@ async def create_inventory(payload: InventoryItemCreate, user: dict = Depends(ge
     return obj
 
 @api_router.put("/inventory/{item_id}", response_model=InventoryItem)
-async def update_inventory(item_id: str, payload: InventoryItemUpdate, user: dict = Depends(require_owner)):
+async def update_inventory(item_id: str, payload: InventoryItemUpdate, user: dict = Depends(require_permission("inventory.edit"))):
     existing = await db.inventory.find_one({"id": item_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -966,18 +979,18 @@ async def update_inventory(item_id: str, payload: InventoryItemUpdate, user: dic
     return await db.inventory.find_one({"id": item_id}, {"_id": 0})
 
 @api_router.delete("/inventory/{item_id}")
-async def delete_inventory(item_id: str, user: dict = Depends(require_owner)):
+async def delete_inventory(item_id: str, user: dict = Depends(require_permission("inventory.delete"))):
     await db.inventory.delete_one({"id": item_id})
     return {"ok": True}
 
 # --- Transactions ---
 @api_router.get("/transactions", response_model=List[Transaction])
-async def list_transactions(limit: int = 200, user: dict = Depends(get_current_user)):
+async def list_transactions(limit: int = 200, user: dict = Depends(require_permission("inventory.view"))):
     rows = await db.transactions.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit)
     return rows
 
 @api_router.post("/transactions", response_model=Transaction)
-async def create_transaction(payload: TransactionCreate, user: dict = Depends(get_current_user)):
+async def create_transaction(payload: TransactionCreate, user: dict = Depends(require_permission("inventory.withdraw"))):
     item = await db.inventory.find_one({"id": payload.item_id}, {"_id": 0})
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -1063,7 +1076,7 @@ async def create_transaction(payload: TransactionCreate, user: dict = Depends(ge
 
 # --- Dashboard ---
 @api_router.get("/dashboard/summary")
-async def dashboard_summary(user: dict = Depends(get_current_user)):
+async def dashboard_summary(user: dict = Depends(require_permission("reports.view"))):
     items = await db.inventory.find({}, {"_id": 0}).to_list(5000)
     total_stock_value = round(sum((i.get("cost_price", 0) * i.get("quantity", 0)) for i in items), 2)
     total_retail_value = round(sum((i.get("selling_price", 0) * i.get("quantity", 0)) for i in items), 2)
@@ -1178,7 +1191,7 @@ async def dashboard_summary(user: dict = Depends(get_current_user)):
     }
 
 @api_router.get("/reports/movement")
-async def report_movement(days: int = 14, user: dict = Depends(get_current_user)):
+async def report_movement(days: int = 14, user: dict = Depends(require_permission("reports.view"))):
     start = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     txns = await db.transactions.find({"created_at": {"$gte": start}}, {"_id": 0}).to_list(10000)
     buckets = {}
@@ -1605,11 +1618,11 @@ def _next_number(prefix: str) -> str:
     return f"{prefix}-{datetime.now(timezone.utc).strftime('%y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
 
 @api_router.get("/purchase-orders", response_model=List[PurchaseOrder])
-async def list_pos(user: dict = Depends(get_current_user)):
+async def list_pos(user: dict = Depends(require_owner)):
     return await db.purchase_orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
 
 @api_router.get("/purchase-orders/suggest")
-async def suggest_pos(user: dict = Depends(get_current_user)):
+async def suggest_pos(user: dict = Depends(require_owner)):
     items = await db.inventory.find({}, {"_id": 0}).to_list(5000)
     low = [i for i in items if i.get("quantity", 0) <= i.get("reorder_point", 0)]
     # group by supplier_id
@@ -1764,11 +1777,11 @@ class InvoiceFromTxns(BaseModel):
     note: Optional[str] = ""
 
 @api_router.get("/invoices", response_model=List[Invoice])
-async def list_invoices(user: dict = Depends(get_current_user)):
+async def list_invoices(user: dict = Depends(require_permission("invoices.view"))):
     return await db.invoices.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
 
 @api_router.get("/invoices/overdue")
-async def list_overdue_invoices(user: dict = Depends(get_current_user)):
+async def list_overdue_invoices(user: dict = Depends(require_permission("reminders.view"))):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     rows = await db.invoices.find({
         "status": {"$ne": "paid"},
@@ -1921,7 +1934,7 @@ async def _send_overdue_email(inv, stage: Optional[int] = None):
         return False
 
 @api_router.post("/invoices/overdue/send-reminders")
-async def send_overdue_reminders(user: dict = Depends(get_current_user)):
+async def send_overdue_reminders(user: dict = Depends(require_permission("reminders.send"))):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     rows = await db.invoices.find({
         "status": {"$ne": "paid"},
@@ -1974,7 +1987,7 @@ async def cron_overdue_invoices(background: BackgroundTasks, authorization: Opti
     return {"queued": len(rows)}
 
 @api_router.post("/invoices/from-transactions", response_model=Invoice)
-async def invoice_from_txns(payload: InvoiceFromTxns, user: dict = Depends(get_current_user)):
+async def invoice_from_txns(payload: InvoiceFromTxns, user: dict = Depends(require_permission("invoices.create"))):
     txns = await db.transactions.find({"id": {"$in": payload.transaction_ids}, "type": "OUT"}, {"_id": 0}).to_list(500)
     if not txns:
         raise HTTPException(status_code=400, detail="No OUT transactions found")
@@ -2008,7 +2021,7 @@ async def invoice_from_txns(payload: InvoiceFromTxns, user: dict = Depends(get_c
     return inv
 
 @api_router.post("/invoices/{inv_id}/mark-paid")
-async def mark_paid(inv_id: str, payload: MarkPaidPayload = MarkPaidPayload(), user: dict = Depends(get_current_user)):
+async def mark_paid(inv_id: str, payload: MarkPaidPayload = MarkPaidPayload(), user: dict = Depends(require_permission("invoices.mark_paid"))):
     inv = await db.invoices.find_one({"id": inv_id}, {"_id": 0})
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
@@ -2115,7 +2128,7 @@ def _new_date_str(iso: Optional[str]) -> str:
 
 
 @api_router.post("/invoices/{inv_id}/email")
-async def email_invoice(inv_id: str, payload: InvoiceEmailBody = InvoiceEmailBody(), user: dict = Depends(get_current_user)):
+async def email_invoice(inv_id: str, payload: InvoiceEmailBody = InvoiceEmailBody(), user: dict = Depends(require_permission("invoices.send"))):
     """Email the invoice to the customer (or a custom recipient)."""
     inv = await db.invoices.find_one({"id": inv_id}, {"_id": 0})
     if not inv:
@@ -2157,7 +2170,7 @@ class InvoicePublicPdfBody(BaseModel):
 
 
 @api_router.post("/invoices/{inv_id}/public-pdf")
-async def upload_invoice_public_pdf(inv_id: str, payload: InvoicePublicPdfBody, request: Request, user: dict = Depends(get_current_user)):
+async def upload_invoice_public_pdf(inv_id: str, payload: InvoicePublicPdfBody, request: Request, user: dict = Depends(require_permission("invoices.send"))):
     """Store the rendered invoice PDF against a short-lived public token so the
     customer can be sent a plain URL (e.g. inside a WhatsApp message) that
     downloads the file without needing to log in. Token expires after 30 days."""
@@ -2273,7 +2286,7 @@ async def public_pay_info(token: str):
 
 
 @api_router.get("/customers/{cid}/balance")
-async def customer_balance(cid: str, user: dict = Depends(get_current_user)):
+async def customer_balance(cid: str, user: dict = Depends(require_permission("customers.view"))):
     invs = await db.invoices.find({"customer_id": cid}, {"_id": 0}).to_list(500)
     unpaid = round(sum(i["total"] for i in invs if i["status"] != "paid"), 2)
     paid = round(sum(i["total"] for i in invs if i["status"] == "paid"), 2)
@@ -2307,7 +2320,7 @@ async def _loyalty_status(cid: str) -> dict:
 
 
 @api_router.get("/customers/{cid}/loyalty")
-async def get_customer_loyalty(cid: str, user: dict = Depends(get_current_user)):
+async def get_customer_loyalty(cid: str, user: dict = Depends(require_permission("customers.view"))):
     return await _loyalty_status(cid)
 
 
@@ -2335,7 +2348,7 @@ async def _maybe_apply_loyalty(customer_id: Optional[str], lines: list, subtotal
     return lines, subtotal, meta
 
 @api_router.get("/customers/{cid}/history")
-async def customer_history(cid: str, user: dict = Depends(get_current_user)):
+async def customer_history(cid: str, user: dict = Depends(require_permission("customers.view"))):
     customer = await db.customers.find_one({"id": cid}, {"_id": 0})
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
@@ -2691,7 +2704,7 @@ async def _hydrate_repair_from_vehicle(card: dict) -> dict:
 
 
 @api_router.get("/repairs", response_model=List[RepairCard])
-async def list_repairs(status: Optional[str] = None, user: dict = Depends(get_current_user)):
+async def list_repairs(status: Optional[str] = None, user: dict = Depends(require_permission("repairs.view"))):
     query = {"status": status} if status else {}
     rows = await db.repairs.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
     # Hydrate every card in one bulk vehicle lookup for efficiency
@@ -2714,7 +2727,7 @@ async def list_repairs(status: Optional[str] = None, user: dict = Depends(get_cu
     return rows
 
 @api_router.get("/repairs/{rid}", response_model=RepairCard)
-async def get_repair(rid: str, user: dict = Depends(get_current_user)):
+async def get_repair(rid: str, user: dict = Depends(require_permission("repairs.view"))):
     c = await db.repairs.find_one({"id": rid}, {"_id": 0})
     if not c:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -2752,7 +2765,7 @@ class SpecialPartReturnPayload(BaseModel):
     reason: str = ""
 
 @api_router.post("/repairs/{rid}/special-parts", response_model=RepairCard)
-async def add_special_part(rid: str, payload: SpecialPartCreate, user: dict = Depends(get_current_user)):
+async def add_special_part(rid: str, payload: SpecialPartCreate, user: dict = Depends(require_permission("repairs.edit"))):
     card = await db.repairs.find_one({"id": rid}, {"_id": 0})
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -2780,7 +2793,7 @@ async def add_special_part(rid: str, payload: SpecialPartCreate, user: dict = De
     return await db.repairs.find_one({"id": rid}, {"_id": 0})
 
 @api_router.patch("/repairs/{rid}/special-parts/{sp_id}", response_model=RepairCard)
-async def update_special_part(rid: str, sp_id: str, payload: SpecialPartUpdate, user: dict = Depends(get_current_user)):
+async def update_special_part(rid: str, sp_id: str, payload: SpecialPartUpdate, user: dict = Depends(require_permission("repairs.edit"))):
     card = await db.repairs.find_one({"id": rid}, {"_id": 0})
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -2805,7 +2818,7 @@ async def update_special_part(rid: str, sp_id: str, payload: SpecialPartUpdate, 
     return await db.repairs.find_one({"id": rid}, {"_id": 0})
 
 @api_router.delete("/repairs/{rid}/special-parts/{sp_id}", response_model=RepairCard)
-async def delete_special_part(rid: str, sp_id: str, user: dict = Depends(get_current_user)):
+async def delete_special_part(rid: str, sp_id: str, user: dict = Depends(require_permission("repairs.edit"))):
     card = await db.repairs.find_one({"id": rid}, {"_id": 0})
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -2820,7 +2833,7 @@ async def delete_special_part(rid: str, sp_id: str, user: dict = Depends(get_cur
 
 
 @api_router.post("/repairs/{rid}/special-parts/{sp_id}/return", response_model=RepairCard)
-async def return_special_part(rid: str, sp_id: str, payload: SpecialPartReturnPayload, user: dict = Depends(get_current_user)):
+async def return_special_part(rid: str, sp_id: str, payload: SpecialPartReturnPayload, user: dict = Depends(require_permission("repairs.edit"))):
     """Mark a special-order part as returned to the supplier. Excluded from
     totals but kept on the card in RED for auditability."""
     card = await db.repairs.find_one({"id": rid}, {"_id": 0})
@@ -2845,7 +2858,7 @@ async def return_special_part(rid: str, sp_id: str, payload: SpecialPartReturnPa
 
 
 @api_router.post("/repairs/{rid}/special-parts/{sp_id}/unreturn", response_model=RepairCard)
-async def unreturn_special_part(rid: str, sp_id: str, user: dict = Depends(get_current_user)):
+async def unreturn_special_part(rid: str, sp_id: str, user: dict = Depends(require_permission("repairs.edit"))):
     card = await db.repairs.find_one({"id": rid}, {"_id": 0})
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -2901,11 +2914,11 @@ class CatalogPartUpdate(BaseModel):
     note: Optional[str] = None
 
 @api_router.get("/parts-catalog", response_model=List[CatalogPart])
-async def list_catalog_parts(user: dict = Depends(get_current_user)):
+async def list_catalog_parts(user: dict = Depends(require_permission("repairs.view"))):
     return await db.parts_catalog.find({}, {"_id": 0}).sort([("times_used", -1), ("name", 1)]).to_list(2000)
 
 @api_router.post("/parts-catalog", response_model=CatalogPart)
-async def create_catalog_part(payload: CatalogPartCreate, user: dict = Depends(get_current_user)):
+async def create_catalog_part(payload: CatalogPartCreate, user: dict = Depends(require_permission("repairs.edit"))):
     supplier_name = ""
     if payload.supplier_id:
         s = await db.suppliers.find_one({"id": payload.supplier_id}, {"_id": 0})
@@ -2915,7 +2928,7 @@ async def create_catalog_part(payload: CatalogPartCreate, user: dict = Depends(g
     return part
 
 @api_router.patch("/parts-catalog/{cid}", response_model=CatalogPart)
-async def update_catalog_part(cid: str, payload: CatalogPartUpdate, user: dict = Depends(get_current_user)):
+async def update_catalog_part(cid: str, payload: CatalogPartUpdate, user: dict = Depends(require_permission("repairs.edit"))):
     part = await db.parts_catalog.find_one({"id": cid}, {"_id": 0})
     if not part:
         raise HTTPException(status_code=404, detail="Catalog part not found")
@@ -2928,14 +2941,14 @@ async def update_catalog_part(cid: str, payload: CatalogPartUpdate, user: dict =
     return await db.parts_catalog.find_one({"id": cid}, {"_id": 0})
 
 @api_router.delete("/parts-catalog/{cid}")
-async def delete_catalog_part(cid: str, user: dict = Depends(get_current_user)):
+async def delete_catalog_part(cid: str, user: dict = Depends(require_permission("repairs.edit"))):
     r = await db.parts_catalog.delete_one({"id": cid})
     if not r.deleted_count:
         raise HTTPException(status_code=404, detail="Catalog part not found")
     return {"ok": True}
 
 @api_router.post("/repairs", response_model=RepairCard)
-async def create_repair(payload: RepairCreate, user: dict = Depends(get_current_user)):
+async def create_repair(payload: RepairCreate, user: dict = Depends(require_permission("repairs.create"))):
     customer_name = payload.customer_name or ""
     customer_phone = payload.customer_phone or ""
     if payload.customer_id:
@@ -2989,7 +3002,7 @@ async def create_repair(payload: RepairCreate, user: dict = Depends(get_current_
     return card
 
 @api_router.put("/repairs/{rid}", response_model=RepairCard)
-async def update_repair(rid: str, payload: RepairUpdate, user: dict = Depends(get_current_user)):
+async def update_repair(rid: str, payload: RepairUpdate, user: dict = Depends(require_permission("repairs.edit"))):
     card = await db.repairs.find_one({"id": rid}, {"_id": 0})
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -3052,7 +3065,7 @@ async def update_repair(rid: str, payload: RepairUpdate, user: dict = Depends(ge
 
 
 @api_router.get("/vehicles/{vid}/history")
-async def vehicle_service_history(vid: str, user: dict = Depends(get_current_user)):
+async def vehicle_service_history(vid: str, user: dict = Depends(require_permission("customers.view"))):
     """Timeline of every APK renewal + oil change ever logged for a vehicle."""
     v = await db.vehicles.find_one({"id": vid}, {"_id": 0})
     if not v:
@@ -3062,7 +3075,7 @@ async def vehicle_service_history(vid: str, user: dict = Depends(get_current_use
     return {"vehicle": v, "events": events, "repair_count": len(repairs)}
 
 @api_router.post("/repairs/{rid}/assign", response_model=RepairCard)
-async def assign_repair(rid: str, payload: RepairAssign, user: dict = Depends(get_current_user)):
+async def assign_repair(rid: str, payload: RepairAssign, user: dict = Depends(require_permission("repairs.edit"))):
     """Workboard drag-and-drop: move a job card between mechanics / days and set effort."""
     card = await db.repairs.find_one({"id": rid}, {"_id": 0})
     if not card:
@@ -3091,7 +3104,7 @@ async def assign_repair(rid: str, payload: RepairAssign, user: dict = Depends(ge
     return await db.repairs.find_one({"id": rid}, {"_id": 0})
 
 @api_router.delete("/repairs/{rid}")
-async def delete_repair(rid: str, user: dict = Depends(require_owner)):
+async def delete_repair(rid: str, user: dict = Depends(require_permission("repairs.delete"))):
     # restock any parts used
     card = await db.repairs.find_one({"id": rid}, {"_id": 0})
     if card:
@@ -3102,7 +3115,7 @@ async def delete_repair(rid: str, user: dict = Depends(require_owner)):
     return {"ok": True}
 
 @api_router.post("/repairs/{rid}/parts", response_model=RepairCard)
-async def add_part_to_repair(rid: str, payload: AddPart, user: dict = Depends(get_current_user)):
+async def add_part_to_repair(rid: str, payload: AddPart, user: dict = Depends(require_permission("repairs.edit"))):
     card = await db.repairs.find_one({"id": rid}, {"_id": 0})
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -3145,7 +3158,7 @@ async def add_part_to_repair(rid: str, payload: AddPart, user: dict = Depends(ge
     return card
 
 @api_router.delete("/repairs/{rid}/parts/{txn_id}", response_model=RepairCard)
-async def remove_part_from_repair(rid: str, txn_id: str, user: dict = Depends(get_current_user)):
+async def remove_part_from_repair(rid: str, txn_id: str, user: dict = Depends(require_permission("repairs.edit"))):
     card = await db.repairs.find_one({"id": rid}, {"_id": 0})
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -3178,7 +3191,7 @@ class PartReturnPayload(BaseModel):
 
 
 @api_router.post("/repairs/{rid}/parts/{txn_id}/return", response_model=RepairCard)
-async def return_part_on_repair(rid: str, txn_id: str, payload: PartReturnPayload, user: dict = Depends(get_current_user)):
+async def return_part_on_repair(rid: str, txn_id: str, payload: PartReturnPayload, user: dict = Depends(require_permission("repairs.edit"))):
     """Mark a fitted part as returned to the supplier (defective / wrong / etc.).
 
     The part stays visible on the card (in red on the UI + PDF) but is excluded
@@ -3232,7 +3245,7 @@ async def return_part_on_repair(rid: str, txn_id: str, payload: PartReturnPayloa
 
 
 @api_router.post("/repairs/{rid}/parts/{txn_id}/unreturn", response_model=RepairCard)
-async def unreturn_part_on_repair(rid: str, txn_id: str, user: dict = Depends(get_current_user)):
+async def unreturn_part_on_repair(rid: str, txn_id: str, user: dict = Depends(require_permission("repairs.edit"))):
     """Undo a return — the part goes back to being billed on the card. Stock is
     decreased again and a compensating OUT transaction is logged."""
     card = await db.repairs.find_one({"id": rid}, {"_id": 0})
@@ -3284,7 +3297,7 @@ async def _labor_rate() -> float:
     return float(s.get("labor_rate") or 45.0)
 
 @api_router.post("/repairs/{rid}/clock-in", response_model=RepairCard)
-async def clock_in(rid: str, payload: ClockInPayload, user: dict = Depends(get_current_user)):
+async def clock_in(rid: str, payload: ClockInPayload, user: dict = Depends(require_permission("repairs.edit"))):
     card = await db.repairs.find_one({"id": rid}, {"_id": 0})
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -3309,7 +3322,7 @@ async def clock_in(rid: str, payload: ClockInPayload, user: dict = Depends(get_c
     return await db.repairs.find_one({"id": rid}, {"_id": 0})
 
 @api_router.post("/repairs/{rid}/clock-out", response_model=RepairCard)
-async def clock_out(rid: str, payload: ClockOutPayload, user: dict = Depends(get_current_user)):
+async def clock_out(rid: str, payload: ClockOutPayload, user: dict = Depends(require_permission("repairs.edit"))):
     card = await db.repairs.find_one({"id": rid}, {"_id": 0})
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -3346,7 +3359,7 @@ async def clock_out(rid: str, payload: ClockOutPayload, user: dict = Depends(get
     return await db.repairs.find_one({"id": rid}, {"_id": 0})
 
 @api_router.post("/repairs/{rid}/time-logs", response_model=RepairCard)
-async def add_manual_time_log(rid: str, payload: TimeLogManualCreate, user: dict = Depends(get_current_user)):
+async def add_manual_time_log(rid: str, payload: TimeLogManualCreate, user: dict = Depends(require_permission("repairs.edit"))):
     card = await db.repairs.find_one({"id": rid}, {"_id": 0})
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -3384,7 +3397,7 @@ async def add_manual_time_log(rid: str, payload: TimeLogManualCreate, user: dict
     return await db.repairs.find_one({"id": rid}, {"_id": 0})
 
 @api_router.delete("/repairs/{rid}/time-logs/{log_id}", response_model=RepairCard)
-async def delete_time_log(rid: str, log_id: str, user: dict = Depends(get_current_user)):
+async def delete_time_log(rid: str, log_id: str, user: dict = Depends(require_permission("repairs.edit"))):
     card = await db.repairs.find_one({"id": rid}, {"_id": 0})
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -3407,7 +3420,7 @@ async def delete_time_log(rid: str, log_id: str, user: dict = Depends(get_curren
     return await db.repairs.find_one({"id": rid}, {"_id": 0})
 
 @api_router.post("/repairs/{rid}/invoice", response_model=Invoice)
-async def invoice_repair(rid: str, tax_rate: Optional[float] = None, user: dict = Depends(get_current_user)):
+async def invoice_repair(rid: str, tax_rate: Optional[float] = None, user: dict = Depends(require_permission("repairs.complete"))):
     card = await db.repairs.find_one({"id": rid}, {"_id": 0})
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -3458,7 +3471,7 @@ async def invoice_repair(rid: str, tax_rate: Optional[float] = None, user: dict 
 # Profit Report
 # =========================
 @api_router.get("/reports/profit")
-async def report_profit(start: Optional[str] = None, end: Optional[str] = None, user: dict = Depends(get_current_user)):
+async def report_profit(start: Optional[str] = None, end: Optional[str] = None, user: dict = Depends(require_permission("reports.view"))):
     now = datetime.now(timezone.utc)
     try:
         end_dt = datetime.fromisoformat(end).replace(tzinfo=timezone.utc) if end else now
@@ -3637,7 +3650,7 @@ async def _ensure_passport_token(vehicle: dict) -> str:
 
 
 @api_router.post("/vehicles/{vid}/passport/rotate")
-async def rotate_passport(vid: str, user: dict = Depends(get_current_user)):
+async def rotate_passport(vid: str, user: dict = Depends(require_permission("customers.edit"))):
     v = await db.vehicles.find_one({"id": vid}, {"_id": 0})
     if not v:
         raise HTTPException(status_code=404, detail="Vehicle not found")
@@ -3647,7 +3660,7 @@ async def rotate_passport(vid: str, user: dict = Depends(get_current_user)):
 
 
 @api_router.get("/vehicles/{vid}/passport/token")
-async def get_passport_token(vid: str, user: dict = Depends(get_current_user)):
+async def get_passport_token(vid: str, user: dict = Depends(require_permission("customers.view"))):
     v = await db.vehicles.find_one({"id": vid}, {"_id": 0})
     if not v:
         raise HTTPException(status_code=404, detail="Vehicle not found")
@@ -3891,13 +3904,13 @@ async def _provision_tenant_owner(tenant_id: str, email: str, name: str):
         emailed = False
     return {"email": email, "link": link, "emailed": emailed, "already_exists": False}
 
-_reminders_router, _send_reminder = _register_reminders(db, get_current_user, send_email)
+_reminders_router, _send_reminder = _register_reminders(db, get_current_user, send_email, require_permission)
 api_router.include_router(_reminders_router)
 api_router.include_router(_register_cron(db, WEBHOOK_CRON_SECRET, _send_reminder))
 api_router.include_router(_register_rdw(get_current_user))
 api_router.include_router(_register_kvk(get_current_user))
 api_router.include_router(_register_tenants(db, get_current_user, require_super_admin, _provision_tenant_owner))
-api_router.include_router(_register_email_logs(db, get_current_user, send_email, require_super_admin))
+api_router.include_router(_register_email_logs(db, get_current_user, send_email, require_super_admin, require_owner))
 api_router.include_router(_register_subscription_cron(db, WEBHOOK_CRON_SECRET, send_email, _create_saas_invoice_fn))
 api_router.include_router(_register_saas_billing(db, require_super_admin))
 
@@ -3971,7 +3984,7 @@ async def ledger(
     direction: Optional[str] = None,
     ref_type: Optional[str] = None,
     q: Optional[str] = None,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_permission("cash.view")),
 ):
     """Unified ledger: every payment_entry row (invoice, PO, manual) with filters."""
     await _seed_payment_methods()
@@ -4025,7 +4038,7 @@ async def ledger(
 
 
 @api_router.get("/cash-register")
-async def cash_register(date: Optional[str] = None, user: dict = Depends(get_current_user)):
+async def cash_register(date: Optional[str] = None, user: dict = Depends(require_permission("cash.view"))):
     d = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     start = d + "T00:00:00+00:00"
     end = d + "T23:59:59+00:00"
@@ -4145,7 +4158,7 @@ async def _log_payment(*, method_id: str, direction: str, amount: float,
     return entry
 
 @api_router.get("/payment-methods")
-async def list_payment_methods(user: dict = Depends(get_current_user)):
+async def list_payment_methods(user: dict = Depends(require_permission("accounts.view"))):
     await _seed_payment_methods()
     methods = await db.payment_methods.find({}, {"_id": 0}).sort("created_at", 1).to_list(200)
     result = []
@@ -4182,7 +4195,7 @@ async def list_payment_entries(method_id: Optional[str] = None,
                                 start: Optional[str] = None,
                                 end: Optional[str] = None,
                                 limit: int = 500,
-                                user: dict = Depends(get_current_user)):
+                                user: dict = Depends(require_permission("accounts.view"))):
     q = {}
     if method_id:
         q["method_id"] = method_id
@@ -4194,7 +4207,7 @@ async def list_payment_entries(method_id: Optional[str] = None,
     return await db.payment_entries.find(q, {"_id": 0}).sort("created_at", -1).to_list(limit)
 
 @api_router.post("/payment-entries", response_model=PaymentEntry)
-async def create_payment_entry(payload: PaymentEntryCreate, user: dict = Depends(get_current_user)):
+async def create_payment_entry(payload: PaymentEntryCreate, user: dict = Depends(require_permission("accounts.edit"))):
     entry = await _log_payment(
         method_id=payload.method_id, direction=payload.direction,
         amount=payload.amount, reference_type="manual",
@@ -4220,7 +4233,7 @@ async def delete_payment_entry(eid: str, user: dict = Depends(require_owner)):
 async def payment_method_statement(mid: str,
                                     start: Optional[str] = None,
                                     end: Optional[str] = None,
-                                    user: dict = Depends(get_current_user)):
+                                    user: dict = Depends(require_permission("accounts.view"))):
     m = await db.payment_methods.find_one({"id": mid}, {"_id": 0})
     if not m:
         raise HTTPException(status_code=404, detail="Payment method not found")
@@ -4260,7 +4273,7 @@ async def payment_method_statement(mid: str,
     }
 
 @api_router.get("/payments/summary")
-async def payments_summary(user: dict = Depends(get_current_user)):
+async def payments_summary(user: dict = Depends(require_permission("accounts.view"))):
     """Aggregate: overall balance per method + grand total."""
     await _seed_payment_methods()
     methods = await db.payment_methods.find({}, {"_id": 0}).sort("created_at", 1).to_list(200)
@@ -4288,7 +4301,7 @@ api_router.include_router(_register_extras(db, get_current_user, require_owner))
 import csv as _csv, io as _io
 
 @api_router.post("/import/vehicles-csv")
-async def import_vehicles_csv(payload: dict, user: dict = Depends(get_current_user)):
+async def import_vehicles_csv(payload: dict, user: dict = Depends(require_permission("customers.edit"))):
     """Bulk-import vehicles from a raw CSV string."""
     raw = (payload.get("csv") or "").strip()
     if not raw:
@@ -4359,7 +4372,7 @@ async def import_vehicles_csv(payload: dict, user: dict = Depends(get_current_us
 
 
 @api_router.get("/bay-board")
-async def bay_board(user: dict = Depends(get_current_user)):
+async def bay_board(user: dict = Depends(require_permission("calendar.view"))):
     """Live-status snapshot of every open/in-progress job card for the workshop TV."""
     cards = await db.repairs.find(
         {"status": {"$in": ["open", "in_progress"]}},
@@ -4404,7 +4417,7 @@ def _norm_plate(s: str) -> str:
 _PLATE_RE = re.compile(r"\b([A-Z]{1,3}[- ][A-Z0-9]{1,4}[- ][A-Z0-9]{1,4})\b")
 
 @api_router.post("/special-parts/scan-delivery")
-async def scan_delivery(payload: dict, user: dict = Depends(get_current_user)):
+async def scan_delivery(payload: dict, user: dict = Depends(require_permission("delivery_scan.use"))):
     """Scan a delivery-note barcode / typed text."""
     text = (payload.get("code") or "").strip()
     if not text:
@@ -4484,7 +4497,7 @@ class OcrDeliveryPayload(BaseModel):
 
 
 @api_router.post("/special-parts/ocr-delivery-note")
-async def ocr_delivery_note(payload: OcrDeliveryPayload, user: dict = Depends(get_current_user)):
+async def ocr_delivery_note(payload: OcrDeliveryPayload, user: dict = Depends(require_permission("delivery_scan.use"))):
     """Full-page OCR of an A4 delivery note using Claude Sonnet 4.6 vision. Returns
     structured JSON: plate, part_name, part_number, unit_cost, unit_price, quantity, supplier_name."""
     key = os.environ.get("EMERGENT_LLM_KEY", "")

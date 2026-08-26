@@ -33,6 +33,7 @@ import MyProfile from "@/pages/MyProfile";
 import EmailLogs from "@/pages/EmailLogs";
 import PayInvoice from "@/pages/PayInvoice";
 import Landing from "@/pages/Landing";
+import PermGate from "@/components/PermGate";
 import "@/App.css";
 
 function ProtectedShell() {
@@ -49,15 +50,38 @@ function ProtectedShell() {
 }
 
 function OwnerRoute({ children }) {
-  const { user } = useAuth();
-  if (user && user.role !== "owner" && user.role !== "super_admin") return <Navigate to="/dashboard" replace />;
+  const { user, firstAllowedPath } = useAuth();
+  if (user && user.role !== "owner" && user.role !== "super_admin") {
+    return <Navigate to={firstAllowedPath()} replace />;
+  }
   return children;
 }
 
 function SuperAdminRoute({ children }) {
-  const { user } = useAuth();
-  if (user && user.role !== "super_admin") return <Navigate to="/dashboard" replace />;
+  const { user, firstAllowedPath } = useAuth();
+  if (user && user.role !== "super_admin") {
+    return <Navigate to={firstAllowedPath()} replace />;
+  }
   return children;
+}
+
+function LandingHome() {
+  // Redirect an already-logged-in user straight into their first allowed page
+  // instead of showing the public landing every time they hit "/".
+  const { user, ready, firstAllowedPath } = useAuth();
+  if (ready && user) return <Navigate to={firstAllowedPath()} replace />;
+  return <Landing />;
+}
+
+function DashboardFallback() {
+  // Owner → real Dashboard.  Staff without reports.view → their first allowed section.
+  const { user, ready, hasPermission, firstAllowedPath } = useAuth();
+  if (!ready) return null;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role === "super_admin" || user.role === "owner" || hasPermission("reports.view")) {
+    return <Dashboard />;
+  }
+  return <Navigate to={firstAllowedPath()} replace />;
 }
 
 function App() {
@@ -67,29 +91,29 @@ function App() {
       <AuthProvider>
         <BrowserRouter>
           <Routes>
-            <Route path="/" element={<Landing />} />
+            <Route path="/" element={<LandingHome />} />
             <Route path="/login" element={<Login />} />
             <Route path="/passport/:token" element={<CarPassport />} />
             <Route path="/setup-password/:token" element={<PasswordSetup />} />
             <Route path="/pay/:token" element={<PayInvoice />} />
             <Route element={<ProtectedShell />}>
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/inventory" element={<Inventory />} />
-              <Route path="/movement" element={<StockMovement />} />
-              <Route path="/transactions" element={<Transactions />} />
-              <Route path="/suppliers" element={<Suppliers />} />
-              <Route path="/customers" element={<Customers />} />
-              <Route path="/reports" element={<Reports />} />
-              <Route path="/repairs" element={<Repairs />} />
-              <Route path="/scan" element={<ScanPickup />} />
-              <Route path="/reminders" element={<Reminders />} />
-              <Route path="/cash-register" element={<CashRegister />} />
-              <Route path="/accounts" element={<Accounts />} />
-              <Route path="/calendar" element={<CalendarPage />} />
-              <Route path="/workboard" element={<Workboard />} />
-              <Route path="/bay-board" element={<BayBoard />} />
-              <Route path="/delivery-scan" element={<DeliveryScan />} />
-              <Route path="/invoices" element={<Invoices />} />
+              <Route path="/dashboard" element={<DashboardFallback />} />
+              <Route path="/inventory" element={<PermGate perm="inventory.view"><Inventory /></PermGate>} />
+              <Route path="/movement" element={<PermGate perm="inventory.view"><StockMovement /></PermGate>} />
+              <Route path="/transactions" element={<PermGate perm="inventory.view"><Transactions /></PermGate>} />
+              <Route path="/suppliers" element={<PermGate perm="suppliers.view"><Suppliers /></PermGate>} />
+              <Route path="/customers" element={<PermGate perm="customers.view"><Customers /></PermGate>} />
+              <Route path="/reports" element={<PermGate perm="reports.view"><Reports /></PermGate>} />
+              <Route path="/repairs" element={<PermGate perm="repairs.view"><Repairs /></PermGate>} />
+              <Route path="/scan" element={<PermGate perm="delivery_scan.use"><ScanPickup /></PermGate>} />
+              <Route path="/reminders" element={<PermGate perm="reminders.view"><Reminders /></PermGate>} />
+              <Route path="/cash-register" element={<PermGate perm="cash.view"><CashRegister /></PermGate>} />
+              <Route path="/accounts" element={<PermGate perm="accounts.view"><Accounts /></PermGate>} />
+              <Route path="/calendar" element={<PermGate perm="calendar.view"><CalendarPage /></PermGate>} />
+              <Route path="/workboard" element={<PermGate perm="calendar.view"><Workboard /></PermGate>} />
+              <Route path="/bay-board" element={<PermGate perm="calendar.view"><BayBoard /></PermGate>} />
+              <Route path="/delivery-scan" element={<PermGate perm="delivery_scan.use"><DeliveryScan /></PermGate>} />
+              <Route path="/invoices" element={<PermGate perm="invoices.view"><Invoices /></PermGate>} />
               <Route path="/purchase-orders" element={<OwnerRoute><PurchaseOrders /></OwnerRoute>} />
               <Route path="/staff" element={<OwnerRoute><Staff /></OwnerRoute>} />
               <Route path="/settings" element={<OwnerRoute><Settings /></OwnerRoute>} />

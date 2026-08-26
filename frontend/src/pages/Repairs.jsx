@@ -781,7 +781,11 @@ export default function Repairs() {
   });
 
   const { data: cards = [], refetch } = useQuery({ queryKey: ["repairs"], queryFn: () => api.get("/repairs").then(r => r.data) });
-  const { user: me } = useAuth();
+  const { user: me, hasPermission } = useAuth();
+  const canCreate = hasPermission("repairs.create");
+  const canEdit = hasPermission("repairs.edit");
+  const canDelete = hasPermission("repairs.delete");
+  const canComplete = hasPermission("repairs.complete");
   const { data: users = [] } = useQuery({
     queryKey: ["users-safe"],
     enabled: me?.role === "owner",
@@ -920,9 +924,11 @@ export default function Repairs() {
           <Button variant="outline" className="rounded-full" onClick={() => exportReport("pdf")} disabled={exporting} data-testid="repairs-pdf-button">
             <FileDown className="h-4 w-4 mr-2" /> {exporting ? t("loading") : t("pdf")}
           </Button>
-          <Button className="rounded-full bg-primary hover:bg-primary/90" onClick={() => setShowNew(true)} data-testid="repair-new-button">
-            <Plus className="h-4 w-4 mr-2" /> {t("newCard")}
-          </Button>
+          {canCreate && (
+            <Button className="rounded-full bg-primary hover:bg-primary/90" onClick={() => setShowNew(true)} data-testid="repair-new-button">
+              <Plus className="h-4 w-4 mr-2" /> {t("newCard")}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1057,9 +1063,11 @@ export default function Repairs() {
               </div>
             </div>
 
-            <Button size="icon" variant="ghost" className="absolute bottom-3 right-3 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity duration-200" onClick={(e) => { e.stopPropagation(); del(c.id); }} data-testid={`repair-delete-${c.card_number}`}>
-              <Trash2 className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
-            </Button>
+            {canDelete && (
+              <Button size="icon" variant="ghost" className="absolute bottom-3 right-3 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity duration-200" onClick={(e) => { e.stopPropagation(); del(c.id); }} data-testid={`repair-delete-${c.card_number}`}>
+                <Trash2 className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
+              </Button>
+            )}
           </Card>
         ))}
         {filtered.length === 0 && (

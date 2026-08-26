@@ -1,0 +1,27 @@
+{
+  "summary": "Retest of the 4 critical permission issues from iteration_16. Created /app/backend/tests/test_iteration17_permission_fixes.py (21 tests) covering super_admin bypass, reminders gating (reminders.view / reminders.send), email-logs owner-only, and passport token/rotate gating (customers.view / customers.edit) — all 21 PASSED. Replayed the full iteration_16 matrix (36 tests) — all PASSED, 0 leaks, no previously-403 endpoint unlocked. Owner end-to-end flow (customer → vehicle → job card → part → invoice → mark-paid) passed. Frontend smoke: warehouse@test.com logs in, lands on /inventory, sidebar shows exactly nav-inventory + nav-my-profile, /suppliers URL bounced back to /inventory, and ZERO 401/403/500 network responses were captured.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration17_permission_fixes.py",
+    "/app/backend/tests/test_iteration16_permissions.py",
+    "/app/test_reports/pytest/iter17_fixes.xml",
+    "/app/test_reports/pytest/iter17_regression16.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "has_permission() now grants a blanket bypass to role=='super_admin' on every tenant data endpoint. This is intentional per the impersonation design, but it means a platform admin can read/write any tenant's customers, invoices and email logs directly without an impersonation token and without an audit trail. Consider logging super_admin data access.",
+    "reminders.register() and email_logs.register() keep a get_current_user fallback when the guard arg is not wired (`_guard = require_owner if require_owner else get_current_user`). This fails open; if a future refactor drops the arg the endpoints silently become unguarded. Prefer raising at import/registration time."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration17_permission_fixes.py",
+    "/app/backend/tests/test_iteration16_permissions.py"
+  ],
+  "success_rate": { "backend": "100% (57/57 tests, 0 skipped)", "frontend": "100% (smoke)" },
+  "seed_data_creation": "Ephemeral TEST_* staff users (reminders.view, reminders.view+send, inventory.view+edit, customers.view, customers.view+edit) and TEST_ customer/vehicle/inventory/invoice records — all deleted in fixture teardown.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@garage.com/admin123 (owner), platform@pitstock.app/platform123 (super_admin), warehouse@test.com/warehouse123 (staff, inventory.view)",
+  "context_for_next_testing_agent": "Permission matrix is fully green as of iteration 17. Regression suites to reuse: tests/test_iteration16_permissions.py (matrix + owner e2e flow) and tests/test_iteration17_permission_fixes.py (4 fixes). Fixed a flaky skip in iter16's passport test (it only looked at the first customer for a vehicle; now iterates). Endpoints still on plain get_current_user (not scope-guarded) and worth auditing next: /api/settings, /api/rdw/lookup.",
+  "rca_of_the_issue": "iter16 failures were: (1) has_permission() bypassed only role=='owner' so super_admin got 403 on data endpoints; (2)(3) reminders.py and email_logs.py registered their endpoints with get_current_user because the guard dependencies were never passed into register(); (4) passport token/rotate used get_current_user instead of require_permission. All four are now fixed and verified via direct HTTP calls against the public preview URL."
+}

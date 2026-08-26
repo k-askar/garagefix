@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 16 — full permission-enforcement matrix. Backend: 36 pytest cases (warehouse-only staff 403 matrix, owner bypass, super-admin, 3 granular staff scopes, owner end-to-end regression) — 35 passed / 1 failed. Frontend: warehouse-only staff login redirect, sidebar filtering, inventory button gating, 14 forbidden-URL redirects, owner full-nav + item form, super-admin landing — all passed. Found 1 REGRESSION (super_admin impersonation now blocked from all tenant data) and 3 UNGATED endpoint groups still leaking data to a staff user who only holds inventory.view (/api/reminders/*, /api/email-logs + resend, /api/vehicles/{id}/passport/token + /passport/rotate).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/reminders, POST /api/reminders, POST /api/reminders/{id}/send, POST /api/reminders/send-all, DELETE /api/reminders/{id}, GET /api/reminders/scan-vehicles", "issue": "routes/reminders.py still uses Depends(get_current_user) — warehouse-only staff (inventory.view) got 200 on GET /api/reminders and can read customer names/emails/plates, create, send and DELETE reminders. Must use require_permission('reminders.view'/'reminders.send').", "priority": "CRITICAL"},
+      {"endpoint": "GET /api/email-logs, POST /api/email-logs/{id}/resend", "issue": "routes/email_logs.py uses Depends(get_current_user) — warehouse-only staff got 200 and sees every outbound email (customer addresses, subjects) and can RESEND emails. UI nav is owner-only but the API is open to any staff. Should be require_owner / a dedicated scope.", "priority": "CRITICAL"},
+      {"endpoint": "GET /api/inventory (as impersonating super_admin)", "issue": "REGRESSION: has_permission() bypasses only role=='owner'. A super_admin impersonating a tenant (or hitting tenant data directly, which require_owner still allows) now gets 403 'Missing permission: inventory.view' on every require_permission endpoint. Add `if user.get('role') in ('owner','super_admin'): return True` to has_permission() to match require_owner and the frontend hasPermission().", "priority": "HIGH"},
+      {"endpoint": "GET /api/vehicles/{vid}/passport/token, POST /api/vehicles/{vid}/passport/rotate", "issue": "Both return 200 for warehouse-only staff (Depends(get_current_user)). Rotate is a mutation invalidating the public passport link. Should be require_permission('customers.view') / ('customers.edit').", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/settings", "issue": "Open to any authenticated user (probably intentional for currency/locale) — confirm no secrets (SMTP creds / API keys) are returned in the payload for staff."},
+      {"endpoint": "GET /api/rdw/lookup, GET /api/kvk/lookup", "issue": "Open to any authenticated user; low risk but consider gating behind customers.edit."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Inventory page as warehouse-only staff", "issue": "Inventory.jsx unconditionally runs useQuery(['sup'] -> GET /suppliers) which returns 403 for staff without suppliers.view — repeated console 403 errors on every inventory load. Gate the query with hasPermission('suppliers.view') (enabled: ...).", "affected_selectors": ["/api/suppliers"]}
+    ],
+    "design_issues": [
+      {"screen": "Sidebar naming", "issues": ["Cash register nav uses data-testid='nav-till' while the rest of the app/spec refers to 'nav-cash-register' — inconsistent testid naming (not a functional bug)."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration16_permissions.py", "/app/test_reports/pytest/iter16_results.xml"],
+  "action_items": [
+    "Gate routes/reminders.py endpoints with require_permission('reminders.view'/'reminders.send') — currently fully open to any staff.",
+    "Gate routes/email_logs.py (list + resend) behind require_owner or an owner-level scope.",
+    "Add super_admin bypass to has_permission() so impersonation / platform admin data access is not 403.",
+    "Gate /api/vehicles/{id}/passport/token (customers.view) and /passport/rotate (customers.edit).",
+    "Disable the /suppliers query on Inventory page when the user lacks suppliers.view to stop 403 console noise."
+  ],
+  "critical_code_review_comments": [
+    "server.py is >4500 lines — permission dependencies were retro-fitted in the main file but sub-routers under /app/backend/routes/ were missed entirely; sweep every router module for Depends(get_current_user) as part of this fix.",
+    "has_permission() and require_owner() disagree on super_admin — centralise role bypass logic in one helper.",
+    "Frontend hasPermission() returns true for super_admin while backend returns false — keep the two models identical."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration16_permissions.py"],
+  "success_rate": {"backend": "89% (35/36 pytest + 4 endpoint groups found leaking via manual sweep)", "frontend": "100% of requested checks passed"},
+  "seed_data_creation": "Created 3 temporary TEST_ staff users (inventory.view+edit, customers.view+edit, repairs.view/create/edit) — deleted in teardown. TEST_ customers/vehicles/repairs/inventory/invoice created and deleted in the regression flow.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@garage.com/admin123, platform@pitstock.app/platform123, warehouse@test.com/warehouse123",
+  "context_for_next_testing_agent": "Run pytest /app/backend/tests/test_iteration16_permissions.py after fixes. Add cases for /api/reminders*, /api/email-logs* and /api/vehicles/{id}/passport/* expecting 403 for warehouse@test.com, and re-check the super_admin impersonation test (TestSuperAdmin::test_super_admin_impersonation_data_access) which currently fails with 403. Frontend warehouse-only matrix (redirects, sidebar, inventory buttons) fully passed and needs no retest unless PermGate/NAV changes.",
+  "rca_of_the_issue": "The require_permission() sweep was applied only inside /app/backend/server.py. Endpoints registered from /app/backend/routes/*.py (reminders, email_logs) and two vehicle-passport endpoints in server.py were left on Depends(get_current_user), so a staff user with only inventory.view can still read/modify reminders and read/resend email logs. Separately, has_permission() bypasses only role=='owner', so super_admin (which require_owner explicitly allows) is now rejected by every scope-guarded endpoint — a regression for tenant impersonation."
+}

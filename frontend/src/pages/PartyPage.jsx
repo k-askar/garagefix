@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus, Trash2, Printer, FileDown, FileText, Eye, Pencil, Search, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useLang } from "@/i18n";
+import { useAuth } from "@/context/AuthContext";
 import { downloadListReportPdf, printListReport, downloadCustomerHistoryPdf, printCustomerHistory } from "@/lib/reports";
 import PlateBadge from "@/components/PlateBadge";
 import AddressFields from "@/components/AddressFields";
@@ -24,7 +25,10 @@ import { QrCode, Gift, Upload } from "lucide-react";
 export default function PartyPage({ kind }) {
   const qc = useQueryClient();
   const { t, meta } = useLang();
+  const { hasPermission } = useAuth();
   const isSup = kind === "suppliers";
+  const canEdit = hasPermission(isSup ? "suppliers.edit" : "customers.edit");
+  const canDelete = hasPermission(isSup ? "suppliers.edit" : "customers.delete");
   const label = isSup ? t("supplier") : t("customer");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState(null);   // when set, the same dialog is used to update
@@ -254,17 +258,19 @@ export default function PartyPage({ kind }) {
           <Button variant="outline" className="rounded-full" onClick={() => exportReport("pdf")} disabled={exporting} data-testid={`${kind}-pdf-button`}>
             <FileDown className="h-4 w-4 mr-2" /> {exporting ? t("loading") : t("pdf")}
           </Button>
-          {!isSup && (
+          {!isSup && canEdit && (
             <Button variant="outline" className="rounded-full" onClick={() => setCsvOpen(true)} data-testid="customers-csv-import">
               <Upload className="h-4 w-4 mr-2" /> Import CSV
             </Button>
           )}
           <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditId(null); setForm({ name: "", email: "", phone: "", address: "", contact: "", vehicle: "", postcode: "", house_number: "", house_number_addition: "", street: "", city: "", address_country: "NL", customer_type: "individual", company_name: "", kvk_number: "", vat_number: "", contact_person: "" }); } }}>
-            <DialogTrigger asChild>
-              <Button className="rounded-full bg-primary hover:bg-primary/90" data-testid={`add-${kind}-button`}>
-                <Plus className="h-4 w-4 mr-2" /> {isSup ? t("newSupplier") : t("newCustomer")}
-              </Button>
-            </DialogTrigger>
+            {canEdit && (
+              <DialogTrigger asChild>
+                <Button className="rounded-full bg-primary hover:bg-primary/90" data-testid={`add-${kind}-button`}>
+                  <Plus className="h-4 w-4 mr-2" /> {isSup ? t("newSupplier") : t("newCustomer")}
+                </Button>
+              </DialogTrigger>
+            )}
           <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
             <DialogHeader><DialogTitle className="font-display">{editId ? (isSup ? t("editSupplier") : t("editCustomer")) : `Add ${label}`}</DialogTitle></DialogHeader>
             <form onSubmit={save} className="space-y-4">
@@ -470,8 +476,8 @@ export default function PartyPage({ kind }) {
                         <Button size="icon" variant="ghost" disabled={downloadingHistoryId === r.id} onClick={() => downloadCustomerPdf(r.id)} data-testid={`pdf-customer-${r.id}`} title={t("customerReport")}><FileText className="h-4 w-4 text-primary" /></Button>
                       </>
                     )}
-                    <Button size="icon" variant="ghost" onClick={() => openEdit(r)} data-testid={`edit-${kind}-${r.id}`} title={isSup ? t("editSupplier") : t("editCustomer")}><Pencil className="h-4 w-4 text-primary" /></Button>
-                    <Button size="icon" variant="ghost" onClick={() => del(r.id)} data-testid={`del-${kind}-${r.id}`}><Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" /></Button>
+                    {canEdit && <Button size="icon" variant="ghost" onClick={() => openEdit(r)} data-testid={`edit-${kind}-${r.id}`} title={isSup ? t("editSupplier") : t("editCustomer")}><Pencil className="h-4 w-4 text-primary" /></Button>}
+                    {canDelete && <Button size="icon" variant="ghost" onClick={() => del(r.id)} data-testid={`del-${kind}-${r.id}`}><Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" /></Button>}
                   </div>
                 </TableCell>
               </TableRow>

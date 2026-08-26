@@ -19,6 +19,7 @@ import { downloadInvoicesZip } from "@/lib/invoice-zip";
 import { renderInvoiceHtml } from "@/lib/invoice-render";
 import { downloadHtmlAsPdf, printHtml, htmlToPdfBlob } from "@/lib/pdf";
 import SearchableSelect from "@/components/SearchableSelect";
+import { useAuth } from "@/context/AuthContext";
 
 // Extract a Dutch-style plate (letters/digits joined by hyphens) from a free-text note
 function extractPlate(note) {
@@ -50,6 +51,12 @@ function blobToBase64(blob) {
 export default function Invoices() {
   const qc = useQueryClient();
   const { t, lang } = useLang();
+  const { hasPermission } = useAuth();
+  const canCreate = hasPermission("invoices.create");
+  const canMarkPaid = hasPermission("invoices.mark_paid");
+  const canDelete = hasPermission("invoices.delete");
+  const canSend = hasPermission("invoices.send");
+  const canRemind = hasPermission("reminders.send");
   const [showCreate, setShowCreate] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [taxRate, setTaxRate] = useState(0);
@@ -196,7 +203,7 @@ export default function Invoices() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {overdue.length > 0 && (
+          {overdue.length > 0 && canRemind && (
             <Button
               variant="outline"
               className="rounded-full border-rose-500/50 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10"
@@ -248,9 +255,11 @@ export default function Invoices() {
           >
             <FileSpreadsheet className="h-4 w-4 mr-2" /> {t("excel")}
           </Button>
-          <Button className="rounded-full bg-primary hover:bg-primary/90" onClick={() => setShowCreate(true)} data-testid="invoice-create-button">
-            <Plus className="h-4 w-4 mr-2" /> {t("newInvoice")}
-          </Button>
+          {canCreate && (
+            <Button className="rounded-full bg-primary hover:bg-primary/90" onClick={() => setShowCreate(true)} data-testid="invoice-create-button">
+              <Plus className="h-4 w-4 mr-2" /> {t("newInvoice")}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -359,13 +368,15 @@ export default function Invoices() {
                         } catch (e) { toast.error(formatApiError(e)); }
                       }}
                     ><FileDown className="h-4 w-4" /></Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      title={t("emailInvoice")}
-                      data-testid={`invoice-email-${inv.invoice_number}`}
-                      onClick={() => openEmail(inv)}
-                    ><Mail className="h-4 w-4" /></Button>
+                    {canSend && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        title={t("emailInvoice")}
+                        data-testid={`invoice-email-${inv.invoice_number}`}
+                        onClick={() => openEmail(inv)}
+                      ><Mail className="h-4 w-4" /></Button>
+                    )}
                     <Button size="icon" variant="ghost" className="text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300" onClick={async () => {
                       const cust = customers.find(c => c.id === inv.customer_id);
                       let pdfUrl = "";
@@ -392,8 +403,8 @@ export default function Invoices() {
                         url: pdfUrl || undefined,
                       });
                     }} data-testid={`invoice-wa-${inv.invoice_number}`}><MessageCircle className="h-4 w-4" /></Button>
-                    {inv.status !== "paid" && <Button size="sm" variant="outline" className="rounded-full" onClick={() => { setPayTarget(inv); setPayMethodId(methods[0]?.id || ""); }} data-testid={`invoice-paid-${inv.invoice_number}`}><CheckCircle2 className="h-3 w-3 mr-1" />{t("markPaid")}</Button>}
-                    <Button size="icon" variant="ghost" onClick={() => del(inv.id)}><Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" /></Button>
+                    {inv.status !== "paid" && canMarkPaid && <Button size="sm" variant="outline" className="rounded-full" onClick={() => { setPayTarget(inv); setPayMethodId(methods[0]?.id || ""); }} data-testid={`invoice-paid-${inv.invoice_number}`}><CheckCircle2 className="h-3 w-3 mr-1" />{t("markPaid")}</Button>}
+                    {canDelete && <Button size="icon" variant="ghost" onClick={() => del(inv.id)}><Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" /></Button>}
                   </div>
                 </TableCell>
               </TableRow>

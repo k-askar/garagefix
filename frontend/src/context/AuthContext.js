@@ -62,8 +62,46 @@ export function AuthProvider({ children }) {
     return (user.permissions || []).includes(perm);
   };
 
+  /**
+   * Map each nav route -> the minimal permission that unlocks it. Kept in sync
+   * with backend PERMISSION_CATALOG and DashboardLayout NAV. Order defines the
+   * fallback landing page when a staff member has NO permission for /dashboard.
+   */
+  const ROUTE_PERM = [
+    ["/dashboard",      "reports.view"],
+    ["/inventory",      "inventory.view"],
+    ["/repairs",        "repairs.view"],
+    ["/invoices",       "invoices.view"],
+    ["/customers",      "customers.view"],
+    ["/suppliers",      "suppliers.view"],
+    ["/calendar",       "calendar.view"],
+    ["/workboard",      "calendar.view"],
+    ["/bay-board",      "calendar.view"],
+    ["/cash-register",  "cash.view"],
+    ["/accounts",       "accounts.view"],
+    ["/reminders",      "reminders.view"],
+    ["/delivery-scan",  "delivery_scan.use"],
+    ["/reports",        "reports.view"],
+  ];
+
+  /** Compute the first allowed path for an arbitrary user (used right after
+   *  login when React state hasn't propagated yet). */
+  const pathForUser = (u) => {
+    if (!u) return "/login";
+    if (u.role === "super_admin") return "/super-admin";
+    if (u.role === "owner") return "/dashboard";
+    const perms = new Set(u.permissions || []);
+    for (const [path, perm] of ROUTE_PERM) {
+      if (perms.has(perm)) return path;
+    }
+    return "/my-profile";
+  };
+
+  /** First route the current user is allowed to see (or /my-profile fallback). */
+  const firstAllowedPath = () => pathForUser(user);
+
   return (
-    <AuthCtx.Provider value={{ user, ready, login, register, logout, hasPermission, setUser: updateUser }}>
+    <AuthCtx.Provider value={{ user, ready, login, register, logout, hasPermission, firstAllowedPath, pathForUser, setUser: updateUser }}>
       {children}
     </AuthCtx.Provider>
   );
