@@ -3281,15 +3281,26 @@ async def list_all_vehicles(q: Optional[str] = None,
             last_repair[vid] = r
 
     rows = []
+    today = datetime.now(timezone.utc).date()
     for v in vehicles:
         owner = customers.get(v.get("customer_id") or "", {})
         last = last_repair.get(v["id"])
+        # Compute days until APK (Dutch MOT) expires so the UI can flag cars
+        # that need booking soon.  None when we have no expiry on file.
+        apk_days = None
+        apk_str = v.get("apk_expiry") or ""
+        if apk_str:
+            try:
+                apk_days = (datetime.strptime(apk_str, "%Y-%m-%d").date() - today).days
+            except (ValueError, TypeError):
+                apk_days = None
         rows.append({
             **v,
             "owner_name":  owner.get("name") or "",
             "owner_email": owner.get("email") or "",
             "owner_phone": owner.get("phone") or "",
             "repair_count": repair_count.get(v["id"], 0),
+            "apk_days":    apk_days,        # negative = expired, 0-30 = due soon
             "last_repair": (
                 {
                     "id": last["id"],

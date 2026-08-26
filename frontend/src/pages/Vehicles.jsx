@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Search, Car, Wrench, Phone, Mail, User, ClipboardList, X, Calendar as CalIcon, FileText } from "lucide-react";
+import { Search, Car, Wrench, Phone, Mail, User, ClipboardList, X, Calendar as CalIcon, FileText, ShieldAlert, ShieldCheck as ShieldOk } from "lucide-react";
 import { useLang } from "@/i18n";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
@@ -23,26 +23,46 @@ export default function Vehicles() {
   const nav = useNavigate();
   const [search, setSearch] = useState("");
   const [detail, setDetail] = useState(null);
+  // "all" | "apk_due" — quick filter to show only vehicles whose APK expires soon.
+  const [apkFilter, setApkFilter] = useState("all");
 
   const { data: vehicles = [], isLoading } = useQuery({
     queryKey: ["vehicles-list"],
     queryFn: () => api.get("/vehicles").then(r => r.data),
   });
 
+  /** Classify APK status. `null` = unknown, `expired` = past due, `soon` = ≤30 days,
+   *  `warn` = ≤90 days, `ok` otherwise.  Used for badge colour + stat card. */
+  const apkStatus = (days) => {
+    if (days === null || days === undefined) return "unknown";
+    if (days < 0) return "expired";
+    if (days <= 30) return "soon";
+    if (days <= 90) return "warn";
+    return "ok";
+  };
+
   const filtered = useMemo(() => {
-    if (!search.trim()) return vehicles;
-    const q = search.trim().toLowerCase();
-    return vehicles.filter(v => [
-      v.plate, v.vin, v.make, v.model,
-      v.owner_name, v.owner_email, v.owner_phone,
-      String(v.year || ""),
-    ].some(s => (s || "").toString().toLowerCase().includes(q)));
-  }, [vehicles, search]);
+    let list = vehicles;
+    if (apkFilter === "apk_due") {
+      // Include both expired + ≤30 days so the operator gets one call-list.
+      list = list.filter(v => v.apk_days !== null && v.apk_days !== undefined && v.apk_days <= 30);
+    }
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(v => [
+        v.plate, v.vin, v.make, v.model,
+        v.owner_name, v.owner_email, v.owner_phone,
+        String(v.year || ""),
+      ].some(s => (s || "").toString().toLowerCase().includes(q)));
+    }
+    return list;
+  }, [vehicles, search, apkFilter]);
 
   const totals = {
     all: vehicles.length,
     withRepairs: vehicles.filter(v => (v.repair_count || 0) > 0).length,
     active: vehicles.filter(v => v.last_repair && v.last_repair.status !== "completed").length,
+    apkDue: vehicles.filter(v => v.apk_days !== null && v.apk_days !== undefined && v.apk_days <= 30).length,
   };
 
   const { data: history, isLoading: loadingHistory } = useQuery({
@@ -82,6 +102,25 @@ export default function Vehicles() {
             <div className="text-[10px] font-mono uppercase tracking-widest text-amber-700 dark:text-amber-400">{t("inWorkshop") || "In workshop"}</div>
             <div className="text-2xl font-bold font-display text-amber-700 dark:text-amber-400">{totals.active}</div>
           </div>
+          <button
+            onClick={() => setApkFilter(apkFilter === "apk_due" ? "all" : "apk_due")}
+            className={`rounded-lg border px-4 py-2 text-center min-w-[110px] transition-colors ${
+              apkFilter === "apk_due"
+                ? "border-rose-500 bg-rose-500/20 ring-2 ring-rose-500/30"
+                : totals.apkDue > 0
+                  ? "border-rose-500/40 bg-rose-500/5 hover:bg-rose-500/10 cursor-pointer"
+                  : "border-border bg-muted/20"
+            }`}
+            data-testid="vehicles-apk-filter"
+            title={t("filterApkDue") || "Toggle APK-due filter"}
+          >
+            <div className={`text-[10px] font-mono uppercase tracking-widest flex items-center justify-center gap-1 ${totals.apkDue > 0 ? "text-rose-700 dark:text-rose-400" : "text-muted-foreground"}`}>
+              <ShieldAlert className="h-3 w-3" /> {t("apkDue") || "APK due"}
+            </div>
+            <div className={`text-2xl font-bold font-display ${totals.apkDue > 0 ? "text-rose-700 dark:text-rose-400" : "text-muted-foreground"}`} data-testid="vehicles-apk-count">
+              {totals.apkDue}
+            </div>
+          </button>
         </div>
       </div>
 
@@ -112,24 +151,29 @@ export default function Vehicles() {
               <TableHead>{t("vehicle") || "Vehicle"}</TableHead>
               <TableHead>{t("owner") || "Owner"}</TableHead>
               <TableHead className="text-center">{t("visits") || "Visits"}</TableHead>
+              <TableHead>{t("apk") || "APK"}</TableHead>
               <TableHead>{t("lastRepair") || "Last repair"}</TableHead>
               <TableHead className="text-right">{t("actionsLabel")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading && (
-              <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground">{t("loading") || "Loading…"}</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">{t("loading") || "Loading…"}</TableCell></TableRow>
             )}
             {!isLoading && filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-16 text-muted-foreground" data-testid="vehicles-empty">
+                <TableCell colSpan={7} className="text-center py-16 text-muted-foreground" data-testid="vehicles-empty">
                   {vehicles.length === 0
                     ? (t("noVehiclesInGarage") || "No vehicles yet — add a customer and their car from the Customers page.")
-                    : (t("noVehiclesMatch") || "No vehicle matches your search.")}
+                    : apkFilter === "apk_due"
+                      ? (t("noVehiclesApkDue") || "No vehicles with APK due soon — everyone's road-legal.")
+                      : (t("noVehiclesMatch") || "No vehicle matches your search.")}
                 </TableCell>
               </TableRow>
             )}
-            {filtered.map(v => (
+            {filtered.map(v => {
+              const status = apkStatus(v.apk_days);
+              return (
               <TableRow key={v.id} className="cursor-pointer" onClick={() => setDetail(v)} data-testid={`vehicle-row-${v.plate || v.id}`}>
                 <TableCell>
                   <div className="font-mono text-sm font-bold text-primary uppercase">{v.plate || "—"}</div>
@@ -155,6 +199,26 @@ export default function Vehicles() {
                   <Badge variant="outline" className="font-mono">
                     <Wrench className="h-3 w-3 mr-1" /> {v.repair_count || 0}
                   </Badge>
+                </TableCell>
+                <TableCell data-testid={`vehicle-apk-${v.plate || v.id}`}>
+                  {status === "unknown" ? (
+                    <span className="text-[11px] text-muted-foreground italic">—</span>
+                  ) : (
+                    <div className="flex flex-col gap-0.5">
+                      <Badge className={
+                        status === "expired" ? "bg-rose-500/20 text-rose-700 dark:text-rose-400 border-rose-500/50 hover:bg-rose-500/20 animate-pulse"
+                        : status === "soon" ? "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/40 hover:bg-rose-500/15"
+                        : status === "warn" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/15"
+                        : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15"
+                      }>
+                        {status === "expired" || status === "soon" ? <ShieldAlert className="h-3 w-3 mr-1" /> : <ShieldOk className="h-3 w-3 mr-1" />}
+                        {status === "expired"
+                          ? `${t("expired") || "Expired"} · ${Math.abs(v.apk_days)}d`
+                          : `${v.apk_days}d`}
+                      </Badge>
+                      <span className="font-mono text-[10px] text-muted-foreground">{v.apk_expiry}</span>
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell>
                   {v.last_repair ? (
@@ -190,7 +254,8 @@ export default function Vehicles() {
                   </Button>
                 </TableCell>
               </TableRow>
-            ))}
+              );
+            })}
           </TableBody>
         </Table>
       </Card>
