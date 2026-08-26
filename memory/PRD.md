@@ -18,6 +18,15 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26p — Staff invite email actually sends + never silent-fails
+- **Bug**: When the owner added a new worker, the invite email never arrived, so the worker could not set a password. Two root causes:
+  1. Frontend `Staff.jsx` marked the password field `required` on create, forcing a value → the "no-password ⇒ email invite" branch on the backend was never reached.
+  2. When `_send_password_setup_email` did fire and Resend rejected the address (e.g. undeliverable), the exception was swallowed with a `logger.warning`, so the owner saw a green "Invited" toast even though no email left the building.
+- **Backend `POST /api/users`**: no longer swallows email errors; response now includes `email_sent`, `email_error`, `setup_link` so the UI can react. Same shape added to `POST /api/users/{id}/send-setup-link`.
+- **Frontend Staff form**: password field is now optional, with helper text "Laat leeg om een e-mail met een link te sturen…". On failure the toast is a warning and the setup link is auto-copied to the clipboard so the owner can hand it over via WhatsApp / QR.
+- **Verified via curl**: `delivered@resend.dev` → `email_sent:true`; existing `password_pending` staff → resend endpoint returns `email_sent:true` + fresh 7-day token.
+
+
 ### Session 2026-02-26o — Hardened role-based permissions (frontend + backend)
 - **Bug**: staff users assigned a limited scope (e.g. only `inventory.view`) still saw every sidebar section and could hit every API endpoint — the `hasPermission()` helper and `require_permission` factory existed but were never actually wired to endpoints or nav items.
 - **Backend**: extended `PERMISSION_CATALOG` with 3 new sections (`accounts`, `reminders`, `delivery_scan`) totalling 5 new scopes.  Retro-fitted `Depends(require_permission("xxx.yyy"))` on ~60 endpoints in `server.py` (customers, suppliers, inventory, invoices, repairs, appointments, ledger, payment methods/entries, bay-board, delivery-scan, reports, catalog-parts).  Wired `require_permission` into `routes/reminders.py` and `require_owner` into `routes/email_logs.py`.  Gated `/vehicles/{id}/passport/{token,rotate}` behind `customers.view/edit`.  Fixed `has_permission()` to bypass BOTH `owner` AND `super_admin` (was owner-only, which regressed super-admin platform access).

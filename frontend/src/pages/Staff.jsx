@@ -186,12 +186,17 @@ function StaffForm({ initial, catalog, onSubmit, onCancel }) {
           <Input
             type="password"
             minLength={6}
-            required={!isEdit}
             value={data.password || ""}
             onChange={(e) => set("password", e.target.value)}
-            placeholder={isEdit ? t("leaveBlankToKeep") : ""}
+            placeholder={isEdit ? t("leaveBlankToKeep") : "Laat leeg → uitnodigingsmail"}
             data-testid="staff-password-input"
           />
+          {!isEdit && (
+            <p className="text-[10px] text-muted-foreground">
+              Laat leeg om een e-mail met een link te sturen waarmee de medewerker
+              zelf een wachtwoord instelt.
+            </p>
+          )}
         </div>
         <div className="space-y-1.5">
           <Label>{t("role")}</Label>
@@ -272,12 +277,29 @@ export default function Staff() {
         await api.put(`/users/${editing.id}`, body);
         toast.success(t("staffUpdated"));
       } else {
-        await api.post("/users", {
+        const res = await api.post("/users", {
           name: form.name, email: form.email, password: form.password,
           role: form.role,
           permissions: form.role === "owner" ? [] : form.permissions,
         });
-        toast.success(t("staffInvited"));
+        const created = res?.data || {};
+        if (created.password_pending) {
+          if (created.email_sent) {
+            toast.success(`${t("staffInvited")} · ${form.email}`);
+          } else {
+            // Email failed — hand the owner the raw link so they can share via
+            // WhatsApp / QR instead of the account being stuck.
+            const link = created.setup_link || "";
+            try { if (link) await navigator.clipboard.writeText(link); } catch { /* ignore */ }
+            toast.warning(
+              `E-mail niet verzonden${created.email_error ? ": " + created.email_error : ""}. ` +
+              `Setup-link gekopieerd naar klembord.`,
+              { duration: 10000 }
+            );
+          }
+        } else {
+          toast.success(t("staffInvited"));
+        }
       }
       setOpen(false); setEditing(null);
       qc.invalidateQueries({ queryKey: ["users"] });

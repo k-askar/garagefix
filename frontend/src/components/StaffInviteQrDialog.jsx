@@ -53,8 +53,19 @@ export default function StaffInviteQrDialog({ open, onOpenChange, staff }) {
     if (!staff?.id) return;
     setEmailing(true);
     try {
-      await api.post(`/users/${staff.id}/send-setup-link`);
-      toast.success(`Email sent to ${data?.email || staff.email}`);
+      const r = await api.post(`/users/${staff.id}/send-setup-link`);
+      const d = r?.data || {};
+      if (d.email_sent) {
+        toast.success(`Email sent to ${d.sent_to || data?.email || staff.email}`);
+      } else {
+        // Fall back: copy link so the owner can still get the invite to the staff.
+        try { if (d.link) await navigator.clipboard.writeText(d.link); } catch { /* ignore */ }
+        toast.warning(
+          `E-mail niet verzonden${d.email_error ? ": " + d.email_error : ""}. ` +
+          `Link gekopieerd — deel via WhatsApp / QR.`,
+          { duration: 10000 }
+        );
+      }
     } catch (err) { toast.error(formatApiError(err)); }
     finally { setEmailing(false); }
   };

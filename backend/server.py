@@ -1264,14 +1264,23 @@ async def create_user(payload: UserRegister, user: dict = Depends(require_owner)
         doc["password_hash"]          = ""  # explicit empty — cannot log in yet
         setup_link = _password_setup_link(token)
     await db.users.insert_one(doc)
+    email_sent = False
+    email_error = None
     if setup_link:
         try:
             await _send_password_setup_email(doc, setup_link)
+            email_sent = True
         except Exception as e:
+            # Surface the failure to the owner instead of swallowing it, so they
+            # can copy the setup link and hand it over via WhatsApp/QR.
+            email_error = str(getattr(e, "detail", None) or e)[:240]
             logger.warning(f"Password-setup email failed for {email}: {e}")
     return {"id": uid, "email": email, "name": payload.name, "role": payload.role,
             "permissions": perms, "created_at": doc["created_at"],
-            "password_pending": bool(setup_link)}
+            "password_pending": bool(setup_link),
+            "email_sent": email_sent,
+            "email_error": email_error,
+            "setup_link": setup_link}
 
 
 # Forward declaration so `_send_password_setup_email` and `_send_overdue_email`
@@ -1369,8 +1378,16 @@ async def resend_password_setup(user_id: str, user: dict = Depends(require_owner
     }})
     link = _password_setup_link(token)
     target["password_setup_token"] = token
-    await _send_password_setup_email(target, link)
-    return {"ok": True, "link": link, "sent_to": target["email"]}
+    email_sent = False
+    email_error = None
+    try:
+        await _send_password_setup_email(target, link)
+        email_sent = True
+    except Exception as e:
+        email_error = str(getattr(e, "detail", None) or e)[:240]
+        logger.warning(f"Resend password-setup email failed for {target.get('email')}: {e}")
+    return {"ok": True, "link": link, "sent_to": target["email"],
+            "email_sent": email_sent, "email_error": email_error}
 
 
 @api_router.get("/auth/password-setup/{token}")
