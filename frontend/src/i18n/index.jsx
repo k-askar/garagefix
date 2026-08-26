@@ -143,7 +143,7 @@ const DICT = {
     // Login
     accessSubtitle: "Access your workshop's live inventory grid.",
     enterWorkshop: "Enter workshop", email: "Email", password: "Password", demo: "DEMO",
-    garageOpsCommand: "Garage Ops Command Deck", loginTagline: "Track every part, every euro, every movement. Purpose-built for busy workshops.",
+    garageOpsCommand: "Garage Fix Workshop OS", loginTagline: "Track every part, every euro, every movement. Purpose-built for busy workshops.",
     operational: "Operational",
     // Dashboard
     workshopDashboard: "Workshop dashboard",
@@ -709,7 +709,7 @@ const DICT = {
     optional: "Optioneel", from: "Van", to: "Tot", yes: "Ja", no: "Nee",
     accessSubtitle: "Toegang tot je live voorraad.",
     enterWorkshop: "Werkplaats openen", email: "E-mail", password: "Wachtwoord", demo: "DEMO",
-    garageOpsCommand: "Garage Ops Command Deck", loginTagline: "Elk onderdeel, elke euro, elke beweging. Voor drukke werkplaatsen.",
+    garageOpsCommand: "Garage Fix Workshop OS", loginTagline: "Elk onderdeel, elke euro, elke beweging. Voor drukke werkplaatsen.",
     operational: "Operationeel",
     workshopDashboard: "Werkplaats dashboard",
     dashboardSubtitle: "Één eerlijk overzicht van elk onderdeel en elke euro.",

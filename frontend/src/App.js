@@ -32,6 +32,7 @@ import SuperAdmin from "@/pages/SuperAdmin";
 import MyProfile from "@/pages/MyProfile";
 import EmailLogs from "@/pages/EmailLogs";
 import PayInvoice from "@/pages/PayInvoice";
+import Landing from "@/pages/Landing";
 import "@/App.css";
 
 function ProtectedShell() {
@@ -43,19 +44,19 @@ function ProtectedShell() {
       </div>
     );
   }
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/" replace />;
   return <DashboardLayout><Outlet /></DashboardLayout>;
 }
 
 function OwnerRoute({ children }) {
   const { user } = useAuth();
-  if (user && user.role !== "owner" && user.role !== "super_admin") return <Navigate to="/" replace />;
+  if (user && user.role !== "owner" && user.role !== "super_admin") return <Navigate to="/dashboard" replace />;
   return children;
 }
 
 function SuperAdminRoute({ children }) {
   const { user } = useAuth();
-  if (user && user.role !== "super_admin") return <Navigate to="/" replace />;
+  if (user && user.role !== "super_admin") return <Navigate to="/dashboard" replace />;
   return children;
 }
 
@@ -66,12 +67,13 @@ function App() {
       <AuthProvider>
         <BrowserRouter>
           <Routes>
+            <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Login />} />
             <Route path="/passport/:token" element={<CarPassport />} />
             <Route path="/setup-password/:token" element={<PasswordSetup />} />
             <Route path="/pay/:token" element={<PayInvoice />} />
             <Route element={<ProtectedShell />}>
-              <Route path="/" element={<Dashboard />} />
+              <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/inventory" element={<Inventory />} />
               <Route path="/movement" element={<StockMovement />} />
               <Route path="/transactions" element={<Transactions />} />
@@ -95,7 +97,7 @@ function App() {
               <Route path="/my-profile" element={<MyProfile />} />
               <Route path="/email-logs" element={<OwnerRoute><EmailLogs /></OwnerRoute>} />
             </Route>
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </BrowserRouter>
         <Toaster position="top-right" richColors />

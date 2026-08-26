@@ -11,7 +11,7 @@ import ImpersonationBanner from "@/components/ImpersonationBanner";
 import { cn } from "@/lib/utils";
 
 const NAV = [
-  { to: "/", key: "dashboard", icon: LayoutDashboard, testId: "nav-dashboard" },
+  { to: "/dashboard", key: "dashboard", icon: LayoutDashboard, testId: "nav-dashboard" },
   { to: "/calendar", key: "calendar", icon: Calendar, testId: "nav-calendar" },
   { to: "/workboard", key: "workboard", icon: LayoutGrid, testId: "nav-workboard" },
   { to: "/bay-board", key: "bayBoard", icon: Monitor, testId: "nav-bayboard" },
@@ -53,8 +53,8 @@ export default function DashboardLayout({ children }) {
             <Wrench className="h-4 w-4 text-primary" />
           </div>
           <div>
-            <div className="font-display font-bold tracking-tight">PitStock</div>
-            <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">Inventory OS</div>
+            <div className="font-display font-bold tracking-tight">GarageFix</div>
+            <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">Workshop OS</div>
           </div>
         </div>
         <nav className="flex-1 p-3 space-y-1">

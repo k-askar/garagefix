@@ -18,6 +18,13 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26i — Public landing page + rebrand to "GarageFix"
+- **`Landing.jsx`** new public page at `/` — dark hero with grid + glow, brand mark ("GarageFix · Workshop OS"), gradient headline, three feature cards ("Live cash register", "Scan any pakbon", "Multi-tenant secure"), footer sign-in link. Login CTA is discreet: a small pill button top-right + a matching link in the footer, so future marketing sections (pricing, screenshots, testimonials) can drop in without redesigning.
+- **Routing**: `/` now serves the public landing; the authenticated Dashboard moved to `/dashboard`. Unknown routes redirect to `/dashboard` (which itself redirects to `/` when not logged in). Sidebar Dashboard link + login redirect + OwnerRoute/SuperAdminRoute fallbacks all updated to `/dashboard`. Guest bounces from a protected route now go to `/` (landing), not the login screen — cleaner first impression.
+- **Rebrand**: replaced "PitStock / Inventory OS" (sidebar + login card) and "Garage Ops Command Deck" (login hero) with "GarageFix / Workshop OS" across DashboardLayout, Login, i18n (EN + NL), and the new Landing page.
+
+
+
 ### Session 2026-02-26h — "Pay now" button in overdue reminders (SEPA/iDEAL QR page)
 - **Invoice model** gains `pay_token` (persistent random URL slug). Lazily minted on the first overdue send so past invoices don't need a migration.
 - **`GET /api/public/pay/{token}`** (no auth) — returns amount, garage bank details (IBAN, BIC, KvK, address, phone), reference (= invoice number), current status (paid/draft) and a ready-to-use EPC SEPA URI (`sepa://?iban=...&amount=...&reference=...`) that every EU banking app understands.

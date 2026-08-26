@@ -25,7 +25,7 @@ export default function Login() {
     try {
       await login(email, password);
       toast.success(t("welcomeBack"));
-      nav("/");
+      nav("/dashboard");
     } catch (err) {
       toast.error(formatApiError(err));
     } finally {
@@ -48,7 +48,7 @@ export default function Login() {
             <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" /> Operational
           </div>
           <h1 className="font-display text-5xl xl:text-6xl font-black leading-[0.95]">
-            Garage Ops <br /><span className="text-primary">Command Deck</span>
+            Garage Fix <br /><span className="text-primary">Workshop OS</span>
           </h1>
           <p className="text-muted-foreground max-w-md">
             Track every part, every euro, every movement. Purpose-built for busy workshops.
@@ -67,8 +67,8 @@ export default function Login() {
               <Wrench className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <div className="font-display text-lg font-bold tracking-tight">PitStock</div>
-              <div className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Inventory OS</div>
+              <div className="font-display text-lg font-bold tracking-tight">GarageFix</div>
+              <div className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Workshop OS</div>
             </div>
           </div>
 
