@@ -3251,6 +3251,66 @@ async def update_repair(rid: str, payload: RepairUpdate, user: dict = Depends(re
     return await db.repairs.find_one({"id": rid}, {"_id": 0})
 
 
+@api_router.get("/vehicles")
+async def list_all_vehicles(q: Optional[str] = None,
+                             user: dict = Depends(require_permission("customers.view"))):
+    """Every vehicle in this tenant + owner snapshot + last-service badge.
+    Used by the /vehicles page (a car-centric mirror of /customers).  When
+    `q` is provided it filters on plate/vin/make/model + owner name/email."""
+    vehicles = await db.vehicles.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    if not vehicles:
+        return []
+    # Bulk-lookup owners + last repair per vehicle to avoid N+1 round-trips.
+    cust_ids = list({v.get("customer_id") for v in vehicles if v.get("customer_id")})
+    customers = {c["id"]: c for c in await db.customers.find(
+        {"id": {"$in": cust_ids}}, {"_id": 0, "id": 1, "name": 1, "email": 1, "phone": 1}
+    ).to_list(len(cust_ids) or 1)}
+
+    vids = [v["id"] for v in vehicles]
+    repairs = await db.repairs.find(
+        {"vehicle_id": {"$in": vids}}, {"_id": 0},
+    ).sort("created_at", -1).to_list(5000)
+    last_repair = {}
+    repair_count = {}
+    for r in repairs:
+        vid = r.get("vehicle_id")
+        if not vid:
+            continue
+        repair_count[vid] = repair_count.get(vid, 0) + 1
+        if vid not in last_repair:
+            last_repair[vid] = r
+
+    rows = []
+    for v in vehicles:
+        owner = customers.get(v.get("customer_id") or "", {})
+        last = last_repair.get(v["id"])
+        rows.append({
+            **v,
+            "owner_name":  owner.get("name") or "",
+            "owner_email": owner.get("email") or "",
+            "owner_phone": owner.get("phone") or "",
+            "repair_count": repair_count.get(v["id"], 0),
+            "last_repair": (
+                {
+                    "id": last["id"],
+                    "card_number": last.get("card_number"),
+                    "status": last.get("status"),
+                    "complaint": last.get("complaint") or "",
+                    "created_at": last.get("created_at"),
+                    "grand_total": last.get("grand_total") or last.get("total") or 0,
+                } if last else None
+            ),
+        })
+
+    if q:
+        needle = q.strip().lower()
+        rows = [r for r in rows if any(
+            needle in str(r.get(k) or "").lower()
+            for k in ("plate", "vin", "make", "model", "owner_name", "owner_email", "owner_phone")
+        )]
+    return rows
+
+
 @api_router.get("/vehicles/{vid}/history")
 async def vehicle_service_history(vid: str, user: dict = Depends(require_permission("customers.view"))):
     """Timeline of every APK renewal + oil change ever logged for a vehicle."""

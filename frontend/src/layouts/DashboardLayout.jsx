@@ -5,7 +5,7 @@ import { useLang } from "@/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import ThemeToggle from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Package, ArrowLeftRight, ScrollText, Truck, Users, BarChart3, LogOut, Wrench, Menu, X, UserCog, Settings as SettingsIcon, ClipboardList, Receipt, ShoppingCart, Bell, Wallet, ScanLine, Banknote, Calendar, LayoutGrid, Monitor, PackageOpen, Building2, Mail } from "lucide-react";
+import { LayoutDashboard, Package, ArrowLeftRight, ScrollText, Truck, Users, BarChart3, LogOut, Wrench, Menu, X, UserCog, Settings as SettingsIcon, ClipboardList, Receipt, ShoppingCart, Bell, Wallet, ScanLine, Banknote, Calendar, LayoutGrid, Monitor, PackageOpen, Building2, Mail, Car } from "lucide-react";
 import ChangePasswordDialog from "@/components/ChangePasswordDialog";
 import ImpersonationBanner from "@/components/ImpersonationBanner";
 import { cn } from "@/lib/utils";
@@ -24,6 +24,7 @@ const NAV = [
   { to: "/reminders", key: "reminders", icon: Bell, testId: "nav-reminders", perm: "reminders.view" },
   { to: "/suppliers", key: "suppliers", icon: Truck, testId: "nav-suppliers", perm: "suppliers.view" },
   { to: "/customers", key: "customers", icon: Users, testId: "nav-customers", perm: "customers.view" },
+  { to: "/vehicles", key: "vehicles", icon: Car, testId: "nav-vehicles", perm: "customers.view" },
   { to: "/reports", key: "reports", icon: BarChart3, testId: "nav-reports", perm: "reports.view" },
 ];
 

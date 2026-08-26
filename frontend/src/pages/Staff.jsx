@@ -387,6 +387,19 @@ export default function Staff() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
+                      {u.role !== "owner" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="rounded-full text-primary border-primary/40 hover:bg-primary/10"
+                          onClick={() => openEdit(u)}
+                          data-testid={`perms-user-${u.id}`}
+                          title={t("managePermissions") || "Manage permissions"}
+                        >
+                          <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                          {t("permissions") || "Permissions"}
+                        </Button>
+                      )}
                       {u.password_pending && u.id !== me?.id && (
                         <Button
                           size="icon"

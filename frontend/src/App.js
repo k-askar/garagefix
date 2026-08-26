@@ -11,6 +11,7 @@ import Inventory from "@/pages/Inventory";
 import StockMovement from "@/pages/StockMovement";
 import Suppliers from "@/pages/Suppliers";
 import Customers from "@/pages/Customers";
+import Vehicles from "@/pages/Vehicles";
 import Transactions from "@/pages/Transactions";
 import Reports from "@/pages/Reports";
 import Staff from "@/pages/Staff";
@@ -103,6 +104,7 @@ function App() {
               <Route path="/transactions" element={<PermGate perm="inventory.view"><Transactions /></PermGate>} />
               <Route path="/suppliers" element={<PermGate perm="suppliers.view"><Suppliers /></PermGate>} />
               <Route path="/customers" element={<PermGate perm="customers.view"><Customers /></PermGate>} />
+              <Route path="/vehicles" element={<PermGate perm="customers.view"><Vehicles /></PermGate>} />
               <Route path="/reports" element={<PermGate perm="reports.view"><Reports /></PermGate>} />
               <Route path="/repairs" element={<PermGate perm="repairs.view"><Repairs /></PermGate>} />
               <Route path="/scan" element={<PermGate perm="delivery_scan.use"><ScanPickup /></PermGate>} />

@@ -73,6 +73,7 @@ export function AuthProvider({ children }) {
     ["/repairs",        "repairs.view"],
     ["/invoices",       "invoices.view"],
     ["/customers",      "customers.view"],
+    ["/vehicles",       "customers.view"],
     ["/suppliers",      "suppliers.view"],
     ["/calendar",       "calendar.view"],
     ["/workboard",      "calendar.view"],
