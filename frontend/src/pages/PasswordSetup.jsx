@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Lock, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Loader2, Lock, CheckCircle2, AlertTriangle, Eye, EyeOff } from "lucide-react";
 
 /* Public page — no auth required.
    Staff click the link in the "welcome" email and land here. */
@@ -17,6 +17,7 @@ export default function PasswordSetup() {
   const [state, setState] = useState({ loading: true, error: "", email: "", name: "" });
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
 
@@ -77,12 +78,19 @@ export default function PasswordSetup() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="pw">Nieuw wachtwoord</Label>
-              <Input id="pw" type="password" value={pw} onChange={(e) => setPw(e.target.value)} minLength={6} required data-testid="setup-pw-input" />
+              <div className="relative">
+                <Input id="pw" type={showPw ? "text" : "password"} value={pw} onChange={(e) => setPw(e.target.value)} minLength={6} required data-testid="setup-pw-input" className="pe-10" />
+                <button type="button" onClick={() => setShowPw(v => !v)} aria-label={showPw ? "Verberg" : "Toon"}
+                  className="absolute inset-y-0 end-0 px-3 flex items-center text-muted-foreground hover:text-foreground"
+                  data-testid="setup-pw-toggle">
+                  {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
               <p className="text-[11px] text-muted-foreground">Min. 6 tekens.</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="pw2">Bevestig wachtwoord</Label>
-              <Input id="pw2" type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} minLength={6} required data-testid="setup-pw-confirm" />
+              <Input id="pw2" type={showPw ? "text" : "password"} value={pw2} onChange={(e) => setPw2(e.target.value)} minLength={6} required data-testid="setup-pw-confirm" />
             </div>
             <Button type="submit" disabled={busy} className="w-full rounded-full bg-primary hover:bg-primary/90 h-11" data-testid="setup-pw-submit">
               {busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Lock className="h-4 w-4 mr-2" />}

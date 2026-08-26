@@ -18,6 +18,15 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26m — Show-password toggle + Forgot-password flow
+- **Backend `POST /api/auth/forgot-password`** — public endpoint. Accepts `{email}`, mints a fresh `password_setup_token` (24h TTL) on the matching user, sends the existing Dutch "Stel je wachtwoord in" email via `_send_password_setup_email`. Always returns `{ok:true, sent:true}` whether the address exists or not to prevent account enumeration.
+- **`Login.jsx`** — eye-icon toggle on the password field (`<Eye>/<EyeOff>`), "Forgot?" link next to the label that opens a dialog with an email input + "Send reset link" button, non-blocking toast confirms the request regardless of email validity.
+- **`PasswordSetup.jsx`** — same eye toggle on both "Nieuw wachtwoord" and "Bevestig wachtwoord" so staff can double-check what they typed before submitting.
+- **i18n** — 10 new keys (showPassword, hidePassword, forgotPassword, forgotDialogTitle, forgotDialogDesc, forgotSent, sendResetLink, cancel, secureNote, backToHome) in EN + NL + AR.
+- **Verified via curl**: existing email → 200 + `email_logs` row `accepted` + user's `password_setup_token` populated with 24h expiry. Unknown email → same 200 response (anti-enumeration confirmed).
+
+
+
 ### Session 2026-02-26l — CRITICAL bugfix: purge wiped out super_admin (platform lockout)
 - **Root cause**: super_admin `platform@pitstock.app` had `tenant_id` stamped on it (contamination from a past impersonation / profile-update path).  `delete_tenant(purge=true)` runs `users.delete_many({tenant_id: X})` and swept the super_admin away — next login returned "Invalid credentials" and the platform was locked out with no way to manage garages.
 - **Fix (2 layers)**:

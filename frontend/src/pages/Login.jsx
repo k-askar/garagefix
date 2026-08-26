@@ -6,9 +6,10 @@ import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Wrench, ArrowRight, ShieldCheck } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Wrench, ArrowRight, ShieldCheck, Eye, EyeOff, Mail } from "lucide-react";
 import { toast } from "sonner";
-import { formatApiError } from "@/lib/api";
+import { api, formatApiError } from "@/lib/api";
 
 export default function Login() {
   const { login } = useAuth();
@@ -16,7 +17,13 @@ export default function Login() {
   const nav = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);   // toggle password visibility
   const [loading, setLoading] = useState(false);
+
+  // "Forgot password" dialog — sends a reset link to the registered email.
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotBusy, setForgotBusy] = useState(false);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -32,9 +39,25 @@ export default function Login() {
     }
   };
 
+  const submitForgot = async (e) => {
+    e.preventDefault();
+    setForgotBusy(true);
+    try {
+      await api.post("/auth/forgot-password", { email: forgotEmail.trim().toLowerCase() });
+      // Always show the same friendly message regardless of whether the
+      // address exists — matches the backend's non-enumerating response.
+      toast.success(t("forgotSent"));
+      setForgotOpen(false);
+      setForgotEmail("");
+    } catch (err) {
+      toast.error(formatApiError(err));
+    } finally {
+      setForgotBusy(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 relative overflow-hidden flex items-center justify-center px-4">
-      {/* Ambient decoration — subtle glows + grid, matches the landing page */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -top-40 -right-40 h-[500px] w-[500px] rounded-full bg-primary/20 blur-3xl" />
         <div className="absolute -bottom-40 -left-40 h-[500px] w-[500px] rounded-full bg-emerald-500/10 blur-3xl" />
@@ -50,7 +73,6 @@ export default function Login() {
       </div>
 
       <div className="relative z-10 w-full max-w-md">
-        {/* Brand */}
         <div className="flex items-center justify-center gap-3 mb-10">
           <div className="h-12 w-12 rounded-xl bg-primary/15 border border-primary/40 flex items-center justify-center backdrop-blur">
             <Wrench className="h-6 w-6 text-primary" />
@@ -61,7 +83,6 @@ export default function Login() {
           </div>
         </div>
 
-        {/* Card */}
         <div className="rounded-2xl border border-slate-800/70 bg-slate-900/60 backdrop-blur-xl p-8 md:p-10 shadow-2xl">
           <div className="mb-8">
             <h2 className="font-display text-3xl font-bold tracking-tight">{t("signIn")}</h2>
@@ -83,17 +104,38 @@ export default function Login() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-[10px] uppercase tracking-widest font-mono text-slate-500">{t("password")}</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                placeholder="••••••••"
-                data-testid="login-password-input"
-                className="h-11 bg-slate-950/40 border-slate-800 text-slate-100 placeholder:text-slate-600 focus-visible:ring-primary/40"
-              />
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password" className="text-[10px] uppercase tracking-widest font-mono text-slate-500">{t("password")}</Label>
+                <button
+                  type="button"
+                  onClick={() => setForgotOpen(true)}
+                  className="text-[11px] text-primary hover:text-primary/80 transition-colors"
+                  data-testid="login-forgot-link"
+                >
+                  {t("forgotPassword")}
+                </button>
+              </div>
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPw ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  placeholder="••••••••"
+                  data-testid="login-password-input"
+                  className="h-11 bg-slate-950/40 border-slate-800 text-slate-100 placeholder:text-slate-600 focus-visible:ring-primary/40 pe-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw((v) => !v)}
+                  aria-label={showPw ? t("hidePassword") : t("showPassword")}
+                  className="absolute inset-y-0 end-0 rtl:end-auto rtl:start-0 px-3 flex items-center text-slate-400 hover:text-slate-100 transition-colors"
+                  data-testid="login-password-toggle"
+                >
+                  {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
 
             <Button
@@ -113,17 +155,51 @@ export default function Login() {
 
           <div className="mt-8 pt-6 border-t border-slate-800/60 flex items-center justify-center gap-2 text-[11px] text-slate-500">
             <ShieldCheck className="h-3.5 w-3.5 text-emerald-400/70" />
-            <span>Beveiligd met JWT · Multi-tenant isolatie</span>
+            <span>{t("secureNote")}</span>
           </div>
         </div>
 
-        {/* Footer link back to landing */}
         <div className="mt-6 text-center">
           <a href="/" className="text-xs text-slate-500 hover:text-slate-300 transition-colors" data-testid="login-back-link">
-            ← Terug naar startpagina
+            ← {t("backToHome")}
           </a>
         </div>
       </div>
+
+      {/* Forgot-password dialog */}
+      <Dialog open={forgotOpen} onOpenChange={setForgotOpen}>
+        <DialogContent className="max-w-md" data-testid="forgot-dialog">
+          <DialogHeader>
+            <DialogTitle className="font-display flex items-center gap-2">
+              <Mail className="h-5 w-5 text-primary" /> {t("forgotDialogTitle")}
+            </DialogTitle>
+            <DialogDescription>{t("forgotDialogDesc")}</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={submitForgot} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="forgot-email">{t("email")}</Label>
+              <Input
+                id="forgot-email"
+                type="email"
+                required
+                autoFocus
+                value={forgotEmail}
+                onChange={(e) => setForgotEmail(e.target.value)}
+                placeholder="you@garage.nl"
+                data-testid="forgot-email-input"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setForgotOpen(false)} disabled={forgotBusy}>
+                {t("cancel")}
+              </Button>
+              <Button type="submit" className="rounded-full bg-primary" disabled={forgotBusy} data-testid="forgot-submit">
+                {forgotBusy ? "..." : t("sendResetLink")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

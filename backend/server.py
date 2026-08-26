@@ -1375,6 +1375,38 @@ async def submit_password_setup(token: str, payload: PasswordSetupSubmit):
     return {"ok": True, "email": doc["email"]}
 
 
+class ForgotPasswordBody(BaseModel):
+    email: EmailStr
+
+
+@api_router.post("/auth/forgot-password")
+async def forgot_password(payload: ForgotPasswordBody):
+    """Public endpoint — issues a fresh password-reset link to the registered
+    email address if a matching user exists.  Response is INTENTIONALLY the
+    same shape whether or not the email is found, to prevent account
+    enumeration."""
+    email = payload.email.lower().strip()
+    generic_ok = {"ok": True, "sent": True}
+    doc = await _raw_db.users.find_one({"email": email})
+    if not doc:
+        # Look but don't leak — return generic success.
+        logger.info(f"forgot-password requested for unknown email {email}")
+        return generic_ok
+    token = secrets.token_urlsafe(32)
+    expires = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()   # 24h window
+    await _raw_db.users.update_one(
+        {"id": doc["id"]},
+        {"$set": {"password_setup_token": token, "password_setup_expires": expires}},
+    )
+    doc["password_setup_token"] = token
+    try:
+        await _send_password_setup_email(doc, _password_setup_link(token))
+    except Exception as e:
+        logger.error(f"forgot-password email failed for {email}: {e}")
+        # Still return 200 so the UI shows the same message either way.
+    return generic_ok
+
+
 @api_router.put("/users/{user_id}")
 async def update_user(user_id: str, payload: UserUpdate, user: dict = Depends(require_owner)):
     target = await db.users.find_one({"id": user_id}, {"_id": 0})
