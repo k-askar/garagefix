@@ -31,7 +31,8 @@ function extractPlate(note) {
 }
 
 async function printInvoice(inv, settings, lang) {
-  const html = await renderInvoiceHtml(inv, settings, { lang });
+  // We ignore the caller's `lang` — invoice PDFs must always be in Dutch.
+  const html = await renderInvoiceHtml(inv, settings);
   printHtml(html, { title: inv.invoice_number });
 }
 
@@ -167,7 +168,7 @@ export default function Invoices() {
       // attachment they can save/print — same look as the "Download PDF" button.
       let attachment_base64, attachment_filename;
       try {
-        const html = await renderInvoiceHtml(emailTarget, settings, { lang });
+        const html = await renderInvoiceHtml(emailTarget, settings);
         const blob = await htmlToPdfBlob(html);
         attachment_base64 = await blobToBase64(blob);
         attachment_filename = `${emailTarget.invoice_number}.pdf`;
@@ -516,7 +517,7 @@ export default function Invoices() {
                       data-testid={`invoice-pdf-${inv.invoice_number}`}
                       onClick={async () => {
                         try {
-                          const html = await renderInvoiceHtml(inv, settings, { lang });
+                          const html = await renderInvoiceHtml(inv, settings);
                           await downloadHtmlAsPdf(html, `${inv.invoice_number}.pdf`);
                         } catch (e) { toast.error(formatApiError(e)); }
                       }}
@@ -537,7 +538,7 @@ export default function Invoices() {
                       // message so the customer can open the invoice with one tap.
                       const tid = toast.loading(t("preparingPdf"));
                       try {
-                        const html = await renderInvoiceHtml(inv, settings, { lang });
+                        const html = await renderInvoiceHtml(inv, settings);
                         const blob = await htmlToPdfBlob(html);
                         const b64 = await blobToBase64(blob);
                         const { data } = await api.post(`/invoices/${inv.id}/public-pdf`, {

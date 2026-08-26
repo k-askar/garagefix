@@ -255,7 +255,11 @@ const I18N = {
  *   or feed into html2canvas.
  */
 export async function renderInvoiceHtml(inv, settings, opts = {}) {
-  const lang = (opts.lang || settings?.language || "nl").toLowerCase();
+  // Invoice PDFs are ALWAYS rendered in Dutch — the garage is NL-based, its
+  // customers expect a Dutch factuur regardless of what UI language the
+  // operator is using at the moment.  Set `opts.lang` explicitly to override
+  // (e.g. from a future per-customer language preference).
+  const lang = (opts.lang || settings?.invoice_pdf_lang || "nl").toLowerCase();
   const L = I18N[lang] || I18N.nl;
   const s = settings || {};
   const accent = s.invoice_accent_color || "#0EA5E9";
@@ -298,7 +302,7 @@ export async function renderInvoiceHtml(inv, settings, opts = {}) {
       <table style="width:100%;border-collapse:collapse;background:#fff">
         <tr>
           <td style="width:150px;padding:16px;text-align:center;vertical-align:middle">
-            <img src="${qrData}" alt="SEPA payment QR" style="width:130px;height:130px;display:block;border:1px solid #eee;padding:4px;background:#fff"/>
+            <img src="${qrData}" alt="${esc(L.payWithIdeal)}" style="width:130px;height:130px;display:block;border:1px solid #eee;padding:4px;background:#fff"/>
             <div style="font-size:8px;color:#888;letter-spacing:.14em;margin-top:4px;text-transform:uppercase">${esc(L.scanWithApp)}</div>
           </td>
           <td style="padding:16px 16px 16px 4px;font-size:12px;color:#222;line-height:1.7;vertical-align:middle">

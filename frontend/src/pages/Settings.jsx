@@ -51,7 +51,7 @@ function SepaQrPreview({ iban, bic, name, amount = 121, reference = "INV-DEMO" }
 
 const DEFAULT_FORM = {
   name: "", address: "", phone: "", email: "", tax_id: "",
-  footer_note: "Thank you for choosing us!",
+  footer_note: "Bedankt voor uw vertrouwen!",
   logo_url: "/logo-shawish.png",
   labor_rate: 45, default_tax_rate: 21,
   invoice_accent_color: "#0EA5E9", invoice_prefix: "INV",
@@ -148,7 +148,7 @@ function InvoicePreview({ form }) {
 
       {/* Bill to */}
       <div className={`${template === "classic" ? "rounded p-2 -mx-2" : ""}`} style={template === "classic" ? { background: `${accent}15`, borderLeft: `3px solid ${accent}` } : {}}>
-        <div className="text-[10px] uppercase tracking-widest text-gray-500">Bill to</div>
+        <div className="text-[10px] uppercase tracking-widest text-gray-500">Aan</div>
         <div className="font-semibold">Ahmed Al-Farsi</div>
       </div>
 
@@ -156,33 +156,33 @@ function InvoicePreview({ form }) {
       <table className="w-full mt-3 border-collapse text-[12px]">
         <thead>
           <tr style={template === "bold" ? { background: "#000", color: "#fff" } : { background: "#f5f5f5" }}>
-            <th className="text-left p-2 border-b">Item</th>
-            <th className="text-right p-2 border-b">Qty</th>
-            <th className="text-right p-2 border-b">Price</th>
-            <th className="text-right p-2 border-b">Total</th>
+            <th className="text-left p-2 border-b">Artikel</th>
+            <th className="text-right p-2 border-b">Aantal</th>
+            <th className="text-right p-2 border-b">Prijs</th>
+            <th className="text-right p-2 border-b">Totaal</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td className="p-2 border-b">Brake pads front set</td><td className="text-right p-2 border-b">1</td><td className="text-right p-2 border-b font-mono">{fmt(45)}</td><td className="text-right p-2 border-b font-mono">{fmt(45)}</td></tr>
-          <tr><td className="p-2 border-b">Labor</td><td className="text-right p-2 border-b">1</td><td className="text-right p-2 border-b font-mono">{fmt(55)}</td><td className="text-right p-2 border-b font-mono">{fmt(55)}</td></tr>
+          <tr><td className="p-2 border-b">Remblokken voor set</td><td className="text-right p-2 border-b">1</td><td className="text-right p-2 border-b font-mono">{fmt(45)}</td><td className="text-right p-2 border-b font-mono">{fmt(45)}</td></tr>
+          <tr><td className="p-2 border-b">Arbeid</td><td className="text-right p-2 border-b">1</td><td className="text-right p-2 border-b font-mono">{fmt(55)}</td><td className="text-right p-2 border-b font-mono">{fmt(55)}</td></tr>
         </tbody>
       </table>
 
       {/* Totals */}
       <div className="text-right mt-3 text-[12px] space-y-0.5">
-        <div className="text-gray-500 font-mono">Subtotal: {fmt(subtotal)}</div>
+        <div className="text-gray-500 font-mono">Subtotaal: {fmt(subtotal)}</div>
         <div className="text-gray-500 font-mono">BTW ({taxRate}%): {fmt(tax)}</div>
         <div className="font-mono pt-1 mt-1 border-t" style={template === "bold"
           ? { fontSize: 16, fontWeight: 900, color: "#000", borderColor: "#000" }
           : { fontSize: 15, fontWeight: 800, color: accent, borderColor: "#ddd" }}>
-          Total: {fmt(total)}
+          Totaal: {fmt(total)}
         </div>
       </div>
 
       {/* Plate badge — matches the job card / PlateBadge component */}
       {form.show_plate_badge && (
         <div className="mt-4 text-[11px] text-gray-600 flex items-center gap-2 flex-wrap">
-          <span>Repair JOB-260821-DEMO ·</span>
+          <span>Reparatie JOB-260821-DEMO ·</span>
           <span
             className="inline-block relative align-middle"
             style={{
@@ -520,7 +520,7 @@ export default function Settings() {
               </div>
               <div className="space-y-1.5">
                 <Label>Receipt footer</Label>
-                <Input value={form.footer_note} onChange={(e) => set("footer_note", e.target.value)} placeholder="Thank you for choosing us!" data-testid="settings-footer" />
+                <Input value={form.footer_note} onChange={(e) => set("footer_note", e.target.value)} placeholder="Bedankt voor uw vertrouwen!" data-testid="settings-footer" />
               </div>
             </div>
           </Card>

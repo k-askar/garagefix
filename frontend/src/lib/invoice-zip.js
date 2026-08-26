@@ -21,7 +21,7 @@ export async function downloadInvoicesZip(invoices, settings, filename = "invoic
   for (let i = 0; i < total; i++) {
     const inv = invoices[i];
     try {
-      const html = await renderInvoiceHtml(inv, settings, { lang });
+      const html = await renderInvoiceHtml(inv, settings);
       const blob = await htmlToPdfBlob(html);
       const safe = inv.invoice_number.replace(/[^A-Za-z0-9._-]/g, "_");
       folder.file(`${safe}.pdf`, blob);

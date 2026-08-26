@@ -1468,7 +1468,7 @@ class GarageSettings(BaseModel):
     phone: str = ""
     email: str = ""
     tax_id: str = ""
-    footer_note: str = "Thank you for choosing us!"
+    footer_note: str = "Bedankt voor uw vertrouwen!"
     logo_url: str = "/logo-shawish.png"
     labor_rate: float = 45.0  # € per hour used to auto-fill labor charge from time logs
     default_tax_rate: float = 21.0  # BTW / VAT %  (NL standard 21, reduced 9)
