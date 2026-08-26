@@ -18,6 +18,13 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26g — Bugfix: RDW model dropped from job-card form
+- **Root cause**: `VehicleMakeModelYear.jsx` had auto-flip-to-manual for Make but NOT for Model. RDW returns detailed model strings like `"Civic 4Dr Hybrid"` while the catalog only lists `"Civic"`, so `SearchableSelect` silently rendered "Pick a model…" and dropped the value.
+- **Fix**: mirrored the Make behaviour — once the models query resolves, if `v.model` isn't in the fetched list, flip `manualModel=true` so a plain `<Input>` shows the actual RDW string. Zero data loss regardless of how detailed the RDW handelsbenaming is.
+- Verified diagnostics: `/api/rdw/lookup?plate=29-JDH-1` returns `model='Civic 4Dr Hybrid'`, catalog only has `Civic` → old UI showed blank, new UI shows full RDW string.
+
+
+
 ### Session 2026-02-26f — Auto-suspend on subscription expiry + 7/3/1-day payment reminders
 - **`routes/subscription_cron.py`** new module with `POST /api/cron/subscription-sweep` (Bearer-auth via `WEBHOOK_CRON_SECRET`). Handler acks immediately and defers the sweep to a background task.
 - **Sweep logic**: iterates every tenant with `subscription_expires_at` set. Computes days remaining and:

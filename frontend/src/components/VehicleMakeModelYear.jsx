@@ -40,6 +40,20 @@ export default function VehicleMakeModelYear({ value, onChange, testIdPrefix = "
     if (!found && !manualMake) setManualMake(true);
   }, [makes, v.make, manualMake]);
 
+  // Same for MODEL: RDW may return a model that our catalog doesn't have
+  // (or has a different case), so the SearchableSelect would render as an
+  // empty "Pick a model…" hiding the value.  Auto-flip to a plain Input so
+  // the user actually SEES the "Civic" / "Fabia" / … that RDW returned.
+  useEffect(() => {
+    if (manualModel) return;
+    if (!v.model || !v.make) return;
+    // Wait until models finish loading before deciding — otherwise we'd flip
+    // to manual on every mount even for a match.
+    if (!modelsResp) return;
+    const found = models.some(m => m.name.toLowerCase() === v.model.toLowerCase());
+    if (!found) setManualModel(true);
+  }, [modelsResp, models, v.model, v.make, manualModel]);
+
   const years = useMemo(() => {
     const currentYear = new Date().getFullYear();
     // Look one year ahead for pre-orders (e.g. 2026 registration in late 2025).
