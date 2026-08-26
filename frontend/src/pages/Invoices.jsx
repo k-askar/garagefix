@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatEUR, formatApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
@@ -11,15 +11,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { CheckCircle2, Printer, Trash2, Plus, MessageCircle, Archive, FileSpreadsheet, FileDown, Bell, AlertTriangle, Mail } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { CheckCircle2, Printer, Trash2, MessageCircle, Archive, FileSpreadsheet, FileDown, Bell, AlertTriangle, Mail, ClipboardList, ArrowRight, Wrench, Loader2, Car, User } from "lucide-react";
 import { toast } from "sonner";
 import { whatsappShare } from "@/lib/whatsapp";
 import { useLang } from "@/i18n";
 import { downloadInvoicesZip } from "@/lib/invoice-zip";
 import { renderInvoiceHtml } from "@/lib/invoice-render";
 import { downloadHtmlAsPdf, printHtml, htmlToPdfBlob } from "@/lib/pdf";
-import SearchableSelect from "@/components/SearchableSelect";
 import { useAuth } from "@/context/AuthContext";
+import { useNavigate } from "react-router-dom";
 
 // Extract a Dutch-style plate (letters/digits joined by hyphens) from a free-text note
 function extractPlate(note) {
@@ -50,6 +51,7 @@ function blobToBase64(blob) {
 
 export default function Invoices() {
   const qc = useQueryClient();
+  const nav = useNavigate();
   const { t, lang } = useLang();
   const { hasPermission } = useAuth();
   const canCreate = hasPermission("invoices.create");
@@ -57,11 +59,6 @@ export default function Invoices() {
   const canDelete = hasPermission("invoices.delete");
   const canSend = hasPermission("invoices.send");
   const canRemind = hasPermission("reminders.send");
-  const [showCreate, setShowCreate] = useState(false);
-  const [customerId, setCustomerId] = useState("");
-  const [taxRate, setTaxRate] = useState(0);
-  const [note, setNote] = useState("");
-  const [selectedTxns, setSelectedTxns] = useState([]);
   const [payTarget, setPayTarget] = useState(null);
   const [payMethodId, setPayMethodId] = useState("");
   const [selectedInvoices, setSelectedInvoices] = useState([]);
@@ -71,6 +68,11 @@ export default function Invoices() {
   const [emailTarget, setEmailTarget] = useState(null);
   const [emailForm, setEmailForm] = useState({ to: "", subject: "", message: "" });
   const [sendingEmail, setSendingEmail] = useState(false);
+  // Which repair card is currently being turned into an invoice (button spinner).
+  const [invoicingId, setInvoicingId] = useState(null);
+  // Confirm dialog for a repair that ISN'T marked completed yet.
+  const [confirmRepair, setConfirmRepair] = useState(null);
+  const [cardsFilter, setCardsFilter] = useState("ready");   // ready | in_progress | open
 
   const { data: overdue = [] } = useQuery({
     queryKey: ["overdue-invoices"],
@@ -94,30 +96,46 @@ export default function Invoices() {
 
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => api.get("/invoices").then(r => r.data) });
   const { data: customers = [] } = useQuery({ queryKey: ["cus"], queryFn: () => api.get("/customers").then(r => r.data) });
-  const { data: txns = [] } = useQuery({ queryKey: ["txns"], queryFn: () => api.get("/transactions?limit=500").then(r => r.data) });
+  // Every repair card in the tenant.  We split them into "ready" (completed &
+  // not invoiced), "in progress" and "open" so the operator always creates an
+  // invoice by picking a work card — never by bundling raw stock transactions.
+  const { data: repairs = [] } = useQuery({ queryKey: ["repairs"], queryFn: () => api.get("/repairs").then(r => r.data) });
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: () => api.get("/settings").then(r => r.data) });
   const { data: pmSummary } = useQuery({ queryKey: ["pay-summary"], queryFn: () => api.get("/payments/summary").then(r => r.data) });
   const methods = (pmSummary?.methods || []).filter(m => m.active);
 
-  const eligible = txns.filter(t => t.type === "OUT" && !t.invoice_id && (!customerId || t.customer_id === customerId));
+  // Split repair cards into buckets for the "Ready to invoice" section.
+  // - ready: completed AND not invoiced (green big CTA)
+  // - in_progress: still on the bench (yellow, warn before invoicing)
+  // - open: not started yet (grey, warn before invoicing)
+  const cardBuckets = useMemo(() => {
+    const ready = [], inProgress = [], open = [];
+    for (const c of repairs) {
+      if (c.invoice_id) continue;                       // already invoiced
+      if (c.status === "completed") ready.push(c);
+      else if (c.status === "in_progress") inProgress.push(c);
+      else open.push(c);
+    }
+    // Newest first — mirrors the Repairs page ordering.
+    const byDate = (a, b) => new Date(b.created_at) - new Date(a.created_at);
+    return { ready: ready.sort(byDate), in_progress: inProgress.sort(byDate), open: open.sort(byDate) };
+  }, [repairs]);
 
-  const toggle = (id) => setSelectedTxns(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  const visibleCards = cardBuckets[cardsFilter] || [];
 
-  const submit = async () => {
-    if (!selectedTxns.length) return toast.error(t("pickAtLeastOneTxn"));
+  /** Turn a completed repair card into an invoice with one click. */
+  const createInvoiceFromRepair = async (repair) => {
+    if (!canCreate) return toast.error(t("noPermission") || "No permission");
+    setInvoicingId(repair.id);
     try {
-      const { data } = await api.post("/invoices/from-transactions", {
-        customer_id: customerId || null,
-        transaction_ids: selectedTxns,
-        tax_rate: Number(taxRate),
-        note,
-      });
+      const { data } = await api.post(`/repairs/${repair.id}/invoice`);
       toast.success(t("invoiceCreated", { number: data.invoice_number }), {
-        action: { label: t("print"), onClick: () => { printInvoice(data, settings, lang); } },
+        action: { label: t("print"), onClick: () => printInvoice(data, settings, lang) },
       });
-      setShowCreate(false); setSelectedTxns([]); setCustomerId(""); setNote(""); setTaxRate(0);
       qc.invalidateQueries();
+      setConfirmRepair(null);
     } catch (e) { toast.error(formatApiError(e)); }
+    finally { setInvoicingId(null); }
   };
 
   const markPaid = async (id) => {
@@ -256,8 +274,12 @@ export default function Invoices() {
             <FileSpreadsheet className="h-4 w-4 mr-2" /> {t("excel")}
           </Button>
           {canCreate && (
-            <Button className="rounded-full bg-primary hover:bg-primary/90" onClick={() => setShowCreate(true)} data-testid="invoice-create-button">
-              <Plus className="h-4 w-4 mr-2" /> {t("newInvoice")}
+            <Button
+              className="rounded-full bg-primary hover:bg-primary/90"
+              onClick={() => { setCardsFilter("ready"); document.getElementById("job-cards-section")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+              data-testid="invoice-from-card-jump"
+            >
+              <ClipboardList className="h-4 w-4 mr-2" /> {t("invoiceFromCard") || "Invoice from job card"}
             </Button>
           )}
         </div>
@@ -284,6 +306,137 @@ export default function Invoices() {
           ))}
         </div>
       )}
+
+      {/* Job cards → invoice.  This is the ONLY way to create an invoice in
+          the app: every invoice must be tied to a work card.  Bundling raw
+          transactions is intentionally removed. */}
+      <Card id="job-cards-section" className="border-border p-5 space-y-4" data-testid="job-cards-section">
+        <div className="flex items-end justify-between gap-4 flex-wrap">
+          <div>
+            <div className="text-xs font-mono uppercase tracking-widest text-primary mb-1 flex items-center gap-1.5">
+              <ClipboardList className="h-3.5 w-3.5" /> {t("invoiceFromCardHeader") || "Create invoice from a job card"}
+            </div>
+            <h2 className="font-display text-2xl font-bold">{t("workCards") || "Work cards"}</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {t("invoiceFromCardSub") || "One-click invoicing from any job card. Every invoice must originate from a card — no orphan bills."}
+            </p>
+          </div>
+          <Tabs value={cardsFilter} onValueChange={setCardsFilter} className="w-auto">
+            <TabsList>
+              <TabsTrigger value="ready" data-testid="cards-tab-ready">
+                {t("readyToInvoice") || "Ready"} <span className="ml-1.5 inline-flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">{cardBuckets.ready.length}</span>
+              </TabsTrigger>
+              <TabsTrigger value="in_progress" data-testid="cards-tab-progress">
+                {t("inProgress") || "In progress"} <span className="ml-1.5 inline-flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-400 text-[10px] font-bold">{cardBuckets.in_progress.length}</span>
+              </TabsTrigger>
+              <TabsTrigger value="open" data-testid="cards-tab-open">
+                {t("statusOpen") || "Open"} <span className="ml-1.5 inline-flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-slate-500/20 text-slate-700 dark:text-slate-400 text-[10px] font-bold">{cardBuckets.open.length}</span>
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+
+        {visibleCards.length === 0 ? (
+          <div className="text-center py-10 text-sm text-muted-foreground border-2 border-dashed border-border rounded-lg" data-testid="cards-empty">
+            {cardsFilter === "ready"
+              ? (t("noReadyCards") || "No completed job cards waiting for an invoice.")
+              : cardsFilter === "in_progress"
+                ? (t("noInProgressCards") || "No cards currently in the workshop.")
+                : (t("noOpenCards") || "No open cards.")}
+            <div className="mt-3">
+              <Button variant="outline" className="rounded-full" onClick={() => nav("/repairs")} data-testid="cards-goto-repairs">
+                <ArrowRight className="h-3.5 w-3.5 mr-1.5" /> {t("openRepairs") || "Open Job cards"}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3" data-testid="cards-grid">
+            {visibleCards.map(c => {
+              const isReady = c.status === "completed";
+              const partsTotal = (c.parts_lines || []).reduce((s, l) => s + (Number(l.total) || 0), 0);
+              const laborTotal = Number(c.labor_total || 0);
+              const specialTotal = (c.special_parts || []).reduce((s, l) => s + (Number(l.total) || 0), 0);
+              const grand = partsTotal + laborTotal + specialTotal;
+              return (
+                <Card key={c.id} className={`p-4 border card-hover flex flex-col gap-3 ${isReady ? "border-emerald-500/40 bg-emerald-500/5" : "border-border"}`} data-testid={`card-tile-${c.card_number}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-mono text-[11px] font-bold text-primary tracking-wider">{c.card_number}</div>
+                      <div className="font-semibold truncate flex items-center gap-1.5 mt-0.5">
+                        <User className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        {c.customer_name || t("walkIn") || "Walk-in"}
+                      </div>
+                      {(c.car_plate || c.car_make) && (
+                        <div className="text-xs text-muted-foreground truncate flex items-center gap-1.5">
+                          <Car className="h-3 w-3 shrink-0" />
+                          {c.car_plate || ""} {c.car_make || ""} {c.car_model || ""}
+                        </div>
+                      )}
+                    </div>
+                    <Badge className={
+                      isReady ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/20"
+                      : c.status === "in_progress" ? "bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/20"
+                      : "bg-slate-500/20 text-slate-700 dark:text-slate-400 border-slate-500/40 hover:bg-slate-500/20"
+                    }>
+                      {isReady ? (t("completed") || "Completed") : c.status === "in_progress" ? (t("inProgress") || "In progress") : (t("statusOpen") || "Open")}
+                    </Badge>
+                  </div>
+
+                  {c.complaint && <div className="text-xs text-muted-foreground line-clamp-2 italic">"{c.complaint}"</div>}
+
+                  <div className="grid grid-cols-3 gap-2 text-[11px] font-mono">
+                    <div className="rounded-md bg-muted/40 px-2 py-1.5">
+                      <div className="uppercase tracking-widest text-[9px] text-muted-foreground">{t("parts") || "Parts"}</div>
+                      <div className="font-bold tabular-nums">{formatEUR(partsTotal + specialTotal)}</div>
+                    </div>
+                    <div className="rounded-md bg-muted/40 px-2 py-1.5">
+                      <div className="uppercase tracking-widest text-[9px] text-muted-foreground">{t("labor") || "Labor"}</div>
+                      <div className="font-bold tabular-nums">{formatEUR(laborTotal)}</div>
+                    </div>
+                    <div className="rounded-md bg-primary/10 px-2 py-1.5">
+                      <div className="uppercase tracking-widest text-[9px] text-primary/80">{t("total")}</div>
+                      <div className="font-bold text-primary tabular-nums">{formatEUR(grand)}</div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 mt-auto pt-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-full flex-1"
+                      onClick={() => nav(`/repairs?card=${c.id}`)}
+                      data-testid={`card-open-${c.card_number}`}
+                    >
+                      <Wrench className="h-3.5 w-3.5 mr-1.5" /> {t("openCard") || "Open card"}
+                    </Button>
+                    {canCreate && (
+                      <Button
+                        size="sm"
+                        className={`rounded-full flex-1 ${isReady ? "bg-emerald-500 hover:bg-emerald-500/90 text-white" : "bg-primary hover:bg-primary/90"}`}
+                        disabled={invoicingId === c.id}
+                        onClick={() => isReady ? createInvoiceFromRepair(c) : setConfirmRepair(c)}
+                        data-testid={`card-invoice-${c.card_number}`}
+                      >
+                        {invoicingId === c.id
+                          ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> ...</>
+                          : <><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" /> {t("createInvoice") || "Create invoice"}</>}
+                      </Button>
+                    )}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      <div className="flex items-center gap-3">
+        <div className="h-px flex-1 bg-border" />
+        <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
+          {t("existingInvoices") || "Invoices"} · {invoices.length}
+        </span>
+        <div className="h-px flex-1 bg-border" />
+      </div>
 
       <Card className="border-border overflow-x-auto">
         <Table>
@@ -414,53 +567,38 @@ export default function Invoices() {
         </Table>
       </Card>
 
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle className="font-display">Bundle transactions into an invoice</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Customer</Label>
-                <SearchableSelect
-                  value={customerId}
-                  onChange={(v) => { setCustomerId(v); setSelectedTxns([]); }}
-                  options={customers.map(c => ({ value: c.id, label: c.name }))}
-                  emptyLabel="Walk-in / any"
-                  searchPlaceholder="Search customer"
-                  placeholder="Any / walk-in"
-                  testId="invoice-customer-select"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Tax rate (%)</Label>
-                <Input type="number" step="0.1" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} data-testid="invoice-tax-input" />
-              </div>
+      {/* Confirm-invoicing-a-non-completed card. */}
+      <Dialog open={!!confirmRepair} onOpenChange={(v) => { if (!v) setConfirmRepair(null); }}>
+        <DialogContent className="max-w-md" data-testid="card-invoice-confirm-dialog">
+          <DialogHeader>
+            <DialogTitle className="font-display flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              {t("invoiceIncompleteTitle") || "Invoice a card that isn't completed?"}
+            </DialogTitle>
+            <DialogDescription>
+              {t("invoiceIncompleteDesc") ||
+                "Best practice is to mark the card as Completed first. If you continue, the card will be marked Completed and invoiced right now."}
+            </DialogDescription>
+          </DialogHeader>
+          {confirmRepair && (
+            <div className="p-3 rounded-md border border-border bg-muted/40 text-sm">
+              <div className="font-mono text-xs text-primary">{confirmRepair.card_number}</div>
+              <div className="font-semibold">{confirmRepair.customer_name || t("walkIn")}</div>
+              <div className="text-xs text-muted-foreground">{confirmRepair.car_plate} {confirmRepair.car_make} {confirmRepair.car_model}</div>
             </div>
-            <div className="border border-border rounded-md max-h-72 overflow-y-auto">
-              {eligible.length === 0 && <div className="p-6 text-center text-sm text-muted-foreground">No unbilled OUT transactions for this filter.</div>}
-              {eligible.map(t => (
-                <label key={t.id} className="flex items-center gap-3 p-3 border-b border-border last:border-0 cursor-pointer hover:bg-accent">
-                  <Checkbox checked={selectedTxns.includes(t.id)} onCheckedChange={() => toggle(t.id)} data-testid={`invoice-txn-${t.id}`} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{t.item_name}</div>
-                    <div className="text-[11px] font-mono text-muted-foreground">{t.item_sku} · {new Date(t.created_at).toLocaleDateString("en-GB")} · {t.customer_name || "walk-in"}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-mono">{t.quantity} × {formatEUR(t.unit_price)}</div>
-                    <div className="text-xs font-mono font-bold">{formatEUR(t.total)}</div>
-                  </div>
-                </label>
-              ))}
-            </div>
-            <div className="space-y-1.5"><Label>Note</Label><Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} /></div>
-            <div className="p-3 rounded-md bg-muted/40 border border-border flex justify-between">
-              <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Selected</span>
-              <span className="font-mono font-bold">{selectedTxns.length} · {formatEUR(eligible.filter(t => selectedTxns.includes(t.id)).reduce((s, t) => s + t.total, 0))}</span>
-            </div>
-          </div>
+          )}
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button onClick={submit} className="rounded-full" data-testid="invoice-submit">Create invoice</Button>
+            <Button variant="ghost" onClick={() => setConfirmRepair(null)} data-testid="card-invoice-cancel">{t("cancel")}</Button>
+            <Button
+              className="rounded-full bg-emerald-500 hover:bg-emerald-500/90 text-white"
+              disabled={invoicingId === confirmRepair?.id}
+              onClick={() => confirmRepair && createInvoiceFromRepair(confirmRepair)}
+              data-testid="card-invoice-confirm"
+            >
+              {invoicingId === confirmRepair?.id
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> ...</>
+                : <><CheckCircle2 className="h-4 w-4 mr-2" /> {t("invoiceAnyway") || "Complete & invoice"}</>}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
