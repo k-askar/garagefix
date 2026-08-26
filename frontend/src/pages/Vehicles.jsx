@@ -7,10 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Search, Car, Wrench, Phone, Mail, User, ClipboardList, X, Calendar as CalIcon, FileText, ShieldAlert, ShieldCheck as ShieldOk, QrCode } from "lucide-react";
+import { Search, Car, Wrench, Phone, Mail, User, ClipboardList, X, Calendar as CalIcon, FileText, ShieldAlert, ShieldCheck as ShieldOk, QrCode, Send, Loader2 } from "lucide-react";
 import { useLang } from "@/i18n";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import CarPassportQrDialog from "@/components/CarPassportQrDialog";
 
 const STATUS_TONE = {
@@ -22,11 +23,29 @@ const STATUS_TONE = {
 export default function Vehicles() {
   const { t } = useLang();
   const nav = useNavigate();
+  const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [detail, setDetail] = useState(null);
   const [qrVehicle, setQrVehicle] = useState(null);
+  // Which vehicle we're currently emailing — used for the row-level spinner.
+  const [sendingApk, setSendingApk] = useState(null);
   // "all" | "apk_due" — quick filter to show only vehicles whose APK expires soon.
   const [apkFilter, setApkFilter] = useState("all");
+
+  /** Send a Dutch APK reminder email to the vehicle owner. */
+  const sendApkReminder = async (v) => {
+    if (!v.owner_email) return toast.error(t("apkNoOwnerEmail") || "Owner has no email on file");
+    setSendingApk(v.id);
+    try {
+      const { data } = await api.post(`/vehicles/${v.id}/apk-reminder`);
+      toast.success(t("apkReminderSent", { email: data.to }) || `APK reminder sent to ${data.to}`);
+      qc.invalidateQueries({ queryKey: ["vehicles-list"] });
+    } catch (e) {
+      toast.error(formatApiError(e));
+    } finally {
+      setSendingApk(null);
+    }
+  };
 
   const { data: vehicles = [], isLoading } = useQuery({
     queryKey: ["vehicles-list"],
@@ -206,19 +225,42 @@ export default function Vehicles() {
                   {status === "unknown" ? (
                     <span className="text-[11px] text-muted-foreground italic">—</span>
                   ) : (
-                    <div className="flex flex-col gap-0.5">
-                      <Badge className={
-                        status === "expired" ? "bg-rose-500/20 text-rose-700 dark:text-rose-400 border-rose-500/50 hover:bg-rose-500/20 animate-pulse"
-                        : status === "soon" ? "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/40 hover:bg-rose-500/15"
-                        : status === "warn" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/15"
-                        : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15"
-                      }>
-                        {status === "expired" || status === "soon" ? <ShieldAlert className="h-3 w-3 mr-1" /> : <ShieldOk className="h-3 w-3 mr-1" />}
-                        {status === "expired"
-                          ? `${t("expired") || "Expired"} · ${Math.abs(v.apk_days)}d`
-                          : `${v.apk_days}d`}
-                      </Badge>
-                      <span className="font-mono text-[10px] text-muted-foreground">{v.apk_expiry}</span>
+                    <div className="flex items-center gap-2">
+                      <div className="flex flex-col gap-0.5">
+                        <Badge className={
+                          status === "expired" ? "bg-rose-500/20 text-rose-700 dark:text-rose-400 border-rose-500/50 hover:bg-rose-500/20 animate-pulse"
+                          : status === "soon" ? "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/40 hover:bg-rose-500/15"
+                          : status === "warn" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/15"
+                          : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15"
+                        }>
+                          {status === "expired" || status === "soon" ? <ShieldAlert className="h-3 w-3 mr-1" /> : <ShieldOk className="h-3 w-3 mr-1" />}
+                          {status === "expired"
+                            ? `${t("expired") || "Expired"} · ${Math.abs(v.apk_days)}d`
+                            : `${v.apk_days}d`}
+                        </Badge>
+                        <span className="font-mono text-[10px] text-muted-foreground">{v.apk_expiry}</span>
+                      </div>
+                      {/* Send-reminder button — only meaningful when APK is
+                          expired or ≤30d and the owner has an email. */}
+                      {(status === "expired" || status === "soon") && v.owner_email && (
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="h-8 w-8 rounded-full border-rose-500/50 text-rose-700 dark:text-rose-400 hover:bg-rose-500/10 shrink-0"
+                          disabled={sendingApk === v.id}
+                          onClick={(e) => { e.stopPropagation(); sendApkReminder(v); }}
+                          title={
+                            v.apk_reminder_sent_at
+                              ? (t("apkReminderResend") || "Resend APK reminder")
+                              : (t("apkReminderSend") || "Send APK reminder")
+                          }
+                          data-testid={`vehicle-apk-remind-${v.plate || v.id}`}
+                        >
+                          {sendingApk === v.id
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <Send className="h-3.5 w-3.5" />}
+                        </Button>
+                      )}
                     </div>
                   )}
                 </TableCell>

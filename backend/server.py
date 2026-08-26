@@ -3332,6 +3332,100 @@ async def vehicle_service_history(vid: str, user: dict = Depends(require_permiss
     repairs = await db.repairs.find({"vehicle_id": vid}, {"_id": 0}).sort("created_at", -1).to_list(200)
     return {"vehicle": v, "events": events, "repair_count": len(repairs)}
 
+
+@api_router.post("/vehicles/{vid}/apk-reminder")
+async def send_apk_reminder(vid: str, user: dict = Depends(require_permission("reminders.send"))):
+    """One-click Dutch APK-reminder email to the vehicle owner.
+    Refuses cleanly (400) when there's no APK date, no owner, or no email."""
+    v = await db.vehicles.find_one({"id": vid}, {"_id": 0})
+    if not v:
+        raise HTTPException(status_code=404, detail="Voertuig niet gevonden")
+    apk_str = v.get("apk_expiry") or ""
+    if not apk_str:
+        raise HTTPException(status_code=400, detail="Geen APK-datum bekend voor dit voertuig")
+    try:
+        apk_date = datetime.strptime(apk_str, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="APK-datum is ongeldig")
+    days = (apk_date - datetime.now(timezone.utc).date()).days
+
+    if not v.get("customer_id"):
+        raise HTTPException(status_code=400, detail="Voertuig heeft geen eigenaar")
+    c = await db.customers.find_one({"id": v["customer_id"]}, {"_id": 0})
+    if not c or not c.get("email"):
+        raise HTTPException(status_code=400, detail="Eigenaar heeft geen e-mailadres")
+
+    s = await db.settings.find_one({"_id": "garage"}, {"_id": 0}) or {}
+    garage_name = s.get("name") or "GarageFix"
+    car_label = " ".join(x for x in [v.get("make"), v.get("model"), str(v.get("year") or "")] if x).strip() or "uw voertuig"
+    plate = v.get("plate") or ""
+
+    if days < 0:
+        subject = f"BELANGRIJK — APK verlopen voor {plate or car_label}"
+        headline = f"APK is {abs(days)} dag{'en' if abs(days) != 1 else ''} geleden verlopen"
+        accent = "#dc2626"
+        body_html = (
+            f"<p>Beste {escape(c.get('name') or 'klant')},</p>"
+            f"<p>De APK-keuring van uw <strong>{escape(car_label)}</strong>"
+            f"{f' met kenteken <strong>{escape(plate)}</strong>' if plate else ''} is "
+            f"<strong style='color:{accent}'>op {escape(apk_str)}</strong> verlopen. "
+            f"Rijden zonder geldige APK is niet toegestaan en kan een boete opleveren.</p>"
+            f"<p>Plan snel een nieuwe keuring in bij {escape(garage_name)}.</p>"
+        )
+    elif days <= 30:
+        subject = f"APK verloopt binnenkort — {plate or car_label}"
+        headline = f"Nog {days} dag{'en' if days != 1 else ''} geldig"
+        accent = "#ea580c"
+        body_html = (
+            f"<p>Beste {escape(c.get('name') or 'klant')},</p>"
+            f"<p>De APK van uw <strong>{escape(car_label)}</strong>"
+            f"{f' met kenteken <strong>{escape(plate)}</strong>' if plate else ''} verloopt "
+            f"<strong>op {escape(apk_str)}</strong> — <strong style='color:{accent}'>nog {days} dag{'en' if days != 1 else ''}</strong>.</p>"
+            f"<p>Wij helpen u graag met een tijdige keuring. Neem contact op met {escape(garage_name)} om een afspraak in te plannen.</p>"
+        )
+    else:
+        subject = f"APK-herinnering — {plate or car_label}"
+        headline = f"Nog {days} dagen geldig"
+        accent = "#0EA5E9"
+        body_html = (
+            f"<p>Beste {escape(c.get('name') or 'klant')},</p>"
+            f"<p>Een vriendelijke herinnering: de APK van uw <strong>{escape(car_label)}</strong>"
+            f"{f' met kenteken <strong>{escape(plate)}</strong>' if plate else ''} verloopt op "
+            f"<strong>{escape(apk_str)}</strong>.</p>"
+            f"<p>Boek gerust alvast een afspraak bij {escape(garage_name)}.</p>"
+        )
+
+    html = (
+        f'<table role="presentation" width="100%"><tr><td style="padding:24px;'
+        f'font-family:Arial,sans-serif;color:#111;max-width:560px">'
+        f'<div style="border-left:4px solid {accent};padding-left:12px;margin-bottom:16px">'
+        f'<h2 style="margin:0;color:{accent}">🛡️ APK-herinnering</h2>'
+        f'<p style="margin:4px 0 0;color:{accent};font-weight:700">{headline}</p>'
+        f'</div>'
+        f'{body_html}'
+        f'<p style="font-size:12px;color:#888;margin-top:24px">Verzonden door {escape(garage_name)}.</p>'
+        f'</td></tr></table>'
+    )
+    meta = await _tenant_email_meta()
+    html = html.replace("</div>", meta["footer_html"] + "</div>", 1) if meta["footer_html"] else html
+    try:
+        await send_email(
+            to=c["email"], subject=subject, html=html,
+            purpose="apk_reminder", related_id=v["id"],
+            from_name=meta["from_name"], reply_to=meta["reply_to"],
+        )
+    except Exception as e:
+        logger.error(f"APK reminder send failed for vehicle {vid}: {e}")
+        raise HTTPException(status_code=502, detail=f"E-mail versturen mislukt: {str(e)[:120]}")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.vehicles.update_one({"id": vid}, {"$set": {
+        "apk_reminder_sent_at": now_iso,
+        "apk_reminder_stage": ("expired" if days < 0 else "soon" if days <= 30 else "info"),
+    }})
+    return {"ok": True, "to": c["email"], "sent_at": now_iso, "days": days}
+
+
 @api_router.post("/repairs/{rid}/assign", response_model=RepairCard)
 async def assign_repair(rid: str, payload: RepairAssign, user: dict = Depends(require_permission("repairs.edit"))):
     """Workboard drag-and-drop: move a job card between mechanics / days and set effort."""
