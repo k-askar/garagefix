@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import { toast } from "sonner";
 import QRCode from "qrcode";
-import { CheckCircle2, Copy, ExternalLink, ShieldCheck, AlertTriangle, Loader2 } from "lucide-react";
+import { CheckCircle2, Copy, ExternalLink, ShieldCheck, AlertTriangle, Loader2, CreditCard } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -15,23 +15,60 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
  */
 export default function PayInvoice() {
   const { token } = useParams();
+  const [params] = useSearchParams();
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [qrDataUrl, setQrDataUrl] = useState("");
+  const [starting, setStarting] = useState(false);
+  const [pollingSid] = useState(params.get("sid") || "");
 
+  const load = () => axios.get(`${API}/public/pay/${token}`)
+    .then(async (r) => {
+      setData(r.data);
+      if (r.data?.sepa_uri) {
+        try {
+          const png = await QRCode.toDataURL(r.data.sepa_uri, { margin: 1, width: 320 });
+          setQrDataUrl(png);
+        } catch (_) { /* ignore */ }
+      }
+    })
+    .catch((e) => setErr(e?.response?.data?.detail || "Payment link is invalid or expired"));
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [token]);
+
+  // Returning from Stripe with ?paid=1&sid=... — poll status endpoint until
+  // the invoice flips to paid (webhook usually beats us to it in a second).
   useEffect(() => {
-    axios.get(`${API}/public/pay/${token}`)
-      .then(async (r) => {
-        setData(r.data);
-        if (r.data?.sepa_uri) {
-          try {
-            const png = await QRCode.toDataURL(r.data.sepa_uri, { margin: 1, width: 320 });
-            setQrDataUrl(png);
-          } catch (_) { /* ignore */ }
+    if (!pollingSid) return;
+    let alive = true;
+    const tick = async () => {
+      try {
+        const { data: s } = await axios.get(`${API}/public/pay/${token}/stripe-status/${pollingSid}`);
+        if (s.payment_status === "paid") {
+          toast.success("Payment received — thank you!");
+          await load();
+          return;
         }
-      })
-      .catch((e) => setErr(e?.response?.data?.detail || "Payment link is invalid or expired"));
-  }, [token]);
+      } catch (_) { /* keep polling until timeout */ }
+      if (alive) setTimeout(tick, 2000);
+    };
+    tick();
+    return () => { alive = false; };
+    // eslint-disable-next-line
+  }, [pollingSid]);
+
+  const startStripe = async () => {
+    setStarting(true);
+    try {
+      const { data: s } = await axios.post(`${API}/public/pay/${token}/stripe-session`, {
+        origin_url: window.location.origin,
+      });
+      if (s?.checkout_url) window.location.href = s.checkout_url;
+      else throw new Error("No checkout URL returned");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Kon Stripe niet starten — probeer het opnieuw");
+    } finally { setStarting(false); }
+  };
 
   const copy = async (val, label) => {
     try {
@@ -103,10 +140,38 @@ export default function PayInvoice() {
           )}
         </div>
 
+        {/* Stripe Pay-Now — primary CTA when Stripe is enabled */}
+        {!paid && data.stripe_enabled && (
+          <div className="rounded-xl border-2 border-primary/60 bg-gradient-to-br from-primary/15 via-slate-900/60 to-slate-900/60 p-6 space-y-3 shadow-2xl shadow-primary/10" data-testid="pay-stripe-card">
+            <div className="flex items-center justify-center gap-2 text-xs font-mono uppercase tracking-widest text-primary">
+              <CreditCard className="h-3.5 w-3.5" /> Instant payment
+            </div>
+            <h2 className="font-semibold text-center text-lg">Pay by card, iDEAL, or Bancontact</h2>
+            <button
+              onClick={startStripe}
+              disabled={starting}
+              className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-bold py-4 text-base transition-all shadow-lg shadow-primary/25 disabled:opacity-60 flex items-center justify-center gap-2"
+              data-testid="pay-stripe-button"
+            >
+              {starting ? (
+                <><Loader2 className="h-5 w-5 animate-spin" /> Redirecting to Stripe…</>
+              ) : (
+                <><CreditCard className="h-5 w-5" /> Pay € {amount.toFixed(2)} securely</>
+              )}
+            </button>
+            <div className="text-[11px] text-slate-400 text-center flex items-center justify-center gap-2">
+              <ShieldCheck className="h-3 w-3 text-emerald-400" />
+              Secure Stripe checkout · Visa, Mastercard, iDEAL, Bancontact
+            </div>
+          </div>
+        )}
+
         {/* SEPA QR + open-app link */}
         {!paid && qrDataUrl && (
           <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-6 space-y-4" data-testid="pay-qr-card">
-            <h2 className="font-semibold text-center">Scan with your banking app</h2>
+            <h2 className="font-semibold text-center">
+              {data.stripe_enabled ? "Or scan with your banking app" : "Scan with your banking app"}
+            </h2>
             <div className="flex items-center justify-center">
               <div className="bg-white p-3 rounded-lg">
                 <img src={qrDataUrl} alt="SEPA payment QR" className="w-64 h-64" />

@@ -6,6 +6,7 @@ load_dotenv(ROOT_DIR / '.env')
 
 import os
 import uuid
+import json
 import logging
 import bcrypt
 import jwt
@@ -18,9 +19,19 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 import asyncio, httpx, secrets, re, ipaddress
+import stripe
 from html import escape
 from html.parser import HTMLParser
 from urllib.parse import urlparse
+
+# --- Stripe (pay-now for public invoice page) ---
+# Flow: customer opens /pay/:token → clicks Pay with card / iDEAL → we mint a
+# Stripe Checkout session for exactly the invoice total (EUR).  Webhook at
+# /api/stripe/webhook flips the invoice to paid + logs a payment_entry.  The
+# key falls back to the platform-provided sandbox key (sk_test_emergent) when
+# STRIPE_SECRET_KEY isn't set — matches the playbook default.
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY") or os.environ.get("STRIPE_API_KEY") or "sk_test_emergent"
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 
 # --- DB ---
 mongo_url = os.environ['MONGO_URL']
@@ -1855,10 +1866,10 @@ def _overdue_email_html(inv, garage_name, iban, stage: int = 1, pay_url: str = "
         s="s" if days != 1 else "",
     )
     iban_line = (f'<p>Bank transfer to <strong>{escape(iban)}</strong>.</p>' if iban else '')
-    # Big "Pay now" CTA — links to the public payment page with SEPA QR +
-    # click-to-copy IBAN + iDEAL banking-app deep link.  Only rendered when
-    # the caller supplied a public pay URL (i.e. the invoice has a pay_token
-    # and APP_PUBLIC_URL is configured).
+    # Big "Pay now" CTA — links to the public payment page with a real Stripe
+    # Checkout (card + iDEAL + Bancontact) button, plus SEPA QR + click-to-copy
+    # IBAN as a backup.  Only rendered when the caller supplied a public pay
+    # URL (i.e. the invoice has a pay_token and APP_PUBLIC_URL is configured).
     pay_button = ""
     if pay_url:
         pay_button = (
@@ -1867,11 +1878,11 @@ def _overdue_email_html(inv, garage_name, iban, stage: int = 1, pay_url: str = "
             f'style="display:inline-block;background:{tone["accent"]};color:#fff;'
             f'text-decoration:none;padding:14px 32px;border-radius:999px;'
             f'font-weight:700;font-size:15px">'
-            f'Pay {inv["total"]:.2f} € now'
+            f'Pay {inv["total"]:.2f} € now — card / iDEAL'
             f'</a>'
             f'</p>'
             f'<p style="text-align:center;font-size:11px;color:#888;margin:-8px 0 16px">'
-            f'Opens a secure page with an iDEAL / SEPA payment QR.'
+            f'Secure Stripe checkout — pay by card, iDEAL, Bancontact, or scan a SEPA QR.'
             f'</p>'
         )
     return (f'<table role="presentation" width="100%"><tr><td style="padding:24px;'
@@ -2245,7 +2256,7 @@ def _sepa_uri(*, iban: str, name: str, amount: float, reference: str, bic: str =
 async def public_pay_info(token: str):
     """Return everything a customer needs to pay an unpaid invoice — no auth.
     Called by the /pay/:token frontend page linked from overdue emails."""
-    inv = await db.invoices.find_one({"pay_token": token}, {"_id": 0})
+    inv = await _raw_db.invoices.find_one({"pay_token": token}, {"_id": 0})
     if not inv:
         raise HTTPException(status_code=404, detail="Payment link not found")
     # Find the tenant-scoped garage settings so we can show the correct IBAN /
@@ -2253,9 +2264,9 @@ async def public_pay_info(token: str):
     tid = inv.get("tenant_id")
     s = None
     if tid:
-        s = await db.settings.find_one({"_id": f"garage:{tid}"}, {"_id": 0})
+        s = await _raw_db.settings.find_one({"_id": f"garage:{tid}"}, {"_id": 0})
     if not s:
-        s = await db.settings.find_one({"_id": "garage"}, {"_id": 0}) or {}
+        s = await _raw_db.settings.find_one({"_id": "garage"}, {"_id": 0}) or {}
     reference = inv.get("invoice_number") or ""
     return {
         "invoice_number": inv.get("invoice_number"),
@@ -2265,6 +2276,9 @@ async def public_pay_info(token: str):
         "due_date": inv.get("due_date"),
         "status": inv.get("status") or "draft",   # "paid" if already settled
         "paid_at": inv.get("paid_at"),
+        # Presence of a Stripe key means the frontend can show a "Pay with card
+        # / iDEAL" button that hits /public/pay/{token}/stripe-session.
+        "stripe_enabled": bool(stripe.api_key),
         "garage": {
             "name": s.get("name") or "PitStock Garage",
             "email": s.get("email") or "",
@@ -2283,6 +2297,179 @@ async def public_pay_info(token: str):
         ),
         "reference": reference,
     }
+
+
+# ─── Stripe Checkout — public "Pay Now" for one invoice ─────────────────────
+class StripeSessionBody(BaseModel):
+    origin_url: str  # window.location.origin from the /pay/:token page
+
+@api_router.post("/public/pay/{token}/stripe-session")
+async def create_stripe_session_for_invoice(token: str, payload: StripeSessionBody):
+    """Mint a Stripe Checkout session for the exact invoice total.  Public
+    endpoint (no auth) — the pay_token IS the auth."""
+    inv = await _raw_db.invoices.find_one({"pay_token": token}, {"_id": 0})
+    if not inv:
+        raise HTTPException(status_code=404, detail="Payment link not found")
+    if (inv.get("status") or "").lower() == "paid":
+        raise HTTPException(status_code=400, detail="Invoice already paid")
+    amount_cents = int(round(float(inv.get("total") or 0) * 100))
+    if amount_cents <= 0:
+        raise HTTPException(status_code=400, detail="Invoice total is zero")
+
+    origin = (payload.origin_url or "").rstrip("/")
+    if not origin.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="Invalid origin_url")
+    success_url = f"{origin}/pay/{token}?paid=1&sid={{CHECKOUT_SESSION_ID}}"
+    cancel_url  = f"{origin}/pay/{token}?cancelled=1"
+    inv_no = inv.get("invoice_number") or "invoice"
+    try:
+        session = stripe.checkout.Session.create(
+            line_items=[{
+                "price_data": {
+                    "currency": "eur",
+                    "product_data": {
+                        "name": f"Invoice {inv_no}",
+                        "description": (inv.get("note") or f"Payment for {inv_no}")[:200],
+                    },
+                    "unit_amount": amount_cents,
+                },
+                "quantity": 1,
+            }],
+            mode="payment",
+            # iDEAL + card + Bancontact + SEPA direct-debit — the NL / EU
+            # standard set. Cards accept every major brand automatically.
+            payment_method_types=["card", "ideal", "bancontact"],
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={
+                "invoice_id": inv["id"],
+                "invoice_number": inv_no,
+                "pay_token": token,
+                "tenant_id": inv.get("tenant_id") or "",
+            },
+        )
+    except stripe.error.StripeError as e:
+        logger.error(f"stripe session create failed for inv {inv.get('invoice_number')}: {e}")
+        raise HTTPException(status_code=502, detail=f"Stripe error: {str(e)[:180]}")
+    # Log a `payment_transactions` row BEFORE returning so the webhook can
+    # match on session_id even if the browser closes mid-flow.
+    await _raw_db.payment_transactions.insert_one({
+        "session_id": session.id,
+        "invoice_id": inv["id"],
+        "invoice_number": inv_no,
+        "pay_token": token,
+        "tenant_id": inv.get("tenant_id"),
+        "amount": float(inv.get("total") or 0),
+        "currency": "eur",
+        "status": "initiated",
+        "payment_status": "pending",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"checkout_url": session.url, "session_id": session.id}
+
+
+@api_router.get("/public/pay/{token}/stripe-status/{session_id}")
+async def stripe_status_for_invoice(token: str, session_id: str):
+    """Frontend polls this while sitting on the /pay/:token?paid=1 return page.
+    Falls back to querying Stripe directly if the webhook hasn't landed yet."""
+    rec = await _raw_db.payment_transactions.find_one({"session_id": session_id, "pay_token": token}, {"_id": 0})
+    if not rec:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    if rec.get("payment_status") != "paid":
+        try:
+            s = stripe.checkout.Session.retrieve(session_id)
+            if s.payment_status == "paid" or s.status == "complete":
+                await _mark_invoice_paid_from_stripe(rec["invoice_id"], s)
+                rec = await _raw_db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+        except stripe.error.StripeError:
+            pass
+    return {
+        "session_id": rec["session_id"],
+        "status": rec.get("status"),
+        "payment_status": rec.get("payment_status"),
+    }
+
+
+async def _mark_invoice_paid_from_stripe(invoice_id: str, session_obj):
+    """Idempotent flip of an invoice to paid + a matching payment_entry.
+    Same guard is used by both the webhook and the status-poll fallback so
+    whichever path lands first wins."""
+    inv = await _raw_db.invoices.find_one({"id": invoice_id}, {"_id": 0})
+    if not inv or (inv.get("status") or "").lower() == "paid":
+        return
+    # Reflect payment_transactions status
+    await _raw_db.payment_transactions.update_one(
+        {"session_id": session_obj["id"] if isinstance(session_obj, dict) else session_obj.id,
+         "payment_status": {"$ne": "paid"}},
+        {"$set": {
+            "status": "completed", "payment_status": "paid",
+            "stripe_payment_intent_id": (session_obj.get("payment_intent") if isinstance(session_obj, dict) else session_obj.payment_intent),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    await _raw_db.invoices.update_one(
+        {"id": invoice_id, "status": {"$ne": "paid"}},
+        {"$set": {
+            "status": "paid",
+            "paid_at": datetime.now(timezone.utc).isoformat(),
+            "payment_method_name": "Stripe (card / iDEAL)",
+        }},
+    )
+    # Best-effort payment_entry so the till/ledger reflects the incoming cash.
+    try:
+        m = await _raw_db.payment_methods.find_one({"type": "card", "tenant_id": inv.get("tenant_id")}, {"_id": 0}) \
+            or await _raw_db.payment_methods.find_one({"type": "card"}, {"_id": 0})
+        if m:
+            entry = {
+                "id": str(uuid.uuid4()),
+                "method_id": m["id"], "method_name": m.get("name", "Card"),
+                "direction": "in",
+                "amount": float(inv.get("total") or 0),
+                "reference_type": "invoice",
+                "reference_id": invoice_id,
+                "reference_no": inv.get("invoice_number") or "",
+                "counterpart": inv.get("customer_name") or "Walk-in",
+                "note": "Stripe Checkout",
+                "created_by": "stripe@webhook",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "tenant_id": inv.get("tenant_id"),
+            }
+            await _raw_db.payment_entries.insert_one(entry)
+    except Exception as e:
+        logger.warning(f"payment_entry log skipped for {invoice_id}: {e}")
+
+
+@api_router.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    """Stripe → us callback.  Verifies signature when STRIPE_WEBHOOK_SECRET is
+    set; otherwise trusts the payload (dev sandbox mode)."""
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+    event = None
+    if STRIPE_WEBHOOK_SECRET:
+        try:
+            event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
+        except (ValueError, stripe.error.SignatureVerificationError):
+            raise HTTPException(status_code=400, detail="Invalid signature")
+    else:
+        try:
+            event = json.loads(payload.decode("utf-8"))
+        except Exception:
+            raise HTTPException(status_code=400, detail="Malformed webhook body")
+    obj = event["data"]["object"]
+    etype = event.get("type") or ""
+    if etype in ("checkout.session.completed", "checkout.session.async_payment_succeeded"):
+        rec = await _raw_db.payment_transactions.find_one({"session_id": obj["id"]}, {"_id": 0})
+        if rec:
+            await _mark_invoice_paid_from_stripe(rec["invoice_id"], obj)
+    elif etype == "checkout.session.async_payment_failed":
+        await _raw_db.payment_transactions.update_one(
+            {"session_id": obj["id"]},
+            {"$set": {"status": "failed", "payment_status": "failed",
+                      "updated_at": datetime.now(timezone.utc).isoformat()}},
+        )
+    return {"ok": True}
 
 
 @api_router.get("/customers/{cid}/balance")
@@ -4632,74 +4819,53 @@ async def startup():
         logger.info("Emergent Object Storage initialised for backups")
     except Exception as e:
         logger.warning(f"Object storage init failed (cloud backup will be unavailable): {e}")
-    # Seed admin
+    # Seed admin — DISABLED (2026-02-26p).  We no longer auto-recreate a
+    # default owner / default tenant on every boot: the user was seeing a
+    # deleted garage "come back on its own" because this block re-inserted it.
+    # First-run onboarding now happens via the public landing signup or the
+    # Super Admin → "New garage" button.  Only the platform super_admin is
+    # still seeded (further down) so the operator can always log in.
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@garage.com").lower()
-    admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
-    existing = await db.users.find_one({"email": admin_email})
-    if not existing:
-        await db.users.insert_one({
-            "id": str(uuid.uuid4()),
-            "email": admin_email,
-            "name": "Garage Owner",
-            "role": "owner",
-            "password_hash": hash_password(admin_password),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
-        logger.info(f"Seeded admin user: {admin_email}")
     # ------------------------------------------------------------------
-    # Phase 1 (multi-tenant): ensure a default tenant exists, backfill
-    # tenant_id on every business collection, and seed a platform-level
-    # super_admin login separate from the per-garage owner.
+    # Phase 1 (multi-tenant): ensure the platform super_admin exists and
+    # self-heal its tenant_id.  Default-tenant / default-owner seeding
+    # is intentionally removed so a fresh install starts empty.
     # ------------------------------------------------------------------
     try:
         default_tenant = await _raw_db.tenants.find_one({"is_default": True}, {"_id": 0})
-        if not default_tenant:
-            default_tenant = {
-                "id": str(uuid.uuid4()),
-                "name": os.environ.get("DEFAULT_TENANT_NAME", "PitStock Garage"),
-                "country": "NL",
-                "plan": "pro",
-                "active": True,
-                "is_default": True,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "owner_email": admin_email,
-            }
-            await _raw_db.tenants.insert_one(default_tenant)
-            logger.info(f"Seeded default tenant: {default_tenant['name']} ({default_tenant['id']})")
-        default_tid = default_tenant["id"]
+        default_tid = default_tenant["id"] if default_tenant else None
 
         # Backfill tenant_id everywhere it is missing so historic data belongs
-        # to the default garage.  Every collection we care about is patched.
-        # NB: use `_raw_db` so the update itself isn't scoped by the proxy —
-        # the whole point is to reach docs that DON'T yet have tenant_id.
-        tenant_scoped = [
-            "users", "settings", "suppliers", "customers", "vehicles",
-            "inventory", "parts_catalog", "transactions", "purchase_orders",
-            "repairs", "invoices", "appointments", "reminders",
-            "payment_methods", "payment_entries", "cash_movements",
-            "public_invoice_pdfs", "vehicle_events",
-        ]
-        patched_total = 0
-        for coll in tenant_scoped:
-            res = await _raw_db[coll].update_many(
-                {"$or": [{"tenant_id": {"$exists": False}}, {"tenant_id": None}, {"tenant_id": ""}]},
-                {"$set": {"tenant_id": default_tid}},
-            )
-            patched_total += res.modified_count
-        if patched_total:
-            logger.info(f"Multi-tenant backfill: assigned tenant_id on {patched_total} historic docs")
+        # to the default garage.  Skipped when there is no default tenant yet
+        # (fresh install) — new garages fill their own tenant_id on insert.
+        if default_tid:
+            tenant_scoped = [
+                "users", "settings", "suppliers", "customers", "vehicles",
+                "inventory", "parts_catalog", "transactions", "purchase_orders",
+                "repairs", "invoices", "appointments", "reminders",
+                "payment_methods", "payment_entries", "cash_movements",
+                "public_invoice_pdfs", "vehicle_events",
+            ]
+            patched_total = 0
+            for coll in tenant_scoped:
+                res = await _raw_db[coll].update_many(
+                    {"$or": [{"tenant_id": {"$exists": False}}, {"tenant_id": None}, {"tenant_id": ""}]},
+                    {"$set": {"tenant_id": default_tid}},
+                )
+                patched_total += res.modified_count
+            if patched_total:
+                logger.info(f"Multi-tenant backfill: assigned tenant_id on {patched_total} historic docs")
 
-        # Migrate the legacy singleton settings doc (_id: "garage") to the
-        # per-tenant convention (_id: "garage:<default_tid>").  New tenants
-        # already get created with the new id.
-        legacy = await _raw_db.settings.find_one({"_id": "garage"})
-        if legacy:
-            new_id = f"garage:{default_tid}"
-            if not await _raw_db.settings.find_one({"_id": new_id}):
-                new_doc = {**legacy, "_id": new_id, "tenant_id": default_tid}
-                await _raw_db.settings.insert_one(new_doc)
-            await _raw_db.settings.delete_one({"_id": "garage"})
-            logger.info(f"Migrated legacy settings doc to {new_id}")
+            # Migrate the legacy singleton settings doc (_id: "garage") to the
+            # per-tenant convention (_id: "garage:<default_tid>").
+            legacy = await _raw_db.settings.find_one({"_id": "garage"})
+            if legacy:
+                new_id = f"garage:{default_tid}"
+                if not await _raw_db.settings.find_one({"_id": new_id}):
+                    new_doc = {**legacy, "_id": new_id, "tenant_id": default_tid}
+                    await _raw_db.settings.insert_one(new_doc)
+                await _raw_db.settings.delete_one({"_id": "garage"})
+                logger.info(f"Migrated legacy settings doc to {new_id}")
 
         # Seed platform super_admin from env (never overrides an existing one).
         sa_email = os.environ.get("SUPER_ADMIN_EMAIL", "platform@pitstock.app").lower()
