@@ -20,6 +20,9 @@ export function printLabels(items) {
       <div class="meta">${i.sku || ""}${(i.location ? ` · ${i.location}` : "")} · €${Number(i.selling_price || 0).toFixed(2)}</div>
     </div>`).join("");
   w.document.write(`<!doctype html><html><head><title>Labels · ${items.length} parts</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700&display=swap" rel="stylesheet">
     <style>
       @page { margin: 6mm; size: A4; }
       body { font-family: -apple-system, Helvetica, Arial, sans-serif; margin: 0; padding: 6px; color: #111; background: #fff; }
@@ -28,7 +31,7 @@ export function printLabels(items) {
       .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
       .label { border: 1px dashed #999; border-radius: 6px; padding: 6px; text-align: center; page-break-inside: avoid; }
       .label .name { font-size: 11px; font-weight: 700; margin-bottom: 2px; line-height: 1.2; min-height: 26px; overflow:hidden; }
-      .label .name_ar { font-size: 10px; color: #555; margin-bottom: 2px; }
+      .label .name_ar { font-family: 'Cairo', 'Amiri', 'Traditional Arabic', sans-serif; font-size: 12px; font-weight: 700; color: #222; margin-bottom: 3px; direction: rtl; }
       .label .meta { font-size: 9px; color: #444; margin-top: 3px; font-family: monospace; }
       .label svg { max-width: 100%; height: auto; }
       @media print { .no-print { display: none; } }
@@ -41,5 +44,6 @@ export function printLabels(items) {
     <div class="grid">${cards}</div>
     </body></html>`);
   w.document.close();
-  setTimeout(() => w.print(), 400);
+  // Give the Cairo webfont a beat to load so Arabic glyphs render properly.
+  setTimeout(() => w.print(), 600);
 }

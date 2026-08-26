@@ -120,18 +120,27 @@ function ItemForm({ initial, suppliers, onSubmit, onCancel, t }) {
 }
 
 function printBarcode(item) {
-  const w = window.open("", "_blank", "width=420,height=280");
+  const w = window.open("", "_blank", "width=420,height=320");
   const svg = document.getElementById(`barcode-svg-${item.id}`)?.outerHTML || "";
   w.document.write(`<html><head><title>${item.sku}</title>
-    <style>body{font-family:sans-serif;text-align:center;padding:16px}h3{margin:6px 0;font-size:14px}p{margin:2px 0;font-size:12px;color:#333}</style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700&display=swap" rel="stylesheet">
+    <style>
+      body{font-family:sans-serif;text-align:center;padding:16px}
+      h3{margin:6px 0;font-size:15px;font-weight:700}
+      .ar{font-family:'Cairo','Amiri','Traditional Arabic',sans-serif;font-size:15px;font-weight:700;color:#111;direction:rtl;margin:4px 0 8px}
+      p{margin:2px 0;font-size:12px;color:#333}
+    </style>
     </head><body>
-    <h3>${item.name}${item.name_ar ? "<br><small style='color:#666'>" + item.name_ar + "</small>" : ""}</h3>
+    <h3>${item.name}</h3>
+    ${item.name_ar ? `<div class="ar">${item.name_ar}</div>` : ""}
     <p>${item.sku} · €${Number(item.selling_price).toFixed(2)}</p>
     ${svg}
     <p>${item.barcode}</p>
     </body></html>`);
   w.document.close();
-  setTimeout(() => w.print(), 250);
+  setTimeout(() => w.print(), 400);
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -790,7 +799,25 @@ export default function Inventory() {
           {labelItem && (
             <div className="p-4 border border-border rounded-md bg-white text-black text-center space-y-1">
               <div className="text-sm font-semibold">{labelItem.name}</div>
-              {labelItem.name_ar && <div className="text-xs text-gray-600" dir="rtl">{labelItem.name_ar}</div>}
+              {labelItem.name_ar ? (
+                <div
+                  className="text-base font-bold text-gray-800"
+                  dir="rtl"
+                  style={{ fontFamily: "'Cairo','Amiri','Traditional Arabic',sans-serif" }}
+                  data-testid="barcode-label-name-ar"
+                >
+                  {labelItem.name_ar}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { setEditing(labelItem); setLabelItem(null); setOpen(true); }}
+                  className="text-[11px] text-primary hover:underline"
+                  data-testid="barcode-add-ar-name"
+                >
+                  + {t("addArabicName") || "أضف الاسم العربي"}
+                </button>
+              )}
               <div className="text-xs">{labelItem.sku} · {formatEUR(labelItem.selling_price)}</div>
               <div className="flex justify-center">
                 <Barcode id={`barcode-svg-${labelItem.id}`} value={labelItem.barcode} height={60} fontSize={12} margin={4} />
