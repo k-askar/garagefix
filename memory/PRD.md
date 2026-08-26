@@ -18,6 +18,17 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26l — CRITICAL bugfix: purge wiped out super_admin (platform lockout)
+- **Root cause**: super_admin `platform@pitstock.app` had `tenant_id` stamped on it (contamination from a past impersonation / profile-update path).  `delete_tenant(purge=true)` runs `users.delete_many({tenant_id: X})` and swept the super_admin away — next login returned "Invalid credentials" and the platform was locked out with no way to manage garages.
+- **Fix (2 layers)**:
+  1. `routes/tenants.py` — the purge loop now branches for `users` and adds `role: {"$ne": "super_admin"}` so no future tenant delete can ever touch a platform admin.
+  2. `server.py` startup — self-heal `update_many({role: "super_admin", tenant_id: {$ne: null}}, {$set: {tenant_id: null}})` runs on every boot, so any past or future contamination is cleaned up before the next request lands.  Logs the count when it fires.
+- **Preview DB immediate recovery**: one super_admin had `tenant_id` set — cleared it manually before restart, then confirmed the startup self-heal picked it up on subsequent boots.
+- **Verified end-to-end (testing_agent, 10/10 pass)**: reproduced the contaminated state (manually stamped `tenant_id` on super_admin via pymongo), ran `DELETE /api/tenants/{id}?purge=true`, confirmed the super_admin survived, login still returns 200, `GET /api/tenants` still 200, purged tenant's owner user was deleted (regression clean), tenant absent from list, plus soft-delete regression + 404 unknown + 403 owner-role guard. Test file: `/app/backend/tests/test_iteration15.py`.
+- **Follow-up hardening (optional, tracked)**: block super_admin from ever being written with a non-null tenant_id at the write-time boundary (POST /users, PUT /users, impersonation) so the startup self-heal becomes a safety net rather than the primary defence.
+
+
+
 ### Session 2026-02-26k — SaaS billing + Dutch default + landing/login redesign
 - **`routes/saas_billing.py`** — new module.  Model + PDF (via reportlab) + endpoints: `GET /saas-invoices` (super_admin list), `POST /saas-invoices/generate/{tenant_id}` (manual), `POST /saas-invoices/{id}/mark-paid`, `GET /saas-invoices/{id}/pdf` (streams the cached PDF).  Prices: trial=€0, starter=€29, pro=€79 per month (edit `PLAN_PRICE_EUR` map).  Idempotent per (tenant_id, period_start).
 - **`subscription_cron.py`** — reminder path now calls `_create_saas_invoice(...)` on the 7/3/1-day nudge, attaches the PDF to the outgoing email, flips the SaaS invoice's status to `sent`.  All email HTML translated to Dutch (`Betaalherinnering` / `Abonnement verlopen`).

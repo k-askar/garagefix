@@ -3870,6 +3870,66 @@ api_router.include_router(_register_subscription_cron(db, WEBHOOK_CRON_SECRET, s
 api_router.include_router(_register_saas_billing(db, require_super_admin))
 
 
+class ResetOwnerPayload(BaseModel):
+    owner_email: Optional[str] = None       # new login email for the owner user
+    owner_name: Optional[str] = None
+    new_password: Optional[str] = None      # if provided, replaces the current password
+
+
+@api_router.post("/tenants/{tenant_id}/reset-owner")
+async def reset_tenant_owner(
+    tenant_id: str,
+    payload: ResetOwnerPayload,
+    user: dict = Depends(require_super_admin),
+):
+    """Super-admin support tool: rewrite the OWNER user's email, name and/or
+    password for a garage.  Used for emergencies (lost email inbox access,
+    forgotten password, ownership handover).  Also updates `tenant.owner_email`
+    so future onboarding + billing emails go to the new address."""
+    raw_db = getattr(db, "_db", db)
+    tenant = await raw_db.tenants.find_one({"id": tenant_id}, {"_id": 0})
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    owner = await raw_db.users.find_one(
+        {"tenant_id": tenant_id, "role": "owner"},
+        {"_id": 0},
+    )
+    if not owner:
+        raise HTTPException(status_code=404, detail="No owner user found for this tenant")
+
+    update: dict = {}
+    new_email = (payload.owner_email or "").strip().lower()
+    if new_email and new_email != (owner.get("email") or "").lower():
+        # Guard against colliding with a user in ANY tenant.
+        collision = await raw_db.users.find_one({"email": new_email, "id": {"$ne": owner["id"]}}, {"_id": 0, "id": 1})
+        if collision:
+            raise HTTPException(status_code=409, detail=f"Email {new_email} already in use")
+        update["email"] = new_email
+    if payload.owner_name and payload.owner_name.strip():
+        update["name"] = payload.owner_name.strip()
+    if payload.new_password:
+        pw = payload.new_password.strip()
+        if len(pw) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+        update["password_hash"] = hash_password(pw)
+        # Clear any pending "set your password" flow so the new password wins.
+        update["password_pending"] = False
+        update["password_setup_token"] = None
+
+    if not update:
+        raise HTTPException(status_code=400, detail="Nothing to change — send at least one field")
+
+    await raw_db.users.update_one({"id": owner["id"]}, {"$set": update})
+    if "email" in update:
+        await raw_db.tenants.update_one({"id": tenant_id}, {"$set": {"owner_email": update["email"]}})
+    return {
+        "ok": True,
+        "changed": list(update.keys()),
+        "owner_email": update.get("email") or owner.get("email"),
+    }
+
+
 # --- Cash Register / Daily Till ---
 @api_router.get("/ledger")
 async def ledger(
@@ -4610,6 +4670,17 @@ async def startup():
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
             logger.info(f"Seeded super_admin user: {sa_email}")
+
+        # Self-heal: every super_admin MUST have tenant_id=None so a tenant
+        # purge can never sweep them away.  A past impersonation / profile
+        # update bug could have stamped a tenant_id on the platform admin —
+        # clear it here on every boot so the bug can't lock out the platform.
+        heal = await _raw_db.users.update_many(
+            {"role": "super_admin", "tenant_id": {"$ne": None}},
+            {"$set": {"tenant_id": None}},
+        )
+        if heal.modified_count:
+            logger.warning(f"Cleared tenant_id from {heal.modified_count} super_admin user(s) — recovered from purge-lockout risk")
     except Exception as e:
         logger.exception(f"Multi-tenant startup migration failed: {e}")
     # ------------------------------------------------------------------

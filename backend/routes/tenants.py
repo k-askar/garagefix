@@ -255,7 +255,17 @@ def register(db, get_current_user, require_super_admin, provision_owner=None):
 
         deleted = {}
         for name in scoped_collections + extra_collections:
-            res = await getattr(db._db, name).delete_many({"tenant_id": tenant_id})
+            if name == "users":
+                # CRITICAL: never delete super_admins even if they somehow
+                # ended up carrying this tenant_id (impersonation glitch,
+                # manual DB edit, etc.).  Losing every super_admin means
+                # the platform is locked out.
+                res = await db._db.users.delete_many({
+                    "tenant_id": tenant_id,
+                    "role": {"$ne": "super_admin"},
+                })
+            else:
+                res = await getattr(db._db, name).delete_many({"tenant_id": tenant_id})
             deleted[name] = res.deleted_count
 
         # Settings uses `_id = garage:<tid>` — delete by primary key.

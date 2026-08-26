@@ -1,0 +1,18 @@
+{
+  "summary": "Backend-only verification of the super_admin purge-lockout fix (2 layers). Created /app/backend/tests/test_iteration15.py with 10 pytest cases: super_admin login, tenants list access, DB assertion that no super_admin carries a tenant_id, and a full create -> deliberately contaminate super_admin.tenant_id in Mongo -> DELETE /api/tenants/{id}?purge=true -> verify super_admin document survived, login still 200, /api/tenants still 200, purged tenant's owner user deleted, tenant gone from list. Plus soft-delete regression, 404 on unknown tenant purge, 403 for owner role, owner login regression. Result: 10/10 passed. All test data cleaned up (no TEST_ tenants or purge_bug_test/soft_del users remain; super_admin tenant_id restored to null).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_iteration15.py", "/app/test_reports/pytest/iter15.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "delete_tenant purge guard only protects the users collection; other scoped collections still delete by tenant_id alone — acceptable since only users can hold a super_admin, but consider a shared helper if more platform-level docs are added.",
+    "Optional hardening: block super_admin from ever receiving a tenant_id at write time (POST/PUT /api/users, impersonation token exchange) so the startup self-heal becomes a safety net rather than the primary defence."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration15.py"],
+  "success_rate": {"backend": "100%", "frontend": "not tested (per request)"},
+  "seed_data_creation": "Temporary tenants TEST_PurgeBug_* / TEST_SoftDel_* and owner users purge_bug_test_*@garage.local, soft_del_*@garage.local — all purged during the test run; DB verified clean.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "test_iteration15.py directly manipulates Mongo (pymongo) to simulate super_admin tenant_id contamination and always restores tenant_id=None in a finally block. Reuse it as a regression test for any change to routes/tenants.py delete_tenant or the startup self-heal in server.py (~line 4676).",
+  "rca_of_the_issue": "Original bug: purge ran users.delete_many({tenant_id: X}) and the super_admin doc had a stale tenant_id (impersonation/profile contamination), so it was swept away and login returned Invalid credentials. Both fixes verified: (a) startup self-heal update_many sets tenant_id=None for all super_admins on boot; (b) purge query excludes role='super_admin'. Reproduced the exact contaminated state and confirmed the super_admin now survives a purge."
+}

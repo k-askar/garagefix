@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Building2, Plus, Power, PowerOff, Globe, LogIn, Trash2, AlertTriangle, CalendarClock, Bell, RefreshCw } from "lucide-react";
+import { Building2, Plus, Power, PowerOff, Globe, LogIn, Trash2, AlertTriangle, CalendarClock, Bell, RefreshCw, Pencil, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 
 const COUNTRIES = ["NL", "BE", "DE", "FR", "ES", "IT", "GB", "TR", "MA", "SA", "AE", "EG"];
@@ -27,6 +27,11 @@ export default function SuperAdmin() {
   const [purgeTarget, setPurgeTarget] = useState(null);   // tenant selected for hard-delete
   const [purgeConfirmName, setPurgeConfirmName] = useState("");
   const [purging, setPurging] = useState(false);
+  // "Edit owner" dialog — super-admin support tool to fix a lost email / reset
+  // a forgotten password for a specific garage owner.
+  const [editTarget, setEditTarget] = useState(null);
+  const [editForm, setEditForm] = useState({ owner_email: "", owner_name: "", new_password: "" });
+  const [editSaving, setEditSaving] = useState(false);
   const [form, setForm] = useState({ name: "", country: "NL", plan: "trial", owner_email: "", owner_name: "" });
   const { data: tenants = [], isLoading } = useQuery({
     queryKey: ["tenants"],
@@ -94,6 +99,39 @@ export default function SuperAdmin() {
   const openPurgeDialog = (t) => {
     setPurgeTarget(t);
     setPurgeConfirmName("");
+  };
+
+  const openEditOwner = (t) => {
+    setEditTarget(t);
+    setEditForm({
+      owner_email: t.owner_email || "",
+      owner_name: "",
+      new_password: "",
+    });
+  };
+  const saveOwnerEdit = async () => {
+    if (!editTarget) return;
+    // Only send fields that were actually filled in — the endpoint rejects
+    // an empty payload so we surface a friendly error instead.
+    const body = {};
+    if (editForm.owner_email && editForm.owner_email !== editTarget.owner_email) body.owner_email = editForm.owner_email.trim();
+    if (editForm.owner_name?.trim()) body.owner_name = editForm.owner_name.trim();
+    if (editForm.new_password?.trim()) body.new_password = editForm.new_password.trim();
+    if (Object.keys(body).length === 0) {
+      toast.error("Change at least one field first");
+      return;
+    }
+    setEditSaving(true);
+    try {
+      const { data } = await api.post(`/tenants/${editTarget.id}/reset-owner`, body);
+      toast.success(`Updated: ${data.changed.join(", ")}`);
+      setEditTarget(null);
+      qc.invalidateQueries({ queryKey: ["tenants"] });
+    } catch (err) {
+      toast.error(formatApiError(err));
+    } finally {
+      setEditSaving(false);
+    }
   };
   const confirmPurge = async () => {
     if (!purgeTarget) return;
@@ -273,6 +311,16 @@ export default function SuperAdmin() {
                     <Button
                       size="sm"
                       variant="outline"
+                      className="rounded-full"
+                      onClick={() => openEditOwner(t)}
+                      title="Edit owner email / password (emergency support)"
+                      data-testid={`tenant-edit-${t.id}`}
+                    >
+                      <Pencil className="h-3 w-3 mr-1" />Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
                       className="rounded-full border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
                       onClick={() => openPurgeDialog(t)}
                       title="Permanently delete this garage and all its data"
@@ -336,6 +384,73 @@ export default function SuperAdmin() {
           </form>
         </DialogContent>
       </Dialog>
+      <Dialog open={!!editTarget} onOpenChange={(v) => { if (!v) setEditTarget(null); }}>
+        <DialogContent className="max-w-lg" data-testid="tenant-edit-dialog">
+          <DialogHeader>
+            <DialogTitle className="font-display flex items-center gap-2">
+              <KeyRound className="h-5 w-5 text-primary" /> Edit owner — {editTarget?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Emergency support tool. Updates the owner user's login email, display name, and/or password
+              for this garage. Fields you leave blank stay unchanged.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-400">
+            The new credentials take effect immediately — the current session of anyone signed in as owner
+            will remain valid until they log out, but the next login will require the new password.
+          </div>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Owner login email</Label>
+              <Input
+                type="email"
+                value={editForm.owner_email}
+                onChange={(e) => setEditForm({ ...editForm, owner_email: e.target.value })}
+                placeholder="owner@garage.nl"
+                data-testid="edit-owner-email"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Also updates the address used for billing reminders + onboarding emails.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Owner display name <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Input
+                value={editForm.owner_name}
+                onChange={(e) => setEditForm({ ...editForm, owner_name: e.target.value })}
+                placeholder="Jan de Vries"
+                data-testid="edit-owner-name"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>New password <span className="text-muted-foreground text-xs">(leave blank to keep)</span></Label>
+              <Input
+                type="text"
+                value={editForm.new_password}
+                onChange={(e) => setEditForm({ ...editForm, new_password: e.target.value })}
+                placeholder="min. 6 characters"
+                data-testid="edit-owner-password"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Shown in plain text so you can dictate it to the owner over the phone.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setEditTarget(null)} disabled={editSaving}>Cancel</Button>
+            <Button
+              type="button"
+              className="rounded-full bg-primary"
+              onClick={saveOwnerEdit}
+              disabled={editSaving}
+              data-testid="edit-owner-save"
+            >
+              {editSaving ? "Saving…" : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!purgeTarget} onOpenChange={(v) => { if (!v) { setPurgeTarget(null); setPurgeConfirmName(""); } }}>
         <DialogContent className="max-w-lg" data-testid="tenant-delete-dialog">
           <DialogHeader>
