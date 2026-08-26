@@ -1718,6 +1718,9 @@ class Invoice(BaseModel):
     created_by: str = ""
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     paid_at: Optional[str] = None
+    # Persistent random token that unlocks the public "Pay this invoice" page
+    # (no login).  Included in the overdue reminder email as a "Pay now" CTA.
+    pay_token: Optional[str] = None
 
 class InvoiceFromTxns(BaseModel):
     customer_id: Optional[str] = None
@@ -1793,7 +1796,7 @@ _OVERDUE_TONE = {
 }
 
 
-def _overdue_email_html(inv, garage_name, iban, stage: int = 1):
+def _overdue_email_html(inv, garage_name, iban, stage: int = 1, pay_url: str = ""):
     tone = _OVERDUE_TONE.get(stage, _OVERDUE_TONE[1])
     days = int(inv.get("days_overdue") or 0)
     body = tone["body"].format(
@@ -1804,6 +1807,25 @@ def _overdue_email_html(inv, garage_name, iban, stage: int = 1):
         s="s" if days != 1 else "",
     )
     iban_line = (f'<p>Bank transfer to <strong>{escape(iban)}</strong>.</p>' if iban else '')
+    # Big "Pay now" CTA — links to the public payment page with SEPA QR +
+    # click-to-copy IBAN + iDEAL banking-app deep link.  Only rendered when
+    # the caller supplied a public pay URL (i.e. the invoice has a pay_token
+    # and APP_PUBLIC_URL is configured).
+    pay_button = ""
+    if pay_url:
+        pay_button = (
+            f'<p style="text-align:center;margin:24px 0">'
+            f'<a href="{escape(pay_url)}" '
+            f'style="display:inline-block;background:{tone["accent"]};color:#fff;'
+            f'text-decoration:none;padding:14px 32px;border-radius:999px;'
+            f'font-weight:700;font-size:15px">'
+            f'Pay {inv["total"]:.2f} € now'
+            f'</a>'
+            f'</p>'
+            f'<p style="text-align:center;font-size:11px;color:#888;margin:-8px 0 16px">'
+            f'Opens a secure page with an iDEAL / SEPA payment QR.'
+            f'</p>'
+        )
     return (f'<table role="presentation" width="100%"><tr><td style="padding:24px;'
             f'font-family:Arial,sans-serif;color:#111;max-width:560px">'
             f'<div style="border-left:4px solid {tone["accent"]};padding-left:12px;margin-bottom:16px">'
@@ -1811,6 +1833,7 @@ def _overdue_email_html(inv, garage_name, iban, stage: int = 1):
             f'</div>'
             f'<p>{tone["greeting"].format(name=escape(inv.get("customer_name") or "there"))}</p>'
             f'<p>{body}</p>'
+            f'{pay_button}'
             f'{iban_line}'
             f'<p>{tone["cta"]}</p>'
             f'<p style="font-size:12px;color:#888;margin-top:24px">Sent by {escape(garage_name)}.</p>'
@@ -1833,7 +1856,15 @@ async def _send_overdue_email(inv, stage: Optional[int] = None):
     iban = s.get("iban") or ""
     tone = _OVERDUE_TONE.get(picked_stage, _OVERDUE_TONE[1])
     subject = tone["subject"].format(inv=inv["invoice_number"], days=days)
-    html = _overdue_email_html(inv, garage_name, iban, picked_stage)
+    # Ensure the invoice has a persistent pay_token so the CTA in every future
+    # reminder links to the same public page.
+    pay_token = inv.get("pay_token")
+    if not pay_token:
+        pay_token = secrets.token_urlsafe(24)
+        await db.invoices.update_one({"id": inv["id"]}, {"$set": {"pay_token": pay_token}})
+    base = (os.environ.get("APP_PUBLIC_URL") or "").rstrip("/")
+    pay_url = f"{base}/pay/{pay_token}" if base and pay_token else ""
+    html = _overdue_email_html(inv, garage_name, iban, picked_stage, pay_url=pay_url)
     meta = await _tenant_email_meta()
     # Append per-tenant footer so the customer sees the garage's own contact
     # info even though the email leaves from the platform sender.
@@ -2141,6 +2172,69 @@ async def download_invoice_public_pdf(token: str):
             "Cache-Control": "private, max-age=300",
         },
     )
+
+
+def _sepa_uri(*, iban: str, name: str, amount: float, reference: str, bic: str = "") -> str:
+    """EPC-069 SEPA payment URI understood by every major NL / EU banking app
+    (ABN, ING, Rabo, N26, Revolut…). Scanning the QR encoded from this string
+    pre-fills the recipient, amount and reference in the app."""
+    iban = (iban or "").replace(" ", "").upper()
+    if not iban:
+        return ""
+    # `sepa://` is the widely-supported de-facto scheme; `sepapayment:` is the
+    # official EPC one but only handled by a subset of apps.  Use the common
+    # one and let banking apps fall back to normal manual entry when unknown.
+    from urllib.parse import quote
+    parts = [f"iban={quote(iban)}"]
+    if name:      parts.append(f"name={quote(name)}")
+    if bic:       parts.append(f"bic={quote(bic)}")
+    if amount:    parts.append(f"amount={amount:.2f}")
+    if reference: parts.append(f"reference={quote(reference)}")
+    return "sepa://?" + "&".join(parts)
+
+
+@api_router.get("/public/pay/{token}")
+async def public_pay_info(token: str):
+    """Return everything a customer needs to pay an unpaid invoice — no auth.
+    Called by the /pay/:token frontend page linked from overdue emails."""
+    inv = await db.invoices.find_one({"pay_token": token}, {"_id": 0})
+    if not inv:
+        raise HTTPException(status_code=404, detail="Payment link not found")
+    # Find the tenant-scoped garage settings so we can show the correct IBAN /
+    # BIC / brand.  We stored `tenant_id` on every invoice.
+    tid = inv.get("tenant_id")
+    s = None
+    if tid:
+        s = await db.settings.find_one({"_id": f"garage:{tid}"}, {"_id": 0})
+    if not s:
+        s = await db.settings.find_one({"_id": "garage"}, {"_id": 0}) or {}
+    reference = inv.get("invoice_number") or ""
+    return {
+        "invoice_number": inv.get("invoice_number"),
+        "customer_name": inv.get("customer_name") or "",
+        "amount": float(inv.get("total") or 0),
+        "currency": "EUR",
+        "due_date": inv.get("due_date"),
+        "status": inv.get("status") or "draft",   # "paid" if already settled
+        "paid_at": inv.get("paid_at"),
+        "garage": {
+            "name": s.get("name") or "PitStock Garage",
+            "email": s.get("email") or "",
+            "phone": s.get("phone") or "",
+            "address": s.get("address") or "",
+            "iban": s.get("iban") or "",
+            "bic": s.get("bic") or "",
+            "kvk_number": s.get("kvk_number") or "",
+        },
+        "sepa_uri": _sepa_uri(
+            iban=s.get("iban") or "",
+            name=s.get("name") or "",
+            amount=float(inv.get("total") or 0),
+            reference=reference,
+            bic=s.get("bic") or "",
+        ),
+        "reference": reference,
+    }
 
 
 @api_router.get("/customers/{cid}/balance")

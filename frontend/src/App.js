@@ -31,6 +31,7 @@ import PasswordSetup from "@/pages/PasswordSetup";
 import SuperAdmin from "@/pages/SuperAdmin";
 import MyProfile from "@/pages/MyProfile";
 import EmailLogs from "@/pages/EmailLogs";
+import PayInvoice from "@/pages/PayInvoice";
 import "@/App.css";
 
 function ProtectedShell() {
@@ -68,6 +69,7 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/passport/:token" element={<CarPassport />} />
             <Route path="/setup-password/:token" element={<PasswordSetup />} />
+            <Route path="/pay/:token" element={<PayInvoice />} />
             <Route element={<ProtectedShell />}>
               <Route path="/" element={<Dashboard />} />
               <Route path="/inventory" element={<Inventory />} />

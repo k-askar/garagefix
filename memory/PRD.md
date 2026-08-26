@@ -18,6 +18,16 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26h — "Pay now" button in overdue reminders (SEPA/iDEAL QR page)
+- **Invoice model** gains `pay_token` (persistent random URL slug). Lazily minted on the first overdue send so past invoices don't need a migration.
+- **`GET /api/public/pay/{token}`** (no auth) — returns amount, garage bank details (IBAN, BIC, KvK, address, phone), reference (= invoice number), current status (paid/draft) and a ready-to-use EPC SEPA URI (`sepa://?iban=...&amount=...&reference=...`) that every EU banking app understands.
+- **`_sepa_uri()`** helper generates the SEPA payment URI with URL-encoded params. Recipient, amount and reference pre-fill in ABN AMRO, ING, Rabobank, SNS, Bunq, Revolut, N26.
+- **Overdue reminder email** now includes a big **"Pay € X.XX now"** CTA button (colour matches escalation tone: red for final notice) that opens `/pay/{token}` — the CTA appears only if `APP_PUBLIC_URL` is configured, otherwise the email falls back to the plain IBAN line.
+- **`/pay/:token`** public page (`PayInvoice.jsx`) — no login. Renders a beautiful mobile-first payment card: amount, SEPA QR (via `qrcode` npm lib), "Open my banking app" deep link, plus a "transfer manually" panel with click-to-copy IBAN / BIC / reference. Shows an emerald "Already paid" banner if the invoice status is `paid`. Rose error state on invalid/expired token.
+- Verified: `GET /api/public/pay/{token}` returns correct JSON with `sepa_uri`, invalid token → 404, page renders QR + amount + copy buttons in a mobile viewport screenshot.
+
+
+
 ### Session 2026-02-26g — Bugfix: RDW model dropped from job-card form
 - **Root cause**: `VehicleMakeModelYear.jsx` had auto-flip-to-manual for Make but NOT for Model. RDW returns detailed model strings like `"Civic 4Dr Hybrid"` while the catalog only lists `"Civic"`, so `SearchableSelect` silently rendered "Pick a model…" and dropped the value.
 - **Fix**: mirrored the Make behaviour — once the models query resolves, if `v.model` isn't in the fetched list, flip `manualModel=true` so a plain `<Input>` shows the actual RDW string. Zero data loss regardless of how detailed the RDW handelsbenaming is.
