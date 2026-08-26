@@ -31,20 +31,30 @@ logger = logging.getLogger(__name__)
 REMINDER_STAGES = [7, 3, 1]
 
 
-def _reminder_html(garage_name: str, days: int, expires: str):
-    urgency = "friendly reminder" if days >= 7 else "important reminder" if days >= 3 else "final reminder"
+def _reminder_html(garage_name: str, days: int, expires: str, amount: float = 0, invoice_number: str = ""):
+    urgency = "vriendelijke herinnering" if days >= 7 else "belangrijke herinnering" if days >= 3 else "laatste herinnering"
+    invoice_line = ""
+    if invoice_number:
+        invoice_line = (
+            f'<p style="background:#f5f5f5;padding:12px;border-radius:6px;'
+            f'font-family:monospace;font-size:13px">'
+            f'📎 Factuur <strong>{escape(invoice_number)}</strong> — '
+            f'<strong>€ {amount:.2f}</strong> (bijgevoegd als PDF)'
+            f'</p>'
+        )
     return (
         f'<div style="font-family:Arial,sans-serif;color:#111;max-width:560px;padding:24px">'
-        f'<h2 style="margin:0 0 12px">Payment {urgency}</h2>'
-        f'<p>Hi {escape(garage_name)} team,</p>'
-        f'<p>Your PitStock subscription expires in '
-        f'<strong>{days} day{"s" if days != 1 else ""}</strong> (on '
+        f'<h2 style="margin:0 0 12px">Betaal-{urgency}</h2>'
+        f'<p>Beste team van {escape(garage_name)},</p>'
+        f'<p>Uw GarageFix-abonnement verloopt over '
+        f'<strong>{days} dag{"en" if days != 1 else ""}</strong> (op '
         f'<strong>{escape(expires)}</strong>).</p>'
-        f'<p>To keep serving your customers without interruption, please '
-        f'settle your invoice before that date.</p>'
+        f'{invoice_line}'
+        f'<p>Om uw klanten zonder onderbreking te blijven bedienen, gelieve '
+        f'de factuur vóór die datum te voldoen.</p>'
         f'<p style="color:#888;font-size:12px;margin-top:24px">'
-        f'If you have already paid, please ignore this message — it can take '
-        f'a working day for the payment to reach us.</p>'
+        f'Heeft u al betaald? Negeer dan dit bericht — het duurt soms een '
+        f'werkdag voordat de betaling bij ons binnen is.</p>'
         f'</div>'
     )
 
@@ -52,19 +62,19 @@ def _reminder_html(garage_name: str, days: int, expires: str):
 def _expired_html(garage_name: str, expires: str):
     return (
         f'<div style="font-family:Arial,sans-serif;color:#111;max-width:560px;padding:24px">'
-        f'<h2 style="margin:0 0 12px;color:#b91c1c">Subscription expired</h2>'
-        f'<p>Hi {escape(garage_name)} team,</p>'
-        f'<p>Your PitStock subscription expired on <strong>{escape(expires)}</strong> '
-        f'and your workspace has been temporarily suspended.</p>'
-        f'<p>To restore access, settle your outstanding invoice and we will '
-        f'reactivate your account the same day.</p>'
+        f'<h2 style="margin:0 0 12px;color:#b91c1c">Abonnement verlopen</h2>'
+        f'<p>Beste team van {escape(garage_name)},</p>'
+        f'<p>Uw GarageFix-abonnement is verlopen op <strong>{escape(expires)}</strong> '
+        f'en uw werkomgeving is tijdelijk opgeschort.</p>'
+        f'<p>Om weer toegang te krijgen, voldoet u de openstaande factuur — '
+        f'wij heractiveren uw account nog dezelfde dag.</p>'
         f'<p style="color:#888;font-size:12px;margin-top:24px">'
-        f'Data is preserved for 30 days after suspension.</p>'
+        f'Uw data blijft 30 dagen bewaard na opschorting.</p>'
         f'</div>'
     )
 
 
-def register(db, webhook_secret: str, send_email):
+def register(db, webhook_secret: str, send_email, create_saas_invoice_fn=None):
     router = APIRouter()
 
     def _auth(authorization: Optional[str]):
@@ -131,13 +141,35 @@ def register(db, webhook_secret: str, send_email):
             if picked is None or str(picked) in reminded:
                 continue
             try:
+                # Auto-generate a SaaS invoice for the upcoming period + attach as PDF
+                inv_num = ""; inv_amount = 0.0; attachments = None
+                if create_saas_invoice_fn:
+                    try:
+                        saas_inv = await create_saas_invoice_fn(db, t)
+                        inv_num = saas_inv.get("invoice_number") or ""
+                        inv_amount = float(saas_inv.get("amount") or 0)
+                        if saas_inv.get("pdf_base64"):
+                            attachments = [{
+                                "filename": f"{inv_num}.pdf",
+                                "content_base64": saas_inv["pdf_base64"],
+                            }]
+                    except Exception as e:
+                        logger.warning(f"SaaS invoice attach failed for {t.get('name')}: {e}")
                 await send_email(
                     to=owner_email,
-                    subject=f"PitStock — Payment reminder ({days} day{'s' if days != 1 else ''} left)",
-                    html=_reminder_html(t.get("name", ""), days, exp),
+                    subject=f"GarageFix — Betaalherinnering ({days} dag{'en' if days != 1 else ''} resterend)",
+                    html=_reminder_html(t.get("name", ""), days, exp, inv_amount, inv_num),
                     purpose="subscription_reminder",
                     related_id=t["id"],
+                    attachments=attachments,
                 )
+                if saas_inv := (attachments and inv_num):
+                    # Mark the SaaS invoice as "sent" now that its PDF left the building.
+                    raw_db = getattr(db, "_db", db)
+                    await raw_db.saas_invoices.update_one(
+                        {"tenant_id": t["id"], "invoice_number": inv_num},
+                        {"$set": {"status": "sent", "sent_at": datetime.now(timezone.utc).isoformat()}},
+                    )
                 await raw_db.tenants.update_one(
                     {"id": t["id"]},
                     {"$addToSet": {"reminder_days_sent": str(picked)}},

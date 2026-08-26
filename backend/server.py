@@ -1435,6 +1435,9 @@ class GarageSettings(BaseModel):
     loyalty_enabled: bool = True
     loyalty_threshold: int = 5           # number of paid invoices the customer must accumulate to earn a reward
     loyalty_discount_eur: float = 25.0   # € discount automatically applied on the next invoice after the milestone
+    # Default UI language for the garage — every staff member's browser reads
+    # this as its initial locale before falling back to their own preference.
+    default_language: Literal["en", "nl", "ar"] = "nl"
 
 @api_router.get("/settings")
 async def get_settings(user: dict = Depends(get_current_user)):
@@ -3821,6 +3824,7 @@ from routes.kvk       import register as _register_kvk        # noqa: E402
 from routes.tenants   import register as _register_tenants    # noqa: E402
 from routes.email_logs import register as _register_email_logs  # noqa: E402
 from routes.subscription_cron import register as _register_subscription_cron  # noqa: E402
+from routes.saas_billing import register as _register_saas_billing, _create_saas_invoice as _create_saas_invoice_fn  # noqa: E402
 
 # Helper passed into routes/tenants.py so the super-admin "Create garage"
 # endpoint can auto-provision a pending-password owner user and email the
@@ -3862,7 +3866,8 @@ api_router.include_router(_register_rdw(get_current_user))
 api_router.include_router(_register_kvk(get_current_user))
 api_router.include_router(_register_tenants(db, get_current_user, require_super_admin, _provision_tenant_owner))
 api_router.include_router(_register_email_logs(db, get_current_user, send_email, require_super_admin))
-api_router.include_router(_register_subscription_cron(db, WEBHOOK_CRON_SECRET, send_email))
+api_router.include_router(_register_subscription_cron(db, WEBHOOK_CRON_SECRET, send_email, _create_saas_invoice_fn))
+api_router.include_router(_register_saas_billing(db, require_super_admin))
 
 
 # --- Cash Register / Daily Till ---

@@ -18,6 +18,16 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26k — SaaS billing + Dutch default + landing/login redesign
+- **`routes/saas_billing.py`** — new module.  Model + PDF (via reportlab) + endpoints: `GET /saas-invoices` (super_admin list), `POST /saas-invoices/generate/{tenant_id}` (manual), `POST /saas-invoices/{id}/mark-paid`, `GET /saas-invoices/{id}/pdf` (streams the cached PDF).  Prices: trial=€0, starter=€29, pro=€79 per month (edit `PLAN_PRICE_EUR` map).  Idempotent per (tenant_id, period_start).
+- **`subscription_cron.py`** — reminder path now calls `_create_saas_invoice(...)` on the 7/3/1-day nudge, attaches the PDF to the outgoing email, flips the SaaS invoice's status to `sent`.  All email HTML translated to Dutch (`Betaalherinnering` / `Abonnement verlopen`).
+- **`GarageSettings.default_language`** (`en`|`nl`|`ar`) added — defaults to `nl`.  Settings default form updated.  i18n loader defaults to `nl` when no explicit user preference exists so first-time visitors see Dutch immediately.
+- **Login page** — complete redesign.  Removed the "DEMO admin@garage.com / admin123" hint card and the split-image layout.  New centred glass card on the dark GarageFix-branded gradient (matches Landing), with placeholder inputs, `<ShieldCheck>` footer note, and a "← Terug naar startpagina" link back to `/`.
+- **Landing page** — fully translated (EN + NL + AR) via `useLang()`.  Added the `LanguageSwitcher` component next to the Sign-in pill so a visitor can flip locales instantly.  Hero, badge, subtitle and the three feature cards all pull from i18n keys.
+- Verified end-to-end: `POST /saas-invoices/generate/{tid}` returned invoice `GF-2026-0001`, `GET /saas-invoices/{id}/pdf` streams a valid PDF (Content-Type `application/pdf`, non-empty body).  Landing page screenshot in `nl` shows "Elke auto, elk onderdeel, elke euro — bijgehouden" with a working "NL" locale pill + "Inloggen" button.
+
+
+
 ### Session 2026-02-26j — Full Dutch/Arabic invoice + receipt translation
 - **`invoice-render.js`** — extracted all invoice labels into an `I18N` map (`en` / `nl` / `ar`) covering paid/invoice badge, "Bill to", table headers (Item/Qty/Unit/Total), Subtotal/Total row, bank block (Bank / IBAN / BIC / Reference / Amount + "Pay with iDEAL/SEPA" heading + "Scan met bank-app" hint), "Payment due within X days", walk-in fallback, footer thank-you note, and `Date.toLocaleDateString` locale. `renderInvoiceHtml(inv, settings, { lang })` now defaults to Dutch when no lang given — the majority audience.
 - **`receipt.js`** — same treatment for the kassabon: RECEIPT badge, Date / Customer / Note / Part / Qty / Price / Total / Tax ID / thank-you.

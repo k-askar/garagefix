@@ -64,6 +64,7 @@ const DEFAULT_FORM = {
   invoice_currency_symbol_pos: "suffix",
   invoice_template: "classic",
   loyalty_enabled: true, loyalty_threshold: 5, loyalty_discount_eur: 25,
+  default_language: "nl",
 };
 
 /* Curated colour presets — one-click swap, dynamic accent everywhere. */
