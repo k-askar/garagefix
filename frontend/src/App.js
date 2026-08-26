@@ -121,7 +121,7 @@ function App() {
               <Route path="/settings" element={<OwnerRoute><Settings /></OwnerRoute>} />
               <Route path="/super-admin" element={<SuperAdminRoute><SuperAdmin /></SuperAdminRoute>} />
               <Route path="/my-profile" element={<MyProfile />} />
-              <Route path="/email-logs" element={<OwnerRoute><EmailLogs /></OwnerRoute>} />
+              <Route path="/email-logs" element={<SuperAdminRoute><EmailLogs /></SuperAdminRoute>} />
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>

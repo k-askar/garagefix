@@ -31,7 +31,6 @@ const NAV = [
 const OWNER_NAV = [
   { to: "/purchase-orders", key: "purchaseOrders", icon: ShoppingCart, testId: "nav-po" },
   { to: "/staff", key: "staff", icon: UserCog, testId: "nav-staff" },
-  { to: "/email-logs", key: "emailLogs", icon: Mail, testId: "nav-email-logs" },
   { to: "/settings", key: "settings", icon: SettingsIcon, testId: "nav-settings" },
 ];
 

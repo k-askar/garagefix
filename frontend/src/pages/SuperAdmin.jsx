@@ -10,7 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Building2, Plus, Power, PowerOff, Globe, LogIn, Trash2, AlertTriangle, CalendarClock, Bell, RefreshCw, Pencil, KeyRound } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Building2, Plus, Power, PowerOff, Globe, LogIn, Trash2, AlertTriangle, CalendarClock, Bell, RefreshCw, Pencil, KeyRound, Mail } from "lucide-react";
 import { toast } from "sonner";
 
 const COUNTRIES = ["NL", "BE", "DE", "FR", "ES", "IT", "GB", "TR", "MA", "SA", "AE", "EG"];
@@ -22,6 +23,7 @@ const COUNTRIES = ["NL", "BE", "DE", "FR", "ES", "IT", "GB", "TR", "MA", "SA", "
  */
 export default function SuperAdmin() {
   const qc = useQueryClient();
+  const nav = useNavigate();
   const { setUser } = useAuth();
   const [open, setOpen] = useState(false);
   const [purgeTarget, setPurgeTarget] = useState(null);   // tenant selected for hard-delete
@@ -166,9 +168,20 @@ export default function SuperAdmin() {
             Every workshop connected to the PitStock platform. Each tenant is fully isolated — one login per garage, one dataset per garage.
           </p>
         </div>
-        <Button className="rounded-full bg-primary" onClick={() => setOpen(true)} data-testid="tenant-new-button">
-          <Plus className="h-4 w-4 mr-2" /> New garage
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            className="rounded-full border-primary/40 text-primary hover:bg-primary/10"
+            onClick={() => nav("/email-logs")}
+            data-testid="super-admin-email-logs"
+            title="Platform email delivery log"
+          >
+            <Mail className="h-4 w-4 mr-2" /> Email logs
+          </Button>
+          <Button className="rounded-full bg-primary" onClick={() => setOpen(true)} data-testid="tenant-new-button">
+            <Plus className="h-4 w-4 mr-2" /> New garage
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
