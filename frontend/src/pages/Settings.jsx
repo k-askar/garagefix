@@ -96,9 +96,27 @@ const ALIGNMENTS = [
   { id: "right",  Icon: AlignRight  },
 ];
 
+/* Body-font family map — mirrors invoice-render.js so the live preview looks
+   pixel-close to the actual PDF export.  JetBrains Mono needs a monospace
+   fallback to avoid ugly proportional rendering when the webfont isn't
+   loaded yet. */
+const BODY_FONT_MAP = {
+  helvetica: "'Helvetica Neue', Helvetica, Arial, sans-serif",
+  inter:     "'Inter', 'Helvetica Neue', Arial, sans-serif",
+  jetbrains: "'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace",
+};
+
+/* Invoice-number scale → px.  Same steps used inside invoice-render.js. */
+const NUMBER_SCALE_PX = { sm: 12, md: 15, lg: 18 };
+
+/* QR size → px in the preview (scaled down slightly from the actual PDF
+   values so the sticky panel doesn't overflow). */
+const QR_SIZE_PX = { sm: 68, md: 88, lg: 112 };
+
 /* Live invoice preview — mirrors invoice-render.js so every settings toggle
-   (accent, template, alignment, currency, prefix, QR, plate) shows up here
-   BEFORE the owner even hits Save. */
+   (accent, template, alignment, currency, prefix, QR, plate, body-font,
+   number-scale, QR size + position) shows up here BEFORE the owner even
+   hits Save. */
 function InvoicePreview({ form }) {
   const accent = form.invoice_accent_color || "#0EA5E9";
   const logo = form.logo_url;
@@ -116,8 +134,41 @@ function InvoicePreview({ form }) {
   const tax = (subtotal * taxRate) / 100;
   const total = subtotal + tax;
 
+  // PDF-look tuning knobs (live)
+  const bodyFontFam = BODY_FONT_MAP[form.invoice_body_font || "helvetica"] || BODY_FONT_MAP.helvetica;
+  const numberFontPx = NUMBER_SCALE_PX[form.invoice_number_scale || "sm"] || 12;
+  const qrPx = QR_SIZE_PX[form.invoice_qr_size || "sm"] || 68;
+  const qrPosition = form.invoice_qr_position || "left";
+
+  // Real SEPA/GiroCode preview (when IBAN present).  Encoded exactly like
+  // the production invoice-render.js so what you see = what customers scan.
+  const [qrUrl, setQrUrl] = React.useState("");
+  React.useEffect(() => {
+    const cleanIban = String(form.iban || "").replace(/\s+/g, "").toUpperCase();
+    if (!cleanIban || !form.invoice_show_qr) { setQrUrl(""); return; }
+    let cancelled = false;
+    const payload = [
+      "BCD", "002", "1", "SCT",
+      String(form.bic || "").toUpperCase().trim(),
+      String(form.name || "Garage").slice(0, 70),
+      cleanIban,
+      `EUR${Number(total).toFixed(2)}`,
+      "", "",
+      `${form.invoice_prefix || "F"}-260821-DEMO`,
+      "",
+    ].join("\n");
+    QRCode.toDataURL(payload, { margin: 1, width: 220, errorCorrectionLevel: "M" })
+      .then((u) => { if (!cancelled) setQrUrl(u); })
+      .catch(() => { if (!cancelled) setQrUrl(""); });
+    return () => { cancelled = true; };
+  }, [form.iban, form.bic, form.name, form.invoice_prefix, form.invoice_show_qr, total]);
+
   return (
-    <div className="p-6 bg-white text-black rounded-md border border-border shadow-sm text-sm relative overflow-hidden" data-testid="invoice-preview">
+    <div
+      className="p-6 bg-white text-black rounded-md border border-border shadow-sm text-sm relative overflow-hidden"
+      style={{ fontFamily: bodyFontFam }}
+      data-testid="invoice-preview"
+    >
       {/* Template-specific top band */}
       {template === "classic" && <div style={{ height: 6, background: accent, marginTop: -24, marginLeft: -24, marginRight: -24, marginBottom: 18 }} />}
       {template === "bold"    && <div style={{ height: 3, background: "#000", marginTop: -24, marginLeft: -24, marginRight: -24, marginBottom: 18 }} />}
@@ -139,7 +190,7 @@ function InvoicePreview({ form }) {
             className={`inline-block ${template === "bold" ? "px-4 py-1 rounded-none" : "px-3 py-0.5 rounded-full"} text-[10px] tracking-widest text-white font-bold`}
             style={{ background: accent }}
           >INVOICE</span>
-          <div className="font-mono font-bold mt-1 whitespace-nowrap">{form.invoice_prefix || "F"}-260821-DEMO</div>
+          <div className="font-mono font-bold mt-1 whitespace-nowrap" style={{ fontSize: numberFontPx }}>{form.invoice_prefix || "F"}-260821-DEMO</div>
           <div className="text-[11px] text-gray-500">21/08/2026</div>
         </div>
       </div>
@@ -212,20 +263,40 @@ function InvoicePreview({ form }) {
         </div>
       )}
 
-      {/* SEPA QR placeholder */}
-      {form.invoice_show_qr && form.iban && (
-        <div
-          className="mt-4 p-3 rounded flex items-center gap-3"
-          style={{ border: `2px solid ${accent}`, background: "#fff" }}
-        >
-          <div className="w-16 h-16 shrink-0 grid place-items-center bg-black/5 rounded font-mono text-[9px] text-gray-500">QR</div>
-          <div className="text-[10px] text-gray-600 leading-tight">
-            <div className="font-bold text-black">Betaal met iDEAL / SEPA</div>
-            <div className="font-mono">IBAN {String(form.iban).replace(/\s+/g, "").toUpperCase().match(/.{1,4}/g)?.join(" ")}</div>
-            <div>Reference: <strong>{form.invoice_prefix || "F"}-260821-DEMO</strong></div>
+      {/* SEPA QR block — real live QR, dynamic size + position (matches PDF) */}
+      {form.invoice_show_qr && form.iban && (() => {
+        const bankInfo = (
+          <div className="text-[10px] text-gray-600 leading-tight min-w-0 flex-1">
+            <div className="font-bold text-black text-[11px]">Betaal met iDEAL / SEPA</div>
+            {form.bank_name && <div>{form.bank_name}</div>}
+            <div className="font-mono break-all">IBAN {String(form.iban).replace(/\s+/g, "").toUpperCase().match(/.{1,4}/g)?.join(" ")}</div>
+            {form.bic && <div className="font-mono">BIC {form.bic}</div>}
+            <div>Ref: <strong className="font-mono">{form.invoice_prefix || "F"}-260821-DEMO</strong></div>
           </div>
-        </div>
-      )}
+        );
+        const qrImg = qrUrl
+          ? <img src={qrUrl} alt="SEPA QR" style={{ width: qrPx, height: qrPx }} className="shrink-0 bg-white rounded p-0.5" />
+          : <div style={{ width: qrPx, height: qrPx }} className="shrink-0 grid place-items-center bg-black/5 rounded font-mono text-[9px] text-gray-500">QR</div>;
+
+        if (qrPosition === "bottom") {
+          return (
+            <div className="mt-4 p-3 rounded" style={{ border: `2px solid ${accent}`, background: "#fff" }} data-testid="preview-qr-block">
+              <div>{bankInfo}</div>
+              <div className="mt-2 flex justify-center">{qrImg}</div>
+            </div>
+          );
+        }
+        return (
+          <div
+            className={`mt-4 p-3 rounded flex items-center gap-3 ${qrPosition === "right" ? "flex-row-reverse" : "flex-row"}`}
+            style={{ border: `2px solid ${accent}`, background: "#fff" }}
+            data-testid="preview-qr-block"
+          >
+            {qrImg}
+            {bankInfo}
+          </div>
+        );
+      })()}
 
       {form.invoice_terms && (
         <div className="mt-4 text-[10px] text-gray-500 whitespace-pre-line border-t pt-2">{form.invoice_terms}</div>
@@ -497,7 +568,16 @@ export default function Settings() {
 
             {/* PDF-look tuning — owner-tunable font + doc-number + QR sizing */}
             <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 mb-5 space-y-4">
-              <div className="text-[10px] font-mono uppercase tracking-widest text-primary">PDF-uiterlijk</div>
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-primary">PDF-uiterlijk</div>
+                <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[9px] font-mono uppercase tracking-widest text-primary">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-70"></span>
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary"></span>
+                  </span>
+                  Live · معاينة فورية
+                </span>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <Label className="text-xs">Lettertype (body)</Label>
@@ -515,9 +595,9 @@ export default function Settings() {
                   <Select value={form.invoice_number_scale || "sm"} onValueChange={(v) => set("invoice_number_scale", v)}>
                     <SelectTrigger data-testid="settings-invoice-number-scale"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="sm">Klein (11 px) — aanbevolen</SelectItem>
-                      <SelectItem value="md">Normaal (13 px)</SelectItem>
-                      <SelectItem value="lg">Groot (15 px)</SelectItem>
+                      <SelectItem value="sm">Klein — aanbevolen</SelectItem>
+                      <SelectItem value="md">Normaal</SelectItem>
+                      <SelectItem value="lg">Groot</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -526,9 +606,9 @@ export default function Settings() {
                   <Select value={form.invoice_qr_size || "sm"} onValueChange={(v) => set("invoice_qr_size", v)}>
                     <SelectTrigger data-testid="settings-invoice-qr-size"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="sm">Klein (82 px) — aanbevolen</SelectItem>
-                      <SelectItem value="md">Normaal (104 px)</SelectItem>
-                      <SelectItem value="lg">Groot (130 px)</SelectItem>
+                      <SelectItem value="sm">Klein — aanbevolen</SelectItem>
+                      <SelectItem value="md">Normaal</SelectItem>
+                      <SelectItem value="lg">Groot</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -562,8 +642,8 @@ export default function Settings() {
               />
               <ToggleRow
                 icon={<span className="text-lg leading-none">🇪🇺</span>}
-                title={t("plateBadgeToggle") || "لوحة السيارة الرسمية (متعددة الدول)"}
-                desc={t("plateBadgeToggleDesc") || "يعرض رقم اللوحة بتصميم رسمي حسب الدولة — أصفر NL هولندي، أبيض D ألماني، أزرق F فرنسي، …"}
+                title="Officieel kentekenplaatje (EU-stijl)"
+                desc="Toont het kenteken in het officiële ontwerp van het land — geel NL, wit D, blauw F, …"
                 checked={!!form.show_plate_badge}
                 onCheck={(v) => set("show_plate_badge", v)}
                 testId="settings-plate-badge"

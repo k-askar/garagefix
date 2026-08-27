@@ -16,6 +16,15 @@
 - Frontend: React + React Router 7 + TanStack Query + Tailwind + Shadcn UI + recharts + react-barcode + html5-qrcode + jsPDF + html2canvas + xlsx (SheetJS) + MediaDevices getUserMedia
 - Fonts: Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (data) + Cairo/Amiri (Arabic)
 
+
+### Session 2026-02-27e — Variant inline editing + Live PDF preview
+- **Owner asks** (Arabic): (1) add an EDIT button in the Sub-artikelen dialog so variant rows can be fixed without deleting + re-adding; (2) yes to the suggested Live A4 preview in the PDF-uiterlijk settings so font/QR-size/QR-position changes are visible instantly.
+- **VariantsManagerDialog.jsx** — each row now has a pencil ✏️ button (`variant-edit-<sku>`) that turns the row into an inline form with 8 fields (name, name_ar, barcode, unit, cost_price, selling_price, quantity, reorder_point). Save calls `PUT /api/inventory/{id}` (already existed, `InventoryItemUpdate` supports all fields — no backend change), Cancel reverts, live refetch + `queryClient.invalidateQueries(["inv"])` so master-value totals update.
+- **Settings.jsx `InvoicePreview`** — three lookup tables (`BODY_FONT_MAP`, `NUMBER_SCALE_PX`, `QR_SIZE_PX`) mirror the same knobs used by `invoice-render.js`; `fontFamily` applied to the whole preview, invoice-number span uses the picked scale, QR block renders a REAL SEPA/GiroCode via `QRCode.toDataURL` sized by `invoice_qr_size` and reflowed by `invoice_qr_position` (`left` / `right` / `bottom`). Added a pulsing "Live · معاينة فورية" badge inside the PDF-uiterlijk block so owners immediately see the preview is live. Cleaned up misleading (11 px / 13 px / 15 px) hints in the selects since the preview renders slightly bigger than the PDF-mm values.
+- **Small clean-ups**: replaced broken `t("plateBadgeToggle")` calls with hardcoded Dutch strings (the `t()` helper returns the key when missing, so the fallback branch never fired — visible as literal "plateBadgeToggle" text in Settings).
+- **Verified**: testing agent iteration_18 — 100 % pass on both features + regression (accent, template, alignment, currency, prefix, plate). PUT/GET `/api/settings` persists `invoice_body_font` / `invoice_number_scale` / `invoice_qr_size` / `invoice_qr_position`. Zero console errors.
+
+
 ## Implemented (latest first)
 
 ### Session 2026-02-27d — Invoice PDF slimming + owner-tunable typography & QR

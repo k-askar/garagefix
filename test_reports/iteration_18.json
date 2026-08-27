@@ -1,0 +1,41 @@
+{
+  "summary": "Frontend-only verification of the two new features on the public preview URL. Logged in as platform@pitstock.app (super_admin) and impersonated the only existing tenant (TestGarage) since no tenant-owner password exists in test_credentials.md (admin@garage.com/admin123 from iteration_17 now returns 401 — DB was reset). Seeded a master item + 2 variants via API (/app/tests/seed_variants.py). FEATURE 1 (variant inline edit): pencil button, all 6+ inline inputs, Cancel-revert, Save (PUT /api/inventory/{id}) with live row refresh, persistence after full page reload, and DELETE — all PASSED, 0 console errors. FEATURE 2 (live PDF-uiterlijk preview): body font (3 distinct fontFamily values), invoice-number scale (12/15/18px), QR size (68/88/112px), QR position (row / row-reverse / stacked-bottom), real base64 SEPA QR rendered from IBAN+toggle, 'Live · معاينة فورية' pulse badge present — all PASSED instantly with no reload and no console errors. REGRESSION: accent presets, classic/minimal/bold templates, header alignment, currency prefix/suffix, invoice_prefix and plate-badge toggle all still update the preview live. Also verified PUT/GET /api/settings persists invoice_body_font / number_scale / qr_size / qr_position (values restored afterwards) and cleaned up all TEST_ inventory rows.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/inventory/{id}/variants", "issue": "Created variant does not inherit the master's category (master category 'Oil' -> variant got 'General'), although the dialog copy claims variants inherit category/supplier from the master."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Settings → toggle rows", "issue": "Untranslated i18n keys rendered literally: the plate-badge ToggleRow shows the raw strings 'plateBadgeToggle' and 'plateBadgeToggleDesc' instead of a title/description (t() returns the key for the NL/EN locale). Visible in the UI.", "selector": "[data-testid=\"settings-plate-badge\"] row", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Settings → PDF-uiterlijk", "issues": [
+        "Select option labels advertise px values that do not match the live preview: 'Klein (11 px)/Normaal (13 px)/Groot (15 px)' vs actual preview 12/15/18 px, and QR 'Klein (82 px)/Normaal (104 px)/Groot (130 px)' vs actual preview 68/88/112 px. Either drop the px hints or align the numbers (or state they are PDF-mm values).",
+        "Arabic helper texts inside Latin-layout blocks (e.g. iDEAL/SEPA description) render with mixed bidi ordering; consider dir=\"rtl\" on those paragraphs."
+      ]}
+    ]
+  },
+  "test_report_links": ["/app/tests/seed_variants.py", "/app/tests/cleanup_and_settings_check.py"],
+  "action_items": [
+    "Add NL/EN translations for the 'plateBadgeToggle' / 'plateBadgeToggleDesc' keys (currently the raw keys are shown on Settings).",
+    "Align the px labels in the PDF-uiterlijk selects with the actual preview sizes (or remove the px hints).",
+    "Optional: make variants inherit the master's category (currently defaults to 'General').",
+    "Re-seed a real tenant-owner login (with a known password) into /app/memory/test_credentials.md — the only usable account today is the super_admin + impersonation."
+  ],
+  "critical_code_review_comments": [
+    "Settings.jsx is 759 lines and InvoicePreview alone is ~190 lines duplicating invoice-render.js layout logic; extract InvoicePreview (and the BODY_FONT_MAP / NUMBER_SCALE_PX / QR_SIZE_PX tables shared with the PDF renderer) into its own module so the preview and the real PDF cannot drift apart.",
+    "VariantsManagerDialog uses v.sku for every data-testid (variant-edit-<sku>, variant-save-<sku>). SKU is user-editable/auto-generated and not guaranteed unique or non-empty — prefer v.id for testids to avoid collisions.",
+    "saveEdit() PUTs only a whitelist of fields; sku is shown in editDraft but never sent, so SKU edits are silently dropped. Either remove sku from editDraft or include it in the payload."
+  ],
+  "updated_files": ["/app/tests/seed_variants.py", "/app/tests/cleanup_and_settings_check.py"],
+  "success_rate": {"backend": "not tested (frontend-only request); ad-hoc /api/inventory, /api/inventory/{id}/variants, PUT/GET /api/settings, /api/tenants/{id}/impersonate all 200", "frontend": "100% (all Feature 1 + Feature 2 + regression assertions passed)"},
+  "seed_data_creation": "Master 'TEST_Motorolie 5W30' (SKU TEST-OIL-MASTER) + variants 'Olie 1L' / 'Olie 4L' in tenant TestGarage — all deleted afterwards by /app/tests/cleanup_and_settings_check.py. Settings values were changed only in unsaved form state during UI testing; the API-level persistence check restored the original values.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "platform@pitstock.app / platform123 (super_admin) → impersonate tenant d85ebd4a-40a2-407f-9473-d3d5044e1889 (TestGarage). NOTE: admin@garage.com/admin123 documented in iteration_17 no longer works (401).",
+  "context_for_next_testing_agent": "No tenant-owner password exists; use super_admin login then click [data-testid=\"tenant-impersonate-d85ebd4a-40a2-407f-9473-d3d5044e1889\"] on /super-admin, after which /inventory and /settings are reachable. Variant dialog is opened from [data-testid=\"variants-<masterSku>\"] on /inventory. Reusable seeder: /app/tests/seed_variants.py; cleanup + settings persistence check: /app/tests/cleanup_and_settings_check.py.",
+  "rca_of_the_issue": "N/A — both requested features work as specified. Only cosmetic/label issues found."
+}
