@@ -17,6 +17,18 @@
 - Fonts: Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (data) + Cairo/Amiri (Arabic)
 
 
+### Session 2026-02-27g — Logout flicker ("old design flash") — fixed
+- **Bug**: Clicking "Uitloggen" briefly showed the marketing Landing page (old design) before the redesigned `/login` page rendered.
+- **Root cause**: `AuthContext.logout()` used `window.location.href = "/login"` — a full page reload. During the reload the tab first briefly rendered the previously cached `/` route (`LandingHome` → `<Landing />`), then finally boot-navigated to `/login`. Same class of bug that was fixed for impersonation in Session 2026-02-27b, but on the logout path.
+- **Fix (multi-file)**:
+  1. `App.js` — moved `<AuthProvider>` INSIDE `<BrowserRouter>` and added a `<NavigatorBinder />` component that reads `useNavigate()` and injects it into the auth context via a new `_bindNavigate(nav)` callback.
+  2. `AuthContext.js` — stores the React-Router `navigate` fn in a `useRef`, and `logout()` now calls `navRef.current("/login", { replace: true })` instead of `window.location.href`. Graceful fallback to `window.location.href` if the binder somehow hasn't run yet.
+  3. `ProtectedShell` — on `!user` now redirects to `/login` (was `/` → Landing). Even if a race causes the router to react before logout's `nav` fires, the fallback is Login not the marketing page.
+  4. `ImpersonationBanner.jsx` — also swapped its "Exit impersonation" `window.location.href = "/super-admin"` for `nav("/super-admin", { replace: true })`, killing the same flash on that path.
+- **Verified via Playwright**: super_admin → impersonate → click logout button → `page.on("load")` fires ZERO times (was reload), only `framenavigated` — pure SPA nav. Final URL `/login`, correct Inloggen form renders instantly, zero console errors.
+
+
+
 ### Session 2026-02-27f — Uitgifte tab crash (ReferenceError) — fixed
 - **Bug**: Clicking the "Uitgifte" tab in `/inventory` rendered a blank/white area. Root cause: `WithdrawPanel` (top-level function in `Inventory.jsx`) referenced `canSeePrices` on lines 292 & 307, but `canSeePrices` is only defined inside `Inventory()` at line 510 — a completely separate scope → `ReferenceError: canSeePrices is not defined` → React unmounts the subtree.
 - **Fix**: Pass `canSeePrices` as a prop from `Inventory()` → `<WithdrawPanel canSeePrices={canSeePrices} … />` and destructure it in the panel's signature.

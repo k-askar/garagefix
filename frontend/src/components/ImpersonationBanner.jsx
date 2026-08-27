@@ -1,4 +1,5 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { api, formatApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import { toast } from "sonner";
  */
 export default function ImpersonationBanner() {
   const { user, setUser } = useAuth();
+  const nav = useNavigate();
   const imp = user?.impersonating;
   if (!imp) return null;
 
@@ -24,7 +26,8 @@ export default function ImpersonationBanner() {
       setUser?.(me.data);
       localStorage.setItem("garage_user", JSON.stringify(me.data));
       toast.success("Exited impersonation");
-      window.location.href = "/super-admin";
+      // SPA-nav — no page reload, no landing-page flash on the way out.
+      nav("/super-admin", { replace: true });
     } catch (err) { toast.error(formatApiError(err)); }
   };
 

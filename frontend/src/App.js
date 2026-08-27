@@ -1,5 +1,5 @@
-import React from "react";
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
+import React, { useEffect } from "react";
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { LanguageProvider } from "@/i18n";
@@ -46,7 +46,9 @@ function ProtectedShell() {
       </div>
     );
   }
-  if (!user) return <Navigate to="/" replace />;
+  // After logout we want the crisp /login page — NOT the marketing landing
+  // (which briefly flashed as "the old design" during a full reload).
+  if (!user) return <Navigate to="/login" replace />;
   return <DashboardLayout><Outlet /></DashboardLayout>;
 }
 
@@ -98,12 +100,24 @@ function DashboardFallback() {
   return <Navigate to={firstAllowedPath()} replace />;
 }
 
+/* Bridges React Router's imperative `navigate` into the AuthContext so
+   `logout()` (and future flows) can SPA-navigate instead of doing a
+   `window.location.href = "/login"` full reload — which flashed the
+   Landing page ("old design") on the way to the Login page. */
+function NavigatorBinder() {
+  const nav = useNavigate();
+  const { _bindNavigate } = useAuth();
+  useEffect(() => { _bindNavigate?.(nav); }, [_bindNavigate, nav]);
+  return null;
+}
+
 function App() {
   return (
     <ThemeProvider>
     <LanguageProvider>
-      <AuthProvider>
-        <BrowserRouter>
+      <BrowserRouter>
+        <AuthProvider>
+          <NavigatorBinder />
           <Routes>
             <Route path="/" element={<LandingHome />} />
             <Route path="/login" element={<Login />} />
@@ -138,9 +152,9 @@ function App() {
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
-        </BrowserRouter>
-        <Toaster position="top-right" richColors />
-      </AuthProvider>
+          <Toaster position="top-right" richColors />
+        </AuthProvider>
+      </BrowserRouter>
     </LanguageProvider>
     </ThemeProvider>
   );

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
 const AuthCtx = createContext(null);
@@ -6,6 +6,11 @@ const AuthCtx = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null); // null while loading, false when logged out
   const [ready, setReady] = useState(false);
+  // React-Router's `navigate` fn, injected by <NavigatorBinder /> in App.js.
+  // Kept in a ref so logout() can SPA-navigate without a full page reload
+  // (which used to flash the marketing landing = "old design" before /login).
+  const navRef = useRef(null);
+  const _bindNavigate = (nav) => { navRef.current = nav; };
 
   useEffect(() => {
     const token = localStorage.getItem("garage_token");
@@ -48,7 +53,11 @@ export function AuthProvider({ children }) {
     localStorage.removeItem("garage_token");
     localStorage.removeItem("garage_user");
     setUser(false);
-    window.location.href = "/login";
+    // SPA-nav — no page reload, no landing flash.  Fall back to
+    // window.location only if the binder hasn't registered yet (should
+    // never happen in practice since <NavigatorBinder /> mounts once).
+    if (navRef.current) navRef.current("/login", { replace: true });
+    else window.location.href = "/login";
   };
 
   /**
@@ -109,7 +118,7 @@ export function AuthProvider({ children }) {
   const firstAllowedPath = () => pathForUser(user);
 
   return (
-    <AuthCtx.Provider value={{ user, ready, login, register, logout, hasPermission, firstAllowedPath, pathForUser, setUser: updateUser }}>
+    <AuthCtx.Provider value={{ user, ready, login, register, logout, hasPermission, firstAllowedPath, pathForUser, setUser: updateUser, _bindNavigate }}>
       {children}
     </AuthCtx.Provider>
   );
