@@ -28,6 +28,17 @@ export function formatEUR(v, locale = "de-DE") {
   return new Intl.NumberFormat(locale, { style: "currency", currency: "EUR" }).format(n);
 }
 
+/** Masked price placeholder shown to staff who lack the "prices.*" scope for
+ *  a given section.  Owner has full access via role bypass — this only kicks
+ *  in for staff members whose permission the owner has withheld. */
+export const HIDDEN_PRICE = "€ ••••";
+
+/** One-liner used all over the app: `€ 45,00` for the eyes that may see it,
+ *  `€ ••••` for the eyes the owner wants to keep out of the money. */
+export function money(value, canSee, locale = "de-DE") {
+  return canSee ? formatEUR(value, locale) : HIDDEN_PRICE;
+}
+
 export function formatApiError(err) {
   const d = err?.response?.data?.detail;
   if (!d) return err?.message || "Something went wrong";

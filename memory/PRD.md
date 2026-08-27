@@ -18,6 +18,18 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26v — Per-section "See prices" permission
+- **Owner request** (Arabic): add a new permission for every section that has prices so the owner can decide which staff members are allowed to see money.
+- **New permissions** added to the backend catalog (visible as checkboxes in the Staff editor):
+  - `prices.inventory` — cost / selling prices + stock-value KPI + variant rollup values in Inventory.
+  - `prices.repairs` — parts unit prices, labour rate, subtotal / VAT / total on the Job Card editor and list.
+  - `prices.invoices` — outstanding balance, KPI totals and the Total column on the invoice list.
+  - `prices.reports` — reserved for future dashboard revenue / profit KPIs.
+- **Frontend helper**: new `money(v, canSee)` + `HIDDEN_PRICE` (`€ ••••`) in `lib/api.js`. Each page reads its section flag from `hasPermission("prices.<section>")` and wraps every visible money display through a local `fm()` shortcut. Owner + super-admin (while impersonating) bypass via role — no change to their experience.
+- **Covered locations**: Inventory KPIs + table cells + variant rollup + withdraw picker + label modal · Repair CardEditor totals (parts/labour/subtotal/tax/total/discount) + parts-row prices + time-clock rate/auto-labor/log amounts + card grid grand-total · Invoices header out-of-pocket KPI + customer summary row + open cards KPI trio + list total column.
+- **Verified**: created staff `no_prices_*@example.com` with view-only perms (no `prices.*`), logged in, screenshotted Inventory / Repairs / Invoices — all money values render as `€ ••••` while quantities, names, plates, dates stay visible.
+
+
 ### Session 2026-02-26u — Modern PDF redesign for Job Cards + Invoices (JetBrains Mono)
 - **Owner request**: redesign the Job Card PDF and Invoice PDF so they display full customer info (name, phone, email, address, KvK, VAT) + full vehicle info (make/model/year/plate/color/km/VIN/APK). Use a modern typewriter-style font like the one shown in the reference screenshot.
 - **New shared party/vehicle block** in `invoice-render.js` (`partyVehicleBlock`, exported): two-column card with a coloured top rule, monospace uppercase section labels ("CUSTOMER", "VEHICLE"), and clean label/value rows. Vehicle side shows the make/model + year, an EU-style plate badge, and rows for colour, km, VIN and APK expiry. Falls back to invoice-time snapshot fields when the enriched customer/vehicle can't be fetched.

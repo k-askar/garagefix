@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, formatEUR, formatApiError } from "@/lib/api";
+import { api, formatEUR, formatApiError, money, HIDDEN_PRICE } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -173,7 +173,7 @@ function TimeClockPanel({ card, setData, settings, refetch }) {
           <Timer className="h-4 w-4 text-primary" />
           <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">{t("timeClock")}</div>
         </div>
-        <div className="text-[11px] font-mono text-muted-foreground">{t("rate")}: {formatEUR(rate)} / {t("hours")}</div>
+        <div className="text-[11px] font-mono text-muted-foreground">{t("rate")}: {fm(rate)} / {t("hours")}</div>
       </div>
 
       {/* Modern hero display — big digits on a dark card, pulsing dot when live */}
@@ -239,11 +239,11 @@ function TimeClockPanel({ card, setData, settings, refetch }) {
         </div>
         <div className="p-3 rounded-md border border-border">
           <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("rate")}</div>
-          <div className="font-mono font-bold text-lg tabular-nums">{formatEUR(rate)}</div>
+          <div className="font-mono font-bold text-lg tabular-nums">{fm(rate)}</div>
         </div>
         <div className="p-3 rounded-md border border-primary/30 bg-primary/5">
           <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("autoLabor")}</div>
-          <div className="font-mono font-bold text-lg tabular-nums text-primary" data-testid="time-clock-auto-labor">{formatEUR(autoCharge)}</div>
+          <div className="font-mono font-bold text-lg tabular-nums text-primary" data-testid="time-clock-auto-labor">{fm(autoCharge)}</div>
         </div>
       </div>
 
@@ -264,7 +264,7 @@ function TimeClockPanel({ card, setData, settings, refetch }) {
             <div className="flex items-center gap-3">
               <div className="text-right">
                 <div className="text-sm font-mono font-bold tabular-nums">{l.stopped_at ? fmtDuration(l.minutes) : "…"}</div>
-                {l.stopped_at && <div className="text-[10px] font-mono text-muted-foreground">{formatEUR((Number(l.minutes) / 60) * rate)}</div>}
+                {l.stopped_at && <div className="text-[10px] font-mono text-muted-foreground">{fm((Number(l.minutes) / 60) * rate)}</div>}
               </div>
               <Button size="icon" variant="ghost" onClick={() => removeLog(l.id)} data-testid={`time-log-remove-${l.id}`}>
                 <X className="h-4 w-4 text-rose-600 dark:text-rose-400" />
@@ -279,6 +279,11 @@ function TimeClockPanel({ card, setData, settings, refetch }) {
 
 function CardEditor({ card, onClose, users, customers, items, settings, refetch }) {
   const { t, meta } = useLang();
+  const { hasPermission } = useAuth();
+  // Same permission gate as TimeClockPanel — hide money on the editor for
+  // staff whose owner hasn't granted "prices.repairs".
+  const canSeePrices = hasPermission("prices.repairs");
+  const fm = (v) => money(v, canSeePrices);
   const [data, setData] = useState(card);
   const [saving, setSaving] = useState(false);
   const [addItem, setAddItem] = useState("");
@@ -603,7 +608,7 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
                 <Wrench className="h-4 w-4 text-primary" />
                 <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">{t("partsUsed")}</div>
               </div>
-              <div className="font-mono text-sm">{(data.parts_used || []).length} {t("lines")} · {formatEUR(data.parts_total)}</div>
+              <div className="font-mono text-sm">{(data.parts_used || []).length} {t("lines")} · {fm(data.parts_total)}</div>
             </div>
             <div className="grid grid-cols-[1fr_100px_auto] gap-2 mb-4">
               <SearchableSelect
@@ -612,7 +617,7 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
                 options={items.filter(i => i.quantity > 0).map(i => ({
                   value: i.id,
                   label: i.name,
-                  secondary: `${i.sku} · ${i.quantity} ${t("inStock")} · ${formatEUR(i.selling_price)}`,
+                  secondary: `${i.sku} · ${i.quantity} ${t("inStock")} · ${money(i.selling_price, canSeePrices)}`,
                 }))}
                 emptyLabel={"— " + t("pickFromStock") + " —"}
                 searchPlaceholder={t("searchByNameSku")}
@@ -646,8 +651,8 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
                   </div>
                   <div className="flex items-center gap-2">
                     <div className={`text-right ${p.returned ? "text-rose-600 dark:text-rose-400 line-through" : ""}`}>
-                      <div className="text-sm font-mono">{p.quantity} × {formatEUR(p.unit_price)}</div>
-                      <div className="text-xs font-mono font-bold">{formatEUR(p.total)}</div>
+                      <div className="text-sm font-mono">{p.quantity} × {fm(p.unit_price)}</div>
+                      <div className="text-xs font-mono font-bold">{fm(p.total)}</div>
                     </div>
                     {p.returned ? (
                       <Button
@@ -694,9 +699,9 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
           {/* Totals with BTW / VAT breakdown + optional customer discount */}
           <Card className="p-5 border-primary/30 bg-primary/5 space-y-4">
             <div className="grid grid-cols-3 gap-4 text-center">
-              <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("parts")}</div><div className="font-display text-2xl font-bold tabular-nums mt-1" data-testid="repair-parts-total">{formatEUR(data.parts_total)}</div></div>
-              <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("labor")}</div><div className="font-display text-2xl font-bold tabular-nums mt-1">{formatEUR(data.labor_charge)}</div></div>
-              <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("subtotal")}</div><div className="font-display text-2xl font-bold tabular-nums mt-1" data-testid="repair-grand-total">{formatEUR(data.grand_total)}</div></div>
+              <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("parts")}</div><div className="font-display text-2xl font-bold tabular-nums mt-1" data-testid="repair-parts-total">{fm(data.parts_total)}</div></div>
+              <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("labor")}</div><div className="font-display text-2xl font-bold tabular-nums mt-1">{fm(data.labor_charge)}</div></div>
+              <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("subtotal")}</div><div className="font-display text-2xl font-bold tabular-nums mt-1" data-testid="repair-grand-total">{fm(data.grand_total)}</div></div>
             </div>
             {/* Discount row */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end pt-3 border-t border-primary/20">
@@ -725,7 +730,7 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
               <div className="text-center md:text-right">
                 <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("discountApplied")}</div>
                 <div className="font-mono text-lg font-bold tabular-nums mt-1 text-emerald-700 dark:text-emerald-400" data-testid="repair-discount-amount">
-                  −{formatEUR(data.discount_amount || 0)}
+                  −{fm(data.discount_amount || 0)}
                 </div>
               </div>
             </div>
@@ -741,11 +746,11 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
               </div>
               <div className="text-center">
                 <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("btw")}</div>
-                <div className="font-display text-xl font-bold tabular-nums mt-1" data-testid="repair-tax-amount">{formatEUR(data.tax_amount || 0)}</div>
+                <div className="font-display text-xl font-bold tabular-nums mt-1" data-testid="repair-tax-amount">{fm(data.tax_amount || 0)}</div>
               </div>
               <div className="text-center">
                 <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("totalWithTax")}</div>
-                <div className="font-display text-3xl font-bold tabular-nums mt-1 text-primary" data-testid="repair-total-with-tax">{formatEUR(data.total_with_tax || data.grand_total)}</div>
+                <div className="font-display text-3xl font-bold tabular-nums mt-1 text-primary" data-testid="repair-total-with-tax">{fm(data.total_with_tax || data.grand_total)}</div>
               </div>
             </div>
           </Card>
@@ -811,6 +816,9 @@ export default function Repairs() {
   const canEdit = hasPermission("repairs.edit");
   const canDelete = hasPermission("repairs.delete");
   const canComplete = hasPermission("repairs.complete");
+  // Card list also masks the grand-total column when staff lacks "prices.repairs".
+  const canSeePrices = hasPermission("prices.repairs");
+  const fm = (v) => money(v, canSeePrices);
   const { data: users = [] } = useQuery({
     queryKey: ["users-safe"],
     enabled: me?.role === "owner",
@@ -912,7 +920,7 @@ export default function Repairs() {
         c.customer_name || "—",
         c.mechanic_name || "—",
         STATUS_LABEL[c.status] || c.status,
-        formatEUR(c.grand_total),
+        fm(c.grand_total),
       ]),
       settings, dir: meta.dir, lang: meta.locale?.slice(0, 2),
     };
@@ -1084,7 +1092,7 @@ export default function Repairs() {
               </div>
               <div className="text-right">
                 <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Total</div>
-                <div className="font-display text-lg font-bold tabular-nums text-primary">{formatEUR(c.grand_total)}</div>
+                <div className="font-display text-lg font-bold tabular-nums text-primary">{fm(c.grand_total)}</div>
               </div>
             </div>
 

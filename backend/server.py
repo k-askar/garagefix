@@ -82,6 +82,9 @@ PERMISSION_CATALOG = [
         {"key": "inventory.delete",   "label": "Delete parts"},
         {"key": "inventory.withdraw", "label": "Withdraw stock (to card / garage)"},
         {"key": "inventory.import",   "label": "CSV import / template download"},
+        # Price visibility — when missing, cost / selling prices and the stock-
+        # value KPI are masked as "€ ••••".  Owner picks who sees the money.
+        {"key": "prices.inventory",   "label": "See prices (cost, selling, stock value)"},
     ]},
     {"section": "repairs", "label": "Job cards", "icon": "wrench", "perms": [
         {"key": "repairs.view",     "label": "View repair cards"},
@@ -89,6 +92,7 @@ PERMISSION_CATALOG = [
         {"key": "repairs.edit",     "label": "Edit card (parts, labor, notes)"},
         {"key": "repairs.complete", "label": "Mark complete / issue invoice"},
         {"key": "repairs.delete",   "label": "Delete card"},
+        {"key": "prices.repairs",   "label": "See prices (parts, labor, totals)"},
     ]},
     {"section": "invoices", "label": "Invoices", "icon": "receipt", "perms": [
         {"key": "invoices.view",       "label": "View invoices"},
@@ -96,6 +100,7 @@ PERMISSION_CATALOG = [
         {"key": "invoices.mark_paid",  "label": "Mark as paid"},
         {"key": "invoices.delete",     "label": "Delete invoice"},
         {"key": "invoices.send",       "label": "Send by email / WhatsApp"},
+        {"key": "prices.invoices",     "label": "See amounts (subtotal, VAT, total)"},
     ]},
     {"section": "cash", "label": "Cash register", "icon": "wallet", "perms": [
         {"key": "cash.view",         "label": "View ledger"},
@@ -112,7 +117,8 @@ PERMISSION_CATALOG = [
         {"key": "suppliers.edit", "label": "Add / edit suppliers"},
     ]},
     {"section": "reports", "label": "Reports & dashboard", "icon": "bar-chart", "perms": [
-        {"key": "reports.view", "label": "View dashboard & reports"},
+        {"key": "reports.view",   "label": "View dashboard & reports"},
+        {"key": "prices.reports", "label": "See revenue / profit KPIs"},
     ]},
     {"section": "calendar", "label": "Calendar & workboard", "icon": "calendar", "perms": [
         {"key": "calendar.view", "label": "View calendar / workboard / bay-board"},

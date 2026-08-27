@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, formatEUR, formatApiError } from "@/lib/api";
+import { api, formatEUR, formatApiError, money, HIDDEN_PRICE } from "@/lib/api";
 import SearchableSelect from "@/components/SearchableSelect";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -289,7 +289,7 @@ function WithdrawPanel({ items, invalidate, t }) {
             options={items.filter(i => i.quantity > 0).map(i => ({
               value: i.id,
               label: i.name_ar ? `${i.name} · ${i.name_ar}` : i.name,
-              secondary: `${i.sku} · ${i.quantity} ${t("inStock")} · ${formatEUR(i.selling_price)}`,
+              secondary: `${i.sku} · ${i.quantity} ${t("inStock")} · ${money(i.selling_price, canSeePrices)}`,
             }))}
             emptyLabel={"— " + t("pickFromStock") + " —"}
             searchPlaceholder={t("searchByNameSku")}
@@ -304,7 +304,7 @@ function WithdrawPanel({ items, invalidate, t }) {
           <div>
             <div className="font-semibold">{picked.name}</div>
             {picked.name_ar && <div className="text-xs text-muted-foreground" dir="rtl">{picked.name_ar}</div>}
-            <div className="text-[11px] font-mono text-muted-foreground">{picked.sku} · {picked.quantity} {picked.unit} · {formatEUR(picked.selling_price)}</div>
+            <div className="text-[11px] font-mono text-muted-foreground">{picked.sku} · {picked.quantity} {picked.unit} · {money(picked.selling_price, canSeePrices)}</div>
           </div>
           <div className="flex items-center gap-2">
             <Label className="text-xs">{t("qty")}</Label>
@@ -505,6 +505,10 @@ export default function Inventory() {
   const canDelete = hasPermission("inventory.delete");
   const canImport = hasPermission("inventory.import");
   const canWithdraw = hasPermission("inventory.withdraw");
+  // "prices.inventory" hides cost / selling prices + the stock-value KPI from
+  // staff whose owner has withheld the permission (mask with `€ ••••`).
+  const canSeePrices = hasPermission("prices.inventory");
+  const fm = (v) => money(v, canSeePrices);
   const [tab, setTab] = useState("overview");
   const [q, setQ] = useState("");
   const [vehicle, setVehicle] = useState("");
@@ -720,7 +724,7 @@ export default function Inventory() {
           <div className="flex items-start justify-between">
             <div>
               <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("stockValueCost")}</div>
-              <div className="font-display text-2xl font-black tabular-nums mt-1 text-emerald-700 dark:text-emerald-400">{formatEUR(kpi.stockValue)}</div>
+              <div className="font-display text-2xl font-black tabular-nums mt-1 text-emerald-700 dark:text-emerald-400" data-testid="kpi-stock-value">{fm(kpi.stockValue)}</div>
               <div className="text-[10px] font-mono text-muted-foreground">{t("atCostPrice")}</div>
             </div>
             <Wallet className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
@@ -848,12 +852,12 @@ export default function Inventory() {
                     const low = rowQty <= (i.reorder_point || 0);
                     const sellingDisplay = rollup
                       ? (rollup.minSell === rollup.maxSell
-                          ? formatEUR(rollup.minSell === Infinity ? 0 : rollup.minSell)
-                          : `${formatEUR(rollup.minSell)} – ${formatEUR(rollup.maxSell)}`)
-                      : formatEUR(i.selling_price);
+                          ? fm(rollup.minSell === Infinity ? 0 : rollup.minSell)
+                          : (canSeePrices ? `${formatEUR(rollup.minSell)} – ${formatEUR(rollup.maxSell)}` : HIDDEN_PRICE))
+                      : fm(i.selling_price);
                     const costDisplay = rollup
-                      ? formatEUR(rollup.qty ? rollup.cost / rollup.qty : 0)
-                      : formatEUR(i.cost_price);
+                      ? fm(rollup.qty ? rollup.cost / rollup.qty : 0)
+                      : fm(i.cost_price);
                     return (
                       <TableRow key={i.id} data-testid={`inventory-row-${i.sku}`} className={low ? "bg-amber-500/5" : ""}>
                         <TableCell>
@@ -882,7 +886,7 @@ export default function Inventory() {
                         <TableCell className="text-right">
                           <span className={`tabular-nums font-bold ${low ? "text-amber-700 dark:text-amber-400" : ""}`}>{rowQty}</span>
                           <div className="text-[10px] font-mono text-muted-foreground">
-                            {i.unit}{rollup ? ` · ${formatEUR(rowValue)}` : ""}
+                            {i.unit}{rollup ? ` · ${fm(rowValue)}` : ""}
                           </div>
                         </TableCell>
                         <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
@@ -955,7 +959,7 @@ export default function Inventory() {
                   + {t("addArabicName") || "أضف الاسم العربي"}
                 </button>
               )}
-              <div className="text-xs">{labelItem.sku} · {formatEUR(labelItem.selling_price)}</div>
+              <div className="text-xs">{labelItem.sku} · {money(labelItem.selling_price, canSeePrices)}</div>
               <div className="flex justify-center">
                 <Barcode id={`barcode-svg-${labelItem.id}`} value={labelItem.barcode} height={60} fontSize={12} margin={4} />
               </div>

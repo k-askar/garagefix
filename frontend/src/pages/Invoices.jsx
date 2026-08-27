@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, formatEUR, formatApiError } from "@/lib/api";
+import { api, formatEUR, formatApiError, money, HIDDEN_PRICE } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -79,6 +79,11 @@ export default function Invoices() {
   const canDelete = hasPermission("invoices.delete");
   const canSend = hasPermission("invoices.send");
   const canRemind = hasPermission("reminders.send");
+  // Staff without "prices.invoices" see € amounts masked as `€ ••••` — the
+  // rest of the invoice (customer, plate, dates, status) stays visible so
+  // they can still hand out reminders or copies.
+  const canSeePrices = hasPermission("prices.invoices");
+  const fm = (v) => money(v, canSeePrices);
   const [payTarget, setPayTarget] = useState(null);
   const [payMethodId, setPayMethodId] = useState("");
   const [selectedInvoices, setSelectedInvoices] = useState([]);
@@ -236,7 +241,7 @@ export default function Invoices() {
           <p className="text-muted-foreground mt-2" dir="ltr" style={{ unicodeBidi: "isolate" }}>
             {t("invoicesSub", {
               count: invoices.length,
-              out: formatEUR(invoices.filter(i => i.status !== "paid").reduce((s, i) => s + i.total, 0)),
+              out: fm(invoices.filter(i => i.status !== "paid").reduce((s, i) => s + i.total, 0)),
             })}
           </p>
         </div>
@@ -315,12 +320,12 @@ export default function Invoices() {
                   <div className="text-xs font-mono text-muted-foreground">{c.count} invoices</div>
                 </div>
                 {c.unpaid > 0
-                  ? <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/15">{t("owesLabel", { n: formatEUR(c.unpaid) })}</Badge>
+                  ? <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/15">{t("owesLabel", { n: fm(c.unpaid) })}</Badge>
                   : <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">{t("settledLabel")}</Badge>}
               </div>
               <div className="mt-2 flex justify-between text-xs text-muted-foreground">
                 <span>{t("paidLifetime")}</span>
-                <span className="font-mono">{formatEUR(c.paid)}</span>
+                <span className="font-mono">{fm(c.paid)}</span>
               </div>
             </Card>
           ))}
@@ -407,15 +412,15 @@ export default function Invoices() {
                   <div className="grid grid-cols-3 gap-2 text-[11px] font-mono">
                     <div className="rounded-md bg-muted/40 px-2 py-1.5">
                       <div className="uppercase tracking-widest text-[9px] text-muted-foreground">{t("parts") || "Parts"}</div>
-                      <div className="font-bold tabular-nums">{formatEUR(partsTotal + specialTotal)}</div>
+                      <div className="font-bold tabular-nums">{fm(partsTotal + specialTotal)}</div>
                     </div>
                     <div className="rounded-md bg-muted/40 px-2 py-1.5">
                       <div className="uppercase tracking-widest text-[9px] text-muted-foreground">{t("labor") || "Labor"}</div>
-                      <div className="font-bold tabular-nums">{formatEUR(laborTotal)}</div>
+                      <div className="font-bold tabular-nums">{fm(laborTotal)}</div>
                     </div>
                     <div className="rounded-md bg-primary/10 px-2 py-1.5">
                       <div className="uppercase tracking-widest text-[9px] text-primary/80">{t("total")}</div>
-                      <div className="font-bold text-primary tabular-nums">{formatEUR(grand)}</div>
+                      <div className="font-bold text-primary tabular-nums">{fm(grand)}</div>
                     </div>
                   </div>
 
@@ -491,7 +496,7 @@ export default function Invoices() {
                 <TableCell className="font-mono text-xs">{inv.invoice_number}</TableCell>
                 <TableCell>{inv.customer_name || "Walk-in"}</TableCell>
                 <TableCell className="text-muted-foreground">{inv.lines.length}</TableCell>
-                <TableCell className="text-right tabular-nums font-mono">{formatEUR(inv.total)}</TableCell>
+                <TableCell className="text-right tabular-nums font-mono">{fm(inv.total)}</TableCell>
                 <TableCell>
                   {inv.status === "paid"
                     ? <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">{t("invoiceStatusPaid")}</Badge>
