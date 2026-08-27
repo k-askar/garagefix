@@ -3006,11 +3006,32 @@ def _recalc_fields(card: dict) -> dict:
 async def _hydrate_repair_from_vehicle(card: dict) -> dict:
     """Fill blank car_* fields on a repair card from the linked vehicle so
     updates to the vehicle (plate added later, APK renewed, colour set…)
-    show up on old cards without needing to edit each one."""
+    show up on old cards without needing to edit each one.
+
+    Fallback: if the card carries a `customer_id` but no `vehicle_id`, look
+    up the customer's vehicles and try to match by plate; else use the sole
+    vehicle when the customer only owns one.  Fixes the "vehicle sometimes
+    doesn't show" complaint for legacy cards that were created before the
+    vehicle DB was populated for that customer.
+    """
     vid = card.get("vehicle_id")
-    if not vid:
-        return card
-    veh = await db.vehicles.find_one({"id": vid}, {"_id": 0})
+    veh = None
+    if vid:
+        veh = await db.vehicles.find_one({"id": vid}, {"_id": 0})
+    if not veh and card.get("customer_id"):
+        veh_list = await db.vehicles.find({"customer_id": card["customer_id"]}, {"_id": 0}).to_list(50)
+        if card.get("car_plate"):
+            wanted = str(card["car_plate"]).upper().replace(" ", "").replace("-", "")
+            for v in veh_list:
+                if str(v.get("plate", "")).upper().replace(" ", "").replace("-", "") == wanted:
+                    veh = v
+                    break
+        if not veh and len(veh_list) == 1:
+            veh = veh_list[0]
+        # Auto-link the card so subsequent reads skip the lookup.
+        if veh:
+            await db.repairs.update_one({"id": card["id"]}, {"$set": {"vehicle_id": veh["id"]}})
+            card["vehicle_id"] = veh["id"]
     if not veh:
         return card
     mapping = {
@@ -3032,7 +3053,37 @@ async def _hydrate_repair_from_vehicle(card: dict) -> dict:
 async def list_repairs(status: Optional[str] = None, user: dict = Depends(require_permission("repairs.view"))):
     query = {"status": status} if status else {}
     rows = await db.repairs.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
-    # Hydrate every card in one bulk vehicle lookup for efficiency
+
+    # ── Phase 1: link cards that have a customer_id but no vehicle_id ──────
+    # Legacy cards (typed vehicle by hand, or created before the customer had
+    # any vehicles) had car_* empty forever.  Auto-link the customer's sole
+    # vehicle (or the plate-matching one) so subsequent hydration + edits
+    # keep working.
+    orphan_cust_ids = list({r["customer_id"] for r in rows
+                            if r.get("customer_id") and not r.get("vehicle_id")})
+    cust_vehicles: dict = {}
+    if orphan_cust_ids:
+        cvs = await db.vehicles.find({"customer_id": {"$in": orphan_cust_ids}}, {"_id": 0}).to_list(1000)
+        for v in cvs:
+            cust_vehicles.setdefault(v["customer_id"], []).append(v)
+        for r in rows:
+            if r.get("vehicle_id") or not r.get("customer_id"):
+                continue
+            veh_list = cust_vehicles.get(r["customer_id"], [])
+            picked = None
+            if r.get("car_plate"):
+                wanted = str(r["car_plate"]).upper().replace(" ", "").replace("-", "")
+                picked = next(
+                    (v for v in veh_list if str(v.get("plate", "")).upper().replace(" ", "").replace("-", "") == wanted),
+                    None,
+                )
+            if not picked and len(veh_list) == 1:
+                picked = veh_list[0]
+            if picked:
+                r["vehicle_id"] = picked["id"]
+                await db.repairs.update_one({"id": r["id"]}, {"$set": {"vehicle_id": picked["id"]}})
+
+    # ── Phase 2: bulk-hydrate car_* fields from the (now guaranteed) vehicle ─
     vids = list({r["vehicle_id"] for r in rows if r.get("vehicle_id")})
     if vids:
         vehs = await db.vehicles.find({"id": {"$in": vids}}, {"_id": 0}).to_list(len(vids))

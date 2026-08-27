@@ -21,7 +21,6 @@ const NAV = [
   { to: "/invoices", key: "invoices", icon: Receipt, testId: "nav-invoices", perm: "invoices.view" },
   { to: "/cash-register", key: "cashRegister", icon: Wallet, testId: "nav-till", perm: "cash.view" },
   { to: "/accounts", key: "accounts", icon: Banknote, testId: "nav-accounts", perm: "accounts.view" },
-  { to: "/reminders", key: "reminders", icon: Bell, testId: "nav-reminders", perm: "reminders.view" },
   { to: "/suppliers", key: "suppliers", icon: Truck, testId: "nav-suppliers", perm: "suppliers.view" },
   { to: "/customers", key: "customers", icon: Users, testId: "nav-customers", perm: "customers.view" },
   { to: "/vehicles", key: "vehicles", icon: Car, testId: "nav-vehicles", perm: "customers.view" },

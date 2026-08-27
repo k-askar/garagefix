@@ -7,12 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Search, Car, Wrench, Phone, Mail, User, ClipboardList, X, Calendar as CalIcon, FileText, ShieldAlert, ShieldCheck as ShieldOk, QrCode, Send, Loader2 } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Search, Car, Wrench, Phone, Mail, User, ClipboardList, X, Calendar as CalIcon, FileText, ShieldAlert, ShieldCheck as ShieldOk, QrCode, Send, Loader2, Bell } from "lucide-react";
 import { useLang } from "@/i18n";
 import { toast } from "sonner";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import CarPassportQrDialog from "@/components/CarPassportQrDialog";
+import Reminders from "@/pages/Reminders";
 
 const STATUS_TONE = {
   completed:   "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/40",
@@ -24,6 +26,14 @@ export default function Vehicles() {
   const { t } = useLang();
   const nav = useNavigate();
   const qc = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Reminders live under the Vehicles page as a second tab.  `?tab=reminders`
+  // in the URL keeps the deep-link + Dashboard widget happy.
+  const activeTab = searchParams.get("tab") === "reminders" ? "reminders" : "vehicles";
+  const setTab = (v) => {
+    if (v === "vehicles") setSearchParams({});
+    else setSearchParams({ tab: v });
+  };
   const [search, setSearch] = useState("");
   const [detail, setDetail] = useState(null);
   const [qrVehicle, setQrVehicle] = useState(null);
@@ -31,6 +41,14 @@ export default function Vehicles() {
   const [sendingApk, setSendingApk] = useState(null);
   // "all" | "apk_due" — quick filter to show only vehicles whose APK expires soon.
   const [apkFilter, setApkFilter] = useState("all");
+
+  // Reminders count for the tab badge.
+  const { data: reminders = [] } = useQuery({
+    queryKey: ["reminders"],
+    queryFn: () => api.get("/reminders").then(r => r.data),
+    refetchInterval: 30000,
+  });
+  const pendingReminders = reminders.filter(r => r.status === "pending").length;
 
   /** Send a Dutch APK reminder email to the vehicle owner. */
   const sendApkReminder = async (v) => {
@@ -110,7 +128,28 @@ export default function Vehicles() {
             {t("vehiclesSub") || "Every car that ever entered the workshop. Search by plate, VIN, model, or owner."}
           </p>
         </div>
-        <div className="flex gap-2">
+      </div>
+
+      <Tabs value={activeTab} onValueChange={setTab} className="space-y-6">
+        <TabsList className="inline-flex" data-testid="vehicles-tabs">
+          <TabsTrigger value="vehicles" className="gap-2" data-testid="vehicles-tab-fleet">
+            <Car className="h-4 w-4" /> {t("vehiclesTitle") || "Vehicles"}
+            <span className="ml-1 inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full bg-muted text-muted-foreground text-[10px] font-mono">
+              {totals.all}
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="reminders" className="gap-2" data-testid="vehicles-tab-reminders">
+            <Bell className="h-4 w-4" /> {t("reminders") || "Herinneringen"}
+            {pendingReminders > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full bg-amber-500 text-white text-[10px] font-bold" data-testid="vehicles-tab-reminders-badge">
+                {pendingReminders}
+              </span>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="vehicles" className="space-y-6">
+        <div className="flex gap-2 flex-wrap justify-end">
           <div className="rounded-lg border border-border bg-muted/30 px-4 py-2 text-center min-w-[110px]">
             <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("totalCars") || "Total"}</div>
             <div className="text-2xl font-bold font-display" data-testid="vehicles-total">{totals.all}</div>
@@ -143,7 +182,6 @@ export default function Vehicles() {
             </div>
           </button>
         </div>
-      </div>
 
       {/* Search bar */}
       <div className="relative max-w-2xl">
@@ -431,6 +469,13 @@ export default function Vehicles() {
           )}
         </DialogContent>
       </Dialog>
+        </TabsContent>
+
+        <TabsContent value="reminders" className="space-y-6">
+          <Reminders />
+        </TabsContent>
+      </Tabs>
+
       {/* Reusable QR passport dialog — mints a public sticker link that opens
           the customer-facing service timeline when scanned from any phone. */}
       <CarPassportQrDialog

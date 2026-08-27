@@ -18,6 +18,15 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-27 — Reminders folded into Vehicles + Dashboard widget
+- **Owner request** (Arabic): show reminders on the Dashboard and merge the sidebar "Herinneringen" entry into the Vehicles page with a modern design.
+- **Sidebar**: removed the `/reminders` entry — one less item to scroll past.
+- **Vehicles page**: wrapped in `<Tabs>` with two panes — "Voertuigen" (existing fleet table + APK filter) and "Herinneringen" (renders the full `<Reminders/>` component). The reminders tab shows a live amber badge with the pending count. Deep-linkable via `?tab=reminders`.
+- **Route**: `/reminders` now redirects to `/vehicles?tab=reminders` so old bookmarks + the Dashboard button both land in the right place.
+- **Dashboard**: new **amber glass card** above the "Open cars" block — icon + title + count of pending reminders + a 2×2 preview of the next four due (customer, reason, date). Card is hidden entirely when nothing is pending so quiet garages stay quiet. Button opens `/vehicles?tab=reminders`.
+- **Verified**: seeded one reminder → Dashboard card renders with the customer name & date, sidebar shows no "Herinneringen" item, Vehicles page shows both tabs and the pending badge on the Reminders tab; opening `/reminders` redirects correctly.
+
+
 ### Session 2026-02-26y — Hotfix: "fm is not defined" crashed the Job Card editor
 - **Bug**: Clicking any job card threw `ReferenceError: fm is not defined` at `TimeClockPanel` line 176, blanking the editor with the red React error overlay.
 - **Root cause**: Yesterday's price-masking pass tried to inject `const { hasPermission } = useAuth(); const fm = (v) => money(v, canSeePrices);` after `const { t } = useLang();` in `TimeClockPanel`, but the file actually reads `const { t, meta } = useLang();`. The `search_replace` failed silently for that panel while the `fm(...)` call-sites had already been rewritten, leaving `fm` undefined at render time.

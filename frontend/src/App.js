@@ -119,7 +119,7 @@ function App() {
               <Route path="/reports" element={<PermGate perm="reports.view"><Reports /></PermGate>} />
               <Route path="/repairs" element={<PermGate perm="repairs.view"><Repairs /></PermGate>} />
               <Route path="/scan" element={<PermGate perm="delivery_scan.use"><ScanPickup /></PermGate>} />
-              <Route path="/reminders" element={<PermGate perm="reminders.view"><Reminders /></PermGate>} />
+              <Route path="/reminders" element={<Navigate to="/vehicles?tab=reminders" replace />} />
               <Route path="/cash-register" element={<PermGate perm="cash.view"><CashRegister /></PermGate>} />
               <Route path="/accounts" element={<PermGate perm="accounts.view"><Accounts /></PermGate>} />
               <Route path="/calendar" element={<PermGate perm="calendar.view"><CalendarPage /></PermGate>} />

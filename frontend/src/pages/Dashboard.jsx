@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api, formatEUR } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Package, Euro, AlertTriangle, ArrowDownRight, ArrowUpRight, Boxes, TrendingUp, Car, Clock, Wrench, Users as UsersIcon } from "lucide-react";
+import { Package, Euro, AlertTriangle, ArrowDownRight, ArrowUpRight, Boxes, TrendingUp, Car, Clock, Wrench, Users as UsersIcon, Bell, ShieldAlert } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
@@ -31,6 +31,18 @@ export default function Dashboard() {
   const { t } = useLang();
   const { data: sum } = useQuery({ queryKey: ["dash"], queryFn: () => api.get("/dashboard/summary").then((r) => r.data) });
   const { data: movement = [] } = useQuery({ queryKey: ["move14"], queryFn: () => api.get("/reports/movement?days=14").then((r) => r.data) });
+  // Reminders widget — surfaces the count of pending service reminders (APK /
+  // oil / manual) so the owner can jump straight to send them.
+  const { data: reminders = [] } = useQuery({
+    queryKey: ["reminders"],
+    queryFn: () => api.get("/reminders").then((r) => r.data),
+    refetchInterval: 60000,
+  });
+  const pendingReminders = reminders.filter(r => r.status === "pending");
+  const upcomingReminders = pendingReminders
+    .slice()
+    .sort((a, b) => (a.due_date || "").localeCompare(b.due_date || ""))
+    .slice(0, 4);
 
   const s = sum || {};
   const token = localStorage.getItem("garage_token") || "";
@@ -71,6 +83,54 @@ export default function Dashboard() {
       </div>
 
       {/* Open cars in the workshop */}
+      {/* Reminders — modern glass card with the next few upcoming customer nudges */}
+      {pendingReminders.length > 0 && (
+        <Card className="p-6 border-border relative overflow-hidden" data-testid="dash-reminders">
+          <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 via-transparent to-transparent pointer-events-none" />
+          <div className="relative flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex items-start gap-3">
+              <div className="h-11 w-11 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
+                <Bell className="h-5 w-5 text-amber-700 dark:text-amber-400" />
+              </div>
+              <div>
+                <div className="text-[11px] font-mono uppercase tracking-widest text-amber-700 dark:text-amber-400">
+                  {t("reminders") || "Herinneringen"}
+                </div>
+                <div className="font-display text-2xl font-bold mt-0.5">
+                  {pendingReminders.length} {(t("pending") || "pending").toLowerCase()}
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {t("dashRemindersHint") || "Klanten die een dienst-nudge verdienen."}
+                </div>
+              </div>
+            </div>
+            <Button asChild variant="outline" className="rounded-full border-amber-500/40 hover:bg-amber-500/10" data-testid="dash-reminders-open">
+              <Link to="/vehicles?tab=reminders"><Bell className="h-4 w-4 mr-2" /> {t("openReminders") || "Openen"}</Link>
+            </Button>
+          </div>
+          <div className="relative mt-4 grid grid-cols-1 md:grid-cols-2 gap-2">
+            {upcomingReminders.map((r) => (
+              <Link
+                key={r.id}
+                to="/vehicles?tab=reminders"
+                data-testid={`dash-reminder-${r.id}`}
+                className="flex items-center gap-3 rounded-lg border border-border bg-background/60 hover:border-amber-500/50 hover:bg-amber-500/5 transition-colors p-3"
+              >
+                <div className="h-8 w-8 rounded-md bg-amber-500/10 border border-amber-500/30 flex items-center justify-center shrink-0">
+                  {r.kind === "apk" ? <ShieldAlert className="h-4 w-4 text-rose-700 dark:text-rose-400" /> : <Bell className="h-4 w-4 text-amber-700 dark:text-amber-400" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold truncate">{r.customer_name || "—"}</div>
+                  <div className="text-[11px] font-mono text-muted-foreground truncate">
+                    {r.reason} · {r.due_date}
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {(s.open_cars || []).length > 0 && (
         <Card className="p-6 border-border" data-testid="open-cars-panel">
           <div className="flex items-center justify-between mb-4">
