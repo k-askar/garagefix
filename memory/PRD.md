@@ -18,6 +18,23 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26r — Master barcode + variants (sub-items)
+- **Feature request** (owner, Arabic): "أريد باركود رئيسي يتفرع منه أصناف فرعية — عند مسحه تظهر قائمة أختار منها الصنف فيُخصم من المخزن." Real-world use: one master "Motor Oil 5W-30" barcode → 1L / 4L / 5L variants (or Bosch / Mann brands).
+- **Data model**: added `parent_id: Optional[str]` on `InventoryItem` / `InventoryItemCreate` / `InventoryItemUpdate`. A variant is any inventory row whose `parent_id` points to a master; a master is any row with **no** `parent_id`. Variants have their own barcode / SKU / price / stock and are what gets deducted.
+- **New endpoints**:
+  - `GET /api/inventory/scan?code=X` — returns `{mode:"single", item}` for a leaf or `{mode:"variants", master, variants}` for a master with children (also returns single when a variant barcode is scanned directly).
+  - `GET /api/inventory/{id}/variants` — list children.
+  - `POST /api/inventory/{id}/variants` — create a variant; inherits `category` / `unit` / `supplier_id` / `compatible_vehicles` from the master when blank, auto-generates barcode + SKU.
+  - `DELETE /api/inventory/{id}` — cascades to variants (was orphaning them before).
+- **Frontend**:
+  - New `VariantsManagerDialog` (list + inline add form) opened by a `Boxes` icon on every inventory row.
+  - New `VariantPickerDialog` shown by the Withdraw panel when a scanned code hits a master — variants render with stock badge (green / amber / red) and out-of-stock rows are click-disabled.
+  - Withdraw scan flow now calls `/inventory/scan` (falls back to local search if network flakes).
+  - Master rows get a `Boxes N sub` chip; variant rows are hidden from the main table (managed via the master's dialog).
+- **Verified via curl**: create master → 3 variants → scan master returns `mode:variants` with 3 rows; scan variant barcode returns `mode:single`.
+- **Verified via screenshot**: overview table shows the "3 sub" chip on the master; withdraw panel opens the picker on master barcode scan; picking "4 Liter" fills the withdraw form correctly.
+
+
 ### Session 2026-02-26q — Inline vehicle silently dropped on new-customer save
 - **Bug**: Adding a new customer with an inline vehicle in the "Add Klant" dialog appeared to succeed, but the vehicle never persisted — the "New job card" and "Klant bewerken" dialogs both showed **0 gekoppelde voertuigen**. Only after re-opening the customer and adding the vehicle again did it appear.
 - **Root cause**: The inline vehicle form ships every numeric / date field as an empty string (`next_oil_change_km: ""`, `apk_expiry: ""`). Pydantic v2 rejected `""` for the `Optional[int]` field with a 422 `int_parsing` error. The frontend `POST /customers` succeeded but the follow-up `POST /customers/{id}/vehicles` failed — and its `catch` block was silently ignored (`/* silent — customer is saved even if vehicle fails */`).

@@ -434,6 +434,9 @@ class InventoryItem(BaseModel):
     supplier_id: Optional[str] = None
     location: Optional[str] = ""
     compatible_vehicles: Optional[str] = ""
+    parent_id: Optional[str] = None   # If set, this item is a "variant" (child)
+                                      # of a master item.  Scanning the master
+                                      # barcode opens a picker of its variants.
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -453,6 +456,7 @@ class InventoryItemCreate(BaseModel):
     supplier_id: Optional[str] = None
     location: Optional[str] = ""
     compatible_vehicles: Optional[str] = ""
+    parent_id: Optional[str] = None
 
 class InventoryItemUpdate(BaseModel):
     sku: Optional[str] = None
@@ -470,6 +474,7 @@ class InventoryItemUpdate(BaseModel):
     supplier_id: Optional[str] = None
     location: Optional[str] = None
     compatible_vehicles: Optional[str] = None
+    parent_id: Optional[str] = None
 
 class Transaction(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -976,6 +981,67 @@ async def lookup_inventory(code: str, user: dict = Depends(require_permission("i
         raise HTTPException(status_code=404, detail="Item not found")
     return item
 
+
+@api_router.get("/inventory/scan")
+async def scan_inventory(code: str, user: dict = Depends(require_permission("inventory.view"))):
+    """Barcode scan router.
+
+    - If the matched item has one or more **variants** (children referencing
+      it via `parent_id`), returns `{mode:"variants", master, variants}` so the
+      UI can pop a picker of sub-items.
+    - Otherwise returns `{mode:"single", item}` — same shape callers were
+      already handling via `/inventory/lookup`.
+
+    Works whether the scanned code hits the master barcode/SKU or a variant
+    barcode/SKU directly (in the latter case we return `mode:"single"` for the
+    variant itself).
+    """
+    match = await db.inventory.find_one({"$or": [{"barcode": code}, {"sku": code}]}, {"_id": 0})
+    if not match:
+        raise HTTPException(status_code=404, detail="Item not found")
+    # If the caller scanned a variant directly, treat as single (no picker).
+    if match.get("parent_id"):
+        return {"mode": "single", "item": match}
+    variants = await db.inventory.find({"parent_id": match["id"]}, {"_id": 0}).sort("name", 1).to_list(500)
+    if variants:
+        return {"mode": "variants", "master": match, "variants": variants}
+    return {"mode": "single", "item": match}
+
+
+@api_router.get("/inventory/{item_id}/variants", response_model=List[InventoryItem])
+async def list_item_variants(item_id: str, user: dict = Depends(require_permission("inventory.view"))):
+    parent = await db.inventory.find_one({"id": item_id}, {"_id": 0})
+    if not parent:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return await db.inventory.find({"parent_id": item_id}, {"_id": 0}).sort("name", 1).to_list(500)
+
+
+@api_router.post("/inventory/{item_id}/variants", response_model=InventoryItem)
+async def add_item_variant(item_id: str, payload: InventoryItemCreate,
+                           user: dict = Depends(require_permission("inventory.edit"))):
+    parent = await db.inventory.find_one({"id": item_id}, {"_id": 0})
+    if not parent:
+        raise HTTPException(status_code=404, detail="Master item not found")
+    if parent.get("parent_id"):
+        raise HTTPException(status_code=400, detail="Cannot nest variants — that item is itself a variant")
+    data = payload.model_dump()
+    # Force the parent link regardless of what the client sent.
+    data["parent_id"] = item_id
+    if not data.get("sku"):
+        data["sku"] = _generate_sku()
+    if not data.get("barcode"):
+        data["barcode"] = _generate_barcode()
+    if await db.inventory.find_one({"$or": [{"sku": data["sku"]}, {"barcode": data["barcode"]}]}):
+        raise HTTPException(status_code=400, detail="SKU or barcode already exists")
+    # Inherit category / unit / supplier from the master when the caller left
+    # them blank so the owner doesn't have to retype for every variant.
+    for k in ("category", "unit", "supplier_id", "compatible_vehicles"):
+        if not data.get(k):
+            data[k] = parent.get(k) or data.get(k)
+    obj = InventoryItem(**data)
+    await db.inventory.insert_one(obj.model_dump())
+    return obj
+
 @api_router.get("/inventory/{item_id}", response_model=InventoryItem)
 async def get_inventory(item_id: str, user: dict = Depends(require_permission("inventory.view"))):
     item = await db.inventory.find_one({"id": item_id}, {"_id": 0})
@@ -1008,8 +1074,13 @@ async def update_inventory(item_id: str, payload: InventoryItemUpdate, user: dic
 
 @api_router.delete("/inventory/{item_id}")
 async def delete_inventory(item_id: str, user: dict = Depends(require_permission("inventory.delete"))):
+    # If this is a master with children, cascade-delete the variants first so
+    # we don't leave orphan rows referencing a missing parent.
+    child_count = await db.inventory.count_documents({"parent_id": item_id})
+    if child_count:
+        await db.inventory.delete_many({"parent_id": item_id})
     await db.inventory.delete_one({"id": item_id})
-    return {"ok": True}
+    return {"ok": True, "deleted_variants": child_count}
 
 # --- Transactions ---
 @api_router.get("/transactions", response_model=List[Transaction])

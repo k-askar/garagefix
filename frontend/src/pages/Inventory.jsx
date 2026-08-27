@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Search, Pencil, Trash2, Printer, Upload, Car, Download, Tags, FileDown, Package, TrendingDown, TrendingUp, Wallet, AlertTriangle, ArrowDownRight, ArrowUpRight, Wrench, Warehouse, PackagePlus, PackageMinus, ClipboardList, User, Camera } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Printer, Upload, Car, Download, Tags, FileDown, Package, TrendingDown, TrendingUp, Wallet, AlertTriangle, ArrowDownRight, ArrowUpRight, Wrench, Warehouse, PackagePlus, PackageMinus, ClipboardList, User, Camera, Boxes } from "lucide-react";
 import { toast } from "sonner";
 import Barcode from "react-barcode";
 import { useAuth } from "@/context/AuthContext";
@@ -21,6 +21,8 @@ import { useLang } from "@/i18n";
 import { printLabels } from "@/lib/barcode-batch";
 import { downloadListReportPdf, printListReport } from "@/lib/reports";
 import BarcodeScannerDialog from "@/components/BarcodeScannerDialog";
+import VariantPickerDialog from "@/components/VariantPickerDialog";
+import VariantsManagerDialog from "@/components/VariantsManagerDialog";
 
 const CATEGORIES = ["Engine", "Brakes", "Filters", "Lubricants", "Electrical", "Body", "Tyres", "Suspension", "Transmission", "General"];
 
@@ -155,6 +157,10 @@ function WithdrawPanel({ items, invalidate, t }) {
   const [busy, setBusy] = useState(false);
   const [manualCode, setManualCode] = useState("");
   const [scannerOpen, setScannerOpen] = useState(false);
+  // When a scanned code hits a master item with variants, we pop a picker
+  // dialog so the user can drill into the exact sub-item being withdrawn.
+  const [pickerMaster, setPickerMaster] = useState(null);
+  const [pickerVariants, setPickerVariants] = useState([]);
 
   const { data: openCards = [] } = useQuery({
     queryKey: ["repairs-open"],
@@ -166,19 +172,44 @@ function WithdrawPanel({ items, invalidate, t }) {
   const isCard = destination && destination !== "garage";
   const chosenCard = openCards.find(c => c.id === destination);
 
-  // Look up an item by scanned/typed code and select it, or complain.
-  const resolveCode = (code) => {
+  // Look up an item by scanned/typed code and either select it directly OR,
+  // when the code points to a master with variants, open the picker so the
+  // user drills down to the exact sub-item.
+  const resolveCode = async (code) => {
     const c = (code || "").trim();
     if (!c) return;
-    const found = items.find(i => i.barcode === c || i.sku === c);
-    if (!found) { toast.error(t("noMatchingBarcode")); return; }
-    setItemId(found.id);
-    setManualCode("");
-    toast.success(`${found.name} · ${found.quantity} ${t("inStock")}`);
+    try {
+      const { data } = await api.get(`/inventory/scan?code=${encodeURIComponent(c)}`);
+      setManualCode("");
+      if (data.mode === "variants") {
+        setPickerMaster(data.master);
+        setPickerVariants(data.variants || []);
+        toast.info(`${data.master.name} · ${(data.variants || []).length} sub-artikelen — kies er één`);
+        return;
+      }
+      // mode === "single"
+      const found = data.item;
+      setItemId(found.id);
+      toast.success(`${found.name} · ${found.quantity} ${t("inStock")}`);
+    } catch (err) {
+      // Fall back to the (older) client-side search so bulk-scan flows that
+      // happen while the network hiccups still resolve locally.
+      const found = items.find(i => i.barcode === c || i.sku === c);
+      if (!found) { toast.error(t("noMatchingBarcode")); return; }
+      setItemId(found.id); setManualCode("");
+      toast.success(`${found.name} · ${found.quantity} ${t("inStock")}`);
+    }
   };
 
   const scanCode = () => resolveCode(manualCode);
   const onScannerDecoded = (text) => resolveCode(text);
+
+  const onPickVariant = (v) => {
+    // The variant may not be in the parent-filtered `items` prop — fetch its
+    // freshest quantity from the picker payload directly.
+    setItemId(v.id);
+    toast.success(`${v.name} · ${v.quantity} ${t("inStock")}`);
+  };
 
   const submit = async () => {
     if (!itemId) return toast.error(t("pickPart"));
@@ -354,6 +385,14 @@ function WithdrawPanel({ items, invalidate, t }) {
         onDecoded={onScannerDecoded}
         elementId="withdraw-bcode-scanner"
       />
+
+      <VariantPickerDialog
+        open={!!pickerMaster}
+        onOpenChange={(v) => { if (!v) { setPickerMaster(null); setPickerVariants([]); } }}
+        master={pickerMaster}
+        variants={pickerVariants}
+        onPick={onPickVariant}
+      />
     </Card>
   );
 }
@@ -477,6 +516,7 @@ export default function Inventory() {
   const [importing, setImporting] = useState(false);
   const [selected, setSelected] = useState([]);
   const [exporting, setExporting] = useState(false);
+  const [variantsFor, setVariantsFor] = useState(null);   // master item whose variants are being managed
 
   const { data: items = [] } = useQuery({ queryKey: ["inv"], queryFn: () => api.get("/inventory").then(r => r.data) });
   const { data: suppliers = [] } = useQuery({
@@ -491,6 +531,9 @@ export default function Inventory() {
   const invalidate = () => qc.invalidateQueries();
 
   const filtered = useMemo(() => items.filter(i => {
+    // Hide variant rows from the main table — they're managed via the master's
+    // "Sub-artikelen" dialog.  Users still see them in the withdraw picker.
+    if (i.parent_id) return false;
     const s = q.toLowerCase();
     const match = !s
       || i.name.toLowerCase().includes(s)
@@ -502,6 +545,16 @@ export default function Inventory() {
     const low = !showLow || i.quantity <= i.reorder_point;
     return match && c && v && low;
   }), [items, q, cat, vehicle, showLow]);
+
+  // Group variant counts by master id so we can badge master rows without
+  // requiring an extra API call per row.
+  const variantCounts = useMemo(() => {
+    const m = new Map();
+    for (const it of items) {
+      if (it.parent_id) m.set(it.parent_id, (m.get(it.parent_id) || 0) + 1);
+    }
+    return m;
+  }, [items]);
 
   const kpi = useMemo(() => {
     const totalItems = items.length;
@@ -748,7 +801,18 @@ export default function Inventory() {
                           <Checkbox checked={selected.includes(i.id)} onCheckedChange={() => toggleSel(i.id)} data-testid={`select-${i.sku}`} />
                         </TableCell>
                         <TableCell>
-                          <div className="font-medium">{i.name}</div>
+                          <div className="font-medium flex items-center gap-2">
+                            {i.name}
+                            {variantCounts.get(i.id) > 0 && (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] font-mono border-primary/40 text-primary bg-primary/10 gap-1"
+                                data-testid={`master-badge-${i.sku}`}
+                              >
+                                <Boxes className="h-2.5 w-2.5" /> {variantCounts.get(i.id)} sub
+                              </Badge>
+                            )}
+                          </div>
                           {i.name_ar && <div className="text-xs text-muted-foreground" dir="rtl">{i.name_ar}</div>}
                           <div className="text-[10px] font-mono text-muted-foreground">{i.barcode}</div>
                         </TableCell>
@@ -767,6 +831,18 @@ export default function Inventory() {
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
                             <Button size="icon" variant="ghost" onClick={() => setLabelItem(i)} data-testid={`print-${i.sku}`}><Printer className="h-4 w-4" /></Button>
+                            {canEdit && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => setVariantsFor(i)}
+                                title="Sub-artikelen beheren"
+                                data-testid={`variants-${i.sku}`}
+                                className={variantCounts.get(i.id) > 0 ? "text-primary" : ""}
+                              >
+                                <Boxes className="h-4 w-4" />
+                              </Button>
+                            )}
                             {canEdit && <Button size="icon" variant="ghost" onClick={() => { setEditing(i); setOpen(true); }} data-testid={`edit-${i.sku}`}><Pencil className="h-4 w-4" /></Button>}
                             {canDelete && <Button size="icon" variant="ghost" onClick={() => del(i.id)} data-testid={`delete-${i.sku}`}><Trash2 className="h-4 w-4 text-rose-600 dark:text-rose-400" /></Button>}
                           </div>
@@ -832,6 +908,13 @@ export default function Inventory() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Variants (sub-items) manager */}
+      <VariantsManagerDialog
+        open={!!variantsFor}
+        onOpenChange={(v) => { if (!v) setVariantsFor(null); }}
+        master={variantsFor}
+      />
     </div>
   );
 }
