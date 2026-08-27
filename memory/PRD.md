@@ -17,6 +17,17 @@
 - Fonts: Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (data) + Cairo/Amiri (Arabic)
 
 
+### Session 2026-02-27j — Bulk-group parts into variantgroep (P0 feature)
+- **Owner asks**: after AI-scanning parts into the inventory, select multiple rows and merge them into one master with sub-variants (so scanning the master EAN opens a picker).
+- **Backend** (new `POST /api/inventory/group` in `server.py` ≈ line 1082): accepts `{ item_ids, mode: "new"|"existing", master?: {...}, master_id? }`. In `"new"` mode creates a fresh master (inherits category/unit/supplier from the first selected item, auto-mints SKU+EAN-13); in `"existing"` mode promotes one of the selected items to master. Guards: ≥ 2 items, none may already be a variant (has `parent_id`) or a master (has children), master_id must be in item_ids for `existing`, unique SKU/EAN enforced. Single write updates every child's `parent_id`.
+- **Frontend**:
+  - `/app/frontend/src/components/GroupItemsDialog.jsx` — mode picker (Nieuw master / Bestaand item), longest-common-prefix name suggestion ("Olie 1L" + "Olie 4L" + "Olie 5L" → "Olie"), inline preview of every selected row (with `Al variant` / `Al master` red badges when a guard would trip), empty master-barcode by default (backend auto-mints to avoid uniqueness collision).
+  - `/app/frontend/src/pages/Inventory.jsx` — new toolbar button "🧬 Groepeer als variantengroep (N)" (`batch-group-button`) that appears only when `selected.length >= 2` and the user can edit. Wires `GroupItemsDialog` with the same `selected` state that already drives batch label printing.
+- **Verified**: 6/6 curl checks (new-master create ✅, 3 variants attached ✅, double-group 400 ✅, single-item 400 ✅, delete cascade 200) + Playwright E2E (select 3 rows → "Olie UI" prefix suggested → confirm → master with `3 sub` badge appears).
+- **Fix during test**: initial version pre-filled master barcode from the first selected item, colliding with the uniqueness constraint on the row about to be demoted. Left it empty so backend auto-mints — retested and works clean.
+
+
+
 ### Session 2026-02-27i — Add-Klant reorder for company customers
 - **Owner asks**: on the "Add Klant · Bedrijf" tab, put company info + KvK + address FIRST and the initial-vehicle block LAST. Reason: a company usually owns multiple vehicles, so the operator finishes company data quickly and then adds the fleet via the existing `CustomerVehiclesEditor` on the Party page.
 - **Fix** (`PartyPage.jsx`): converted `<form className="space-y-4">` into a flex column and wrapped BOTH vehicle branches (`CustomerVehiclesEditor` when editing + the RDW/hero card when creating) in a single `<div data-testid="vehicle-slot">`. That wrapper gets `order-last flex flex-col gap-4` when `customer_type === "company"` and the semantic `contents` class otherwise — no JSX duplication, `space-y-4` still applied because when `customer_type !== "company"` the wrapper collapses via `display: contents` and its children participate in the parent's spacing directly. `DialogFooter` pinned to `order-[999]` so it always trails the reordered vehicle block.

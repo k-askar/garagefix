@@ -1079,6 +1079,99 @@ async def add_item_variant(item_id: str, payload: InventoryItemCreate,
     await db.inventory.insert_one(obj.model_dump())
     return obj
 
+@api_router.post("/inventory/group", response_model=InventoryItem)
+async def group_inventory_items(payload: dict, user: dict = Depends(require_permission("inventory.edit"))):
+    """Bulk-convert a list of standalone parts into one variant-family.
+
+    Two modes:
+      • `mode = "existing"`  → pick one of the selected items as the master;
+        every other selected item gets `parent_id = master.id`.
+      • `mode = "new"`      → create a brand-new master (name / barcode / etc.
+        come from `master`) and adopt every selected item as its child.
+
+    Guardrails:
+      • None of the selected items may already have a `parent_id` (no nested
+        variants).
+      • None of them may already have children (a master can't itself become
+        a variant of another master).
+      • For "existing" mode the master must be inside `item_ids`.
+    """
+    item_ids: List[str] = list(payload.get("item_ids") or [])
+    if len(item_ids) < 2:
+        raise HTTPException(status_code=400, detail="Selecteer minstens 2 onderdelen")
+
+    items = await db.inventory.find({"id": {"$in": item_ids}}, {"_id": 0}).to_list(500)
+    found_ids = {i["id"] for i in items}
+    missing = [i for i in item_ids if i not in found_ids]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Items not found: {missing[:3]}")
+
+    for it in items:
+        if it.get("parent_id"):
+            raise HTTPException(status_code=400, detail=f"'{it['name']}' is al een variant — kan niet nog eens gegroepeerd worden")
+        # If it already has children we'd create a two-level hierarchy which
+        # the rest of the UI (variant picker) can't render.
+        child = await db.inventory.count_documents({"parent_id": it["id"]})
+        if child:
+            raise HTTPException(status_code=400, detail=f"'{it['name']}' is zelf een master met varianten — kan niet als variant gegroepeerd worden")
+
+    mode = (payload.get("mode") or "new").lower()
+
+    if mode == "existing":
+        master_id = payload.get("master_id")
+        if not master_id or master_id not in item_ids:
+            raise HTTPException(status_code=400, detail="master_id moet één van de geselecteerde items zijn")
+        master = next(i for i in items if i["id"] == master_id)
+        child_ids = [i for i in item_ids if i != master_id]
+    elif mode == "new":
+        m = payload.get("master") or {}
+        name = (m.get("name") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Naam is verplicht voor de nieuwe hoofd-artikel")
+        # Inherit sensible defaults from the FIRST selected item so we don't
+        # burden the owner with retyping category / unit / supplier.
+        first = items[0]
+        # Auto-generate SKU / barcode when the caller left them empty — same
+        # helpers used everywhere else so uniqueness constraints hold.
+        new_barcode = (m.get("barcode") or "").strip() or _generate_barcode()
+        new_sku     = (m.get("sku") or "").strip() or _generate_sku()
+        if await db.inventory.find_one({"$or": [{"sku": new_sku}, {"barcode": new_barcode}]}):
+            raise HTTPException(status_code=400, detail="SKU of barcode bestaat al")
+        master_doc = InventoryItem(
+            sku=new_sku,
+            barcode=new_barcode,
+            name=name,
+            name_ar=(m.get("name_ar") or "").strip(),
+            category=(m.get("category") or first.get("category") or "General"),
+            description="",
+            notes=f"Groep van {len(item_ids)} onderdelen · aangemaakt via 'Groepeer' op {datetime.now(timezone.utc).date().isoformat()}",
+            cost_price=0.0,           # master itself has no stock — variants carry it
+            selling_price=0.0,
+            quantity=0,
+            reorder_point=int(first.get("reorder_point") or 5),
+            unit=(m.get("unit") or first.get("unit") or "pcs"),
+            supplier_id=first.get("supplier_id"),
+            location=first.get("location") or "",
+            compatible_vehicles=first.get("compatible_vehicles") or "",
+        ).model_dump()
+        await db.inventory.insert_one(master_doc)
+        master = master_doc
+        master_id = master["id"]
+        child_ids = item_ids
+    else:
+        raise HTTPException(status_code=400, detail="mode moet 'new' of 'existing' zijn")
+
+    # Adopt every child in a single write.
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if child_ids:
+        await db.inventory.update_many(
+            {"id": {"$in": child_ids}},
+            {"$set": {"parent_id": master_id, "updated_at": now_iso}},
+        )
+
+    return await db.inventory.find_one({"id": master_id}, {"_id": 0})
+
+
 @api_router.get("/inventory/{item_id}", response_model=InventoryItem)
 async def get_inventory(item_id: str, user: dict = Depends(require_permission("inventory.view"))):
     item = await db.inventory.find_one({"id": item_id}, {"_id": 0})

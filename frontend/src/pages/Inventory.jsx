@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Search, Pencil, Trash2, Printer, Upload, Car, Download, Tags, FileDown, Package, TrendingDown, TrendingUp, Wallet, AlertTriangle, ArrowDownRight, ArrowUpRight, Wrench, Warehouse, PackagePlus, PackageMinus, ClipboardList, User, Camera, Boxes, Sparkles, Clock } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Printer, Upload, Car, Download, Tags, FileDown, Package, TrendingDown, TrendingUp, Wallet, AlertTriangle, ArrowDownRight, ArrowUpRight, Wrench, Warehouse, PackagePlus, PackageMinus, ClipboardList, User, Camera, Boxes, Sparkles, Clock, Combine } from "lucide-react";
 import { toast } from "sonner";
 import Barcode from "react-barcode";
 import { useAuth } from "@/context/AuthContext";
@@ -24,6 +24,7 @@ import BarcodeScannerDialog from "@/components/BarcodeScannerDialog";
 import VariantPickerDialog from "@/components/VariantPickerDialog";
 import VariantsManagerDialog from "@/components/VariantsManagerDialog";
 import InvoiceScanDialog from "@/components/InvoiceScanDialog";
+import GroupItemsDialog from "@/components/GroupItemsDialog";
 
 const CATEGORIES = ["Engine", "Brakes", "Filters", "Lubricants", "Electrical", "Body", "Tyres", "Suspension", "Transmission", "General"];
 
@@ -605,6 +606,7 @@ export default function Inventory() {
   const [variantsFor, setVariantsFor] = useState(null);   // master item whose variants are being managed
   const [scanOpen, setScanOpen] = useState(false);        // AI invoice-scan dialog
   const [reopenSession, setReopenSession] = useState(null); // clicked "resume" from Wachtend
+  const [groupOpen, setGroupOpen] = useState(false);      // "Groepeer als variantengroep" dialog
 
   const { data: items = [] } = useQuery({ queryKey: ["inv"], queryFn: () => api.get("/inventory").then(r => r.data) });
   const { data: waitingItems = [] } = useQuery({
@@ -891,6 +893,17 @@ export default function Inventory() {
                       <Tags className="h-4 w-4 mr-2" /> {t("printNLabels", { n: selected.length })}
                     </Button>
                   )}
+                  {canEdit && selected.length >= 2 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-full border-primary/40 text-primary hover:bg-primary/10 bg-primary/5"
+                      onClick={() => setGroupOpen(true)}
+                      data-testid="batch-group-button"
+                    >
+                      <Combine className="h-4 w-4 mr-2" /> Groepeer als variantengroep ({selected.length})
+                    </Button>
+                  )}
                   <Button variant="outline" size="sm" className="rounded-full border-primary/40 text-primary hover:bg-primary/10" onClick={printAllBarcodes} disabled={!items.length} title={t("printAllBarcodesHint")} data-testid="print-all-barcodes">
                     <Printer className="h-4 w-4 mr-2" /> {t("printAllBarcodes")}
                   </Button>
@@ -1109,6 +1122,16 @@ export default function Inventory() {
         open={scanOpen}
         onOpenChange={(o) => { setScanOpen(o); if (!o) setReopenSession(null); }}
         initialSessionId={reopenSession}
+      />
+
+      {/* Bulk "Groepeer als variantengroep" dialog */}
+      <GroupItemsDialog
+        open={groupOpen}
+        onOpenChange={(o) => { setGroupOpen(o); if (!o) setSelected([]); }}
+        selectedItems={items
+          .filter(i => selected.includes(i.id))
+          .map(i => ({ ...i, _variant_count: variantCounts.get(i.id) || 0 }))
+        }
       />
     </div>
   );
