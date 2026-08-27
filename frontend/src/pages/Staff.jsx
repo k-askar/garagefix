@@ -10,7 +10,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Trash2, UserCog, Pencil, Package, Wrench, Receipt, Wallet, Users, Truck, BarChart3, Calendar as CalendarIcon, ShieldCheck, Check, QrCode } from "lucide-react";
+import { Plus, Trash2, UserCog, Pencil, Package, Wrench, Receipt, Wallet, Users, Truck, BarChart3, Calendar as CalendarIcon, ShieldCheck, Check, QrCode, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { useLang } from "@/i18n";
@@ -21,12 +21,77 @@ const SECTION_ICON = {
   users: Users, truck: Truck, "bar-chart": BarChart3, calendar: CalendarIcon,
 };
 
+/* Preset role templates — one tap fills a sensible starter set of scopes so
+   the owner doesn't have to hunt through every checkbox for a common hire.
+   The `filter` keeps only scopes actually present in the tenant's catalog so
+   older templates don't break when we add new scopes later. */
+const ROLE_TEMPLATES = [
+  {
+    id: "mechanic",
+    label: { nl: "Monteur", en: "Mechanic", ar: "ميكانيكي" },
+    hint: { nl: "Werkbonnen + voorraad, geen prijzen", en: "Repairs + inventory, no prices", ar: "الكروت والمخزون بلا أسعار" },
+    perms: [
+      "repairs.view", "repairs.create", "repairs.edit", "repairs.complete",
+      "inventory.view", "inventory.withdraw",
+      "customers.view",
+      "calendar.view", "calendar.edit",
+    ],
+  },
+  {
+    id: "accountant",
+    label: { nl: "Boekhouder", en: "Accountant", ar: "محاسب" },
+    hint: { nl: "Facturen + kassa + alle prijzen", en: "Invoices + cash + all prices", ar: "الفواتير والصندوق وكل الأسعار" },
+    perms: [
+      "invoices.view", "invoices.create", "invoices.mark_paid", "invoices.send",
+      "cash.view", "cash.add_movement", "cash.export",
+      "reports.view",
+      "prices.inventory", "prices.repairs", "prices.invoices", "prices.reports",
+      "customers.view",
+    ],
+  },
+  {
+    id: "receptionist",
+    label: { nl: "Receptie", en: "Receptionist", ar: "استقبال" },
+    hint: { nl: "Klanten + agenda + voorraad met prijs", en: "Customers + calendar + inventory prices", ar: "العملاء والمواعيد والمخزون بأسعاره" },
+    perms: [
+      "customers.view", "customers.edit",
+      "calendar.view", "calendar.edit",
+      "inventory.view", "prices.inventory",
+      "repairs.view", "repairs.create",
+      "invoices.view", "invoices.send",
+    ],
+  },
+  {
+    id: "assistant_manager",
+    label: { nl: "Assistent-manager", en: "Assistant manager", ar: "مساعد المدير" },
+    hint: { nl: "Bijna alles behalve verwijderen", en: "Almost everything except delete", ar: "كل شيء عدا الحذف" },
+    perms: null,   // computed at click time: all perms except *.delete
+  },
+];
+
 /* ─────────────────────────────────────────────────────────────
    Permission matrix — grouped checkbox tree
    ───────────────────────────────────────────────────────────── */
 function PermissionMatrix({ catalog, value, onChange, disabled }) {
-  const { t } = useLang();
+  const { t, meta } = useLang();
   const set = new Set(value || []);
+  const uiLang = (meta?.locale || "nl").slice(0, 2);
+  const langKey = ROLE_TEMPLATES[0].label[uiLang] ? uiLang : "en";
+
+  const applyTemplate = (tpl) => {
+    if (disabled) return;
+    const allKeys = catalog.flatMap(s => s.perms.map(p => p.key));
+    let next;
+    if (tpl.perms) {
+      // Filter template scopes down to those the tenant actually offers.
+      next = tpl.perms.filter(k => allKeys.includes(k));
+    } else {
+      // "Assistant manager" — everything except delete scopes.
+      next = allKeys.filter(k => !k.endsWith(".delete"));
+    }
+    onChange(next);
+    toast.success(tpl.label[langKey]);
+  };
 
   const toggleOne = (key) => {
     if (disabled) return;
@@ -64,6 +129,29 @@ function PermissionMatrix({ catalog, value, onChange, disabled }) {
 
   return (
     <div className="space-y-3">
+      {!disabled && (
+        <div className="rounded-md border-2 border-dashed border-primary/30 bg-primary/5 p-3 space-y-2" data-testid="perm-templates">
+          <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-widest text-primary">
+            <Sparkles className="h-3.5 w-3.5" />
+            {t("roleTemplates") || "Snelle voorinstellingen"}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {ROLE_TEMPLATES.map(tpl => (
+              <button
+                key={tpl.id}
+                type="button"
+                onClick={() => applyTemplate(tpl)}
+                data-testid={`perm-template-${tpl.id}`}
+                className="text-start rounded-md border border-primary/20 bg-background hover:bg-primary/10 hover:border-primary/50 transition-colors px-3 py-2 min-w-[160px]"
+              >
+                <div className="text-sm font-bold">{tpl.label[langKey]}</div>
+                <div className="text-[10px] text-muted-foreground leading-tight mt-0.5">{tpl.hint[langKey]}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
           {value.length} / {catalog.reduce((s, sec) => s + sec.perms.length, 0)} {t("permissionsGranted")}

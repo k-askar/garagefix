@@ -18,6 +18,18 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26w — One-tap role templates in the Staff editor
+- **Owner request** (follow-up): quick presets for common hires so the owner doesn't have to hand-tick dozens of scope checkboxes for every new worker.
+- **4 templates** shown as a dashed-outline card at the top of the permission matrix:
+  - **Monteur / Mechanic / ميكانيكي** — repairs + inventory withdraw + calendar + customers view. Explicitly NO `prices.*`.
+  - **Boekhouder / Accountant / محاسب** — invoices + cash + reports + all `prices.*` + customers view.
+  - **Receptie / Receptionist / استقبال** — customers edit + calendar edit + inventory view WITH prices + repairs view/create.
+  - **Assistent-manager / Assistant manager / مساعد المدير** — every scope in the tenant catalog except any `*.delete`.
+- **Localisation**: labels + hints in NL / EN / AR; the shown language follows the active UI locale.
+- **Safety**: `applyTemplate` filters the template's scopes against the tenant's live catalog before applying — so an older template never grants scopes the tenant hasn't defined (or grants stale keys that no longer exist).
+- **Screenshot verified**: opening "Gebruiker uitnodigen" shows the new dashed card with 4 preset buttons; clicking "Monteur" flips the counter to 9 / 24 and ticks only the scoped checkboxes.
+
+
 ### Session 2026-02-26v — Per-section "See prices" permission
 - **Owner request** (Arabic): add a new permission for every section that has prices so the owner can decide which staff members are allowed to see money.
 - **New permissions** added to the backend catalog (visible as checkboxes in the Staff editor):
