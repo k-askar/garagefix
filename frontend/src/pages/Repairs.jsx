@@ -84,6 +84,10 @@ function fmtLive(seconds) {
 
 function TimeClockPanel({ card, setData, settings, refetch }) {
   const { t, meta } = useLang();
+  const { hasPermission } = useAuth();
+  // Staff without "prices.repairs" see labour rates and money totals masked.
+  const canSeePrices = hasPermission("prices.repairs");
+  const fm = (v) => money(v, canSeePrices);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());

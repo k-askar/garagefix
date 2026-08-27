@@ -18,6 +18,13 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26y — Hotfix: "fm is not defined" crashed the Job Card editor
+- **Bug**: Clicking any job card threw `ReferenceError: fm is not defined` at `TimeClockPanel` line 176, blanking the editor with the red React error overlay.
+- **Root cause**: Yesterday's price-masking pass tried to inject `const { hasPermission } = useAuth(); const fm = (v) => money(v, canSeePrices);` after `const { t } = useLang();` in `TimeClockPanel`, but the file actually reads `const { t, meta } = useLang();`. The `search_replace` failed silently for that panel while the `fm(...)` call-sites had already been rewritten, leaving `fm` undefined at render time.
+- **Fix**: adjusted the injection to match the real destructure (`const { t, meta } = useLang();`) — TimeClockPanel now defines `canSeePrices` + `fm` correctly.
+- **Verified**: Playwright click on the card opens the dialog with `role="dialog"` visible; console logs report **0 errors**; Klant + Voertuig cards render with real data.
+
+
 ### Session 2026-02-26x — "Add Klant" dialog reorder + modern card design
 - **Owner request** (Arabic): put the vehicle block at the top of the Add Customer dialog and move name / e-mail / phone below it. Make the layout modern.
 - **New order** (Particulier flow, no `editId`):
