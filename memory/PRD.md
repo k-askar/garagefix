@@ -18,6 +18,18 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26x — "Add Klant" dialog reorder + modern card design
+- **Owner request** (Arabic): put the vehicle block at the top of the Add Customer dialog and move name / e-mail / phone below it. Make the layout modern.
+- **New order** (Particulier flow, no `editId`):
+  1. `Particulier` / `Bedrijf` toggle (unchanged).
+  2. **Vehicle card** — rounded-xl border, primary tint, header pill with a `Car` icon + "RDW auto-fill" subtitle, RDW hero row, make/model/year, colour / km / APK / next-oil-km.
+  3. **Contact card** — rounded-xl border, emerald tint on a small `User` icon, groups Name (required), Email and Phone side-by-side with `Mail` / `Phone` icons on each label.
+  4. **Address card** — rounded-xl border, blue tint with `MapPin`, unchanged `AddressFields`.
+- All sections now share the same modern "icon-badge + title + subtitle" header pattern for consistency; existing test-ids (`new-cust-veh-*`, `${kind}-name`) preserved.
+- The `Bedrijf` flow keeps KvK + company-name at the top (identity comes first for a company); vehicle then follows before the contact/address cards.
+- Verified with a screenshot on `/customers` → new dialog opens with Vehicle card first (`Car` header + orange RDW box + make/model/year + km/APK), Contact card below, Address card at the bottom.
+
+
 ### Session 2026-02-26w — One-tap role templates in the Staff editor
 - **Owner request** (follow-up): quick presets for common hires so the owner doesn't have to hand-tick dozens of scope checkboxes for every new worker.
 - **4 templates** shown as a dashed-outline card at the top of the permission matrix:

@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Trash2, Printer, FileDown, FileText, Eye, Pencil, Search, Loader2 } from "lucide-react";
+import { Plus, Trash2, Printer, FileDown, FileText, Eye, Pencil, Search, Loader2, Car, User, Mail, Phone, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { useLang } from "@/i18n";
 import { useAuth } from "@/context/AuthContext";
@@ -366,20 +366,24 @@ export default function PartyPage({ kind }) {
                 </div>
               )}
 
-              {/* Name — label switches with type */}
-              {(isSup || form.customer_type !== "company") && (
-                <div className="space-y-1.5"><Label>{t("name")}</Label><Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid={`${kind}-name`} /></div>
-              )}
-              {isSup && <div className="space-y-1.5"><Label>{t("contactPerson")}</Label><Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} /></div>}
+              {/* ═══ VEHICLE (top — new order) ═══ */}
               {!isSup && editId && (
                 <CustomerVehiclesEditor customerId={editId} />
               )}
               {!isSup && !editId && (
-                <div className="space-y-2 p-3 rounded-md border border-border bg-muted/20">
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("vehicle")} · {t("optional")}</div>
+                <div className="rounded-xl border-2 border-primary/20 bg-gradient-to-br from-primary/5 via-transparent to-transparent p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-8 w-8 rounded-lg bg-primary/15 flex items-center justify-center">
+                      <Car className="h-4 w-4 text-primary" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold text-foreground leading-tight">{t("vehicle")}</div>
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("optional")} · RDW auto-fill</div>
+                    </div>
+                  </div>
 
                   {/* RDW hero — plate + country + big search first */}
-                  <div className="rounded-md border border-orange-500/40 bg-orange-500/5 p-3 space-y-2">
+                  <div className="rounded-lg border border-orange-500/40 bg-orange-500/5 p-3 space-y-2">
                     <div className="flex items-center gap-2">
                       <Search className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
                       <div className="text-[10px] font-mono uppercase tracking-widest text-orange-700 dark:text-orange-400">{t("rdwLookup")}</div>
@@ -429,12 +433,55 @@ export default function PartyPage({ kind }) {
                   <p className="text-[10px] text-muted-foreground">{t("addMoreVehiclesHint")}</p>
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5"><Label>{t("email")}</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
-                <div className="space-y-1.5"><Label>{t("phone")}</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
+
+              {/* ═══ CONTACT INFO CARD (bottom — name + email + phone grouped) ═══ */}
+              <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="h-8 w-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+                    <User className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-foreground leading-tight">{isSup ? t("contact") : t("customer")}</div>
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("contactInformation") || "Contactgegevens"}</div>
+                  </div>
+                </div>
+
+                {(isSup || form.customer_type !== "company") && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs flex items-center gap-1.5"><User className="h-3 w-3" /> {t("name")}</Label>
+                    <Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid={`${kind}-name`} />
+                  </div>
+                )}
+                {isSup && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">{t("contactPerson")}</Label>
+                    <Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} />
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs flex items-center gap-1.5"><Mail className="h-3 w-3" /> {t("email")}</Label>
+                    <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="naam@voorbeeld.nl" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs flex items-center gap-1.5"><Phone className="h-3 w-3" /> {t("phone")}</Label>
+                    <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+31 6 12 34 56 78" className="font-mono" />
+                  </div>
+                </div>
               </div>
-              <div className="space-y-2 p-3 rounded-md border border-border bg-muted/20">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("address")}</div>
+
+              {/* ═══ ADDRESS ═══ */}
+              <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="h-8 w-8 rounded-lg bg-blue-500/15 flex items-center justify-center">
+                    <MapPin className="h-4 w-4 text-blue-700 dark:text-blue-400" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-foreground leading-tight">{t("address")}</div>
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Postcode auto-fill</div>
+                  </div>
+                </div>
                 <AddressFields
                   value={{
                     postcode: form.postcode,
