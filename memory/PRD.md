@@ -17,6 +17,15 @@
 - Fonts: Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (data) + Cairo/Amiri (Arabic)
 
 
+### Session 2026-02-27i — Add-Klant reorder for company customers
+- **Owner asks**: on the "Add Klant · Bedrijf" tab, put company info + KvK + address FIRST and the initial-vehicle block LAST. Reason: a company usually owns multiple vehicles, so the operator finishes company data quickly and then adds the fleet via the existing `CustomerVehiclesEditor` on the Party page.
+- **Fix** (`PartyPage.jsx`): converted `<form className="space-y-4">` into a flex column and wrapped BOTH vehicle branches (`CustomerVehiclesEditor` when editing + the RDW/hero card when creating) in a single `<div data-testid="vehicle-slot">`. That wrapper gets `order-last flex flex-col gap-4` when `customer_type === "company"` and the semantic `contents` class otherwise — no JSX duplication, `space-y-4` still applied because when `customer_type !== "company"` the wrapper collapses via `display: contents` and its children participate in the parent's spacing directly. `DialogFooter` pinned to `order-[999]` so it always trails the reordered vehicle block.
+- **Individual tab** kept the previous ordering (Vehicle top → Contact middle → Address bottom) — verified via Playwright DOM inspection: vehicle-slot with `contents` class sits at index 2, contact at 3, address at 4.
+- **Company tab** now renders in the requested order — verified via Playwright DOM inspection: kvk-hero → company fields → contact → address → vehicle-slot (`order-last`) → footer. Screenshot confirms the visual outcome.
+- **Bonus copy**: for companies the vehicle card header now reads "Voertuig · Optioneel — Eerste voertuig · voeg er meer toe na het opslaan" to signal that the owner can add the rest of the fleet after saving.
+
+
+
 ### Session 2026-02-27h — AI Invoice / Packing-slip Scan (P0 feature)
 - **Owner asks**: "Scan Factuur + Upload PDF buttons on Inventory. AI reads whole invoice → list of items → each row gets ADD / WAIT / DELETE. Wait is needed because deliveries can arrive in parts." All 5 UX suggestions approved (audit trail, barcode auto-match, Wachtend tab, editable rows, supplier match).
 - **Backend (new module `/app/backend/routes/invoice_scan.py`)**: PDF → PNG via `pypdfium2` (no OS deps), Claude Sonnet 5 / GPT-5.2 / Gemini 3.1 Pro all wired via `emergentintegrations.ImageContent`. New collection `invoice_scans` (added to `tenant_scope._SCOPED`). Routes under `/api/inventory/scan/*` prefix (3-segment to avoid clash with `/inventory/{item_id}`):

@@ -296,7 +296,7 @@ export default function PartyPage({ kind }) {
             )}
           <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
             <DialogHeader><DialogTitle className="font-display">{editId ? (isSup ? t("editSupplier") : t("editCustomer")) : `Add ${label}`}</DialogTitle></DialogHeader>
-            <form onSubmit={save} className="space-y-4">
+            <form onSubmit={save} className="flex flex-col space-y-4">
               {!isSup && (
                 <div className="grid grid-cols-2 gap-2 p-1 bg-muted/40 rounded-full border border-border" data-testid="cust-type-toggle">
                   <button
@@ -366,7 +366,19 @@ export default function PartyPage({ kind }) {
                 </div>
               )}
 
-              {/* ═══ VEHICLE (top — new order) ═══ */}
+              {/* ═══ VEHICLE ═══
+                  For INDIVIDUAL customers this block stays where it is
+                  (top-of-form, right after the type toggle) — a private car
+                  is usually the whole reason the owner is being added.
+
+                  For COMPANY customers we bump the block to `order-last`.
+                  A bedrijf typically owns MANY vehicles, so the operator
+                  first saves the company (name / KvK / BTW / contact /
+                  address), then adds the fleet via the `CustomerVehiclesEditor`
+                  on the party page.  Keeping vehicle at the bottom mirrors
+                  that flow and avoids scaring the operator with a vehicle
+                  form they don't need to fill in right now. */}
+              <div className={form.customer_type === "company" ? "order-last flex flex-col gap-4" : "contents"} data-testid="vehicle-slot">
               {!isSup && editId && (
                 <CustomerVehiclesEditor customerId={editId} />
               )}
@@ -377,8 +389,14 @@ export default function PartyPage({ kind }) {
                       <Car className="h-4 w-4 text-primary" />
                     </div>
                     <div>
-                      <div className="text-sm font-bold text-foreground leading-tight">{t("vehicle")}</div>
-                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("optional")} · RDW auto-fill</div>
+                      <div className="text-sm font-bold text-foreground leading-tight">
+                        {form.customer_type === "company" ? `${t("vehicle")} · ${t("optional")}` : t("vehicle")}
+                      </div>
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                        {form.customer_type === "company"
+                          ? "Eerste voertuig · voeg er meer toe na het opslaan"
+                          : `${t("optional")} · RDW auto-fill`}
+                      </div>
                     </div>
                   </div>
 
@@ -433,6 +451,7 @@ export default function PartyPage({ kind }) {
                   <p className="text-[10px] text-muted-foreground">{t("addMoreVehiclesHint")}</p>
                 </div>
               )}
+              </div>
 
               {/* ═══ CONTACT INFO CARD (bottom — name + email + phone grouped) ═══ */}
               <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
@@ -495,7 +514,7 @@ export default function PartyPage({ kind }) {
                   testIdPrefix={`${kind}-addr`}
                 />
               </div>
-              <DialogFooter>
+              <DialogFooter className="order-[999]">
                 <Button type="button" variant="ghost" onClick={() => setOpen(false)}>{t("cancel")}</Button>
                 <Button type="submit" className="rounded-full" data-testid={`${kind}-save`}>{t("save")}</Button>
               </DialogFooter>
