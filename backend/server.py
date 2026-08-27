@@ -1612,7 +1612,7 @@ class GarageSettings(BaseModel):
     default_tax_rate: float = 21.0  # BTW / VAT %  (NL standard 21, reduced 9)
     # --- Invoice branding ---
     invoice_accent_color: str = "#0EA5E9"       # hex used for header rule + "PAID" pill background
-    invoice_prefix: str = "INV"                 # invoice number prefix, e.g. INV / FACT / 2026-
+    invoice_prefix: str = "F"                   # invoice number prefix; NL owners like "F" (Factuur) more than "INV"
     payment_terms_days: int = 14                # 14 / 21 / 30 / 45 — used to compute due_date + overdue reminders
     iban: str = ""                              # bank IBAN shown on invoice footer
     kvk_number: str = ""                        # Chamber-of-Commerce (KvK) number for NL businesses
@@ -1622,6 +1622,10 @@ class GarageSettings(BaseModel):
     bank_name: str = ""                         # human-readable bank name shown next to IBAN
     bic: str = ""                               # BIC / SWIFT code (used in SEPA QR too)
     invoice_show_qr: bool = True                # render SEPA payment QR on paper invoice
+    invoice_qr_size: Literal["sm", "md", "lg"] = "sm"          # visual QR size on paper — sm keeps the block compact
+    invoice_qr_position: Literal["left", "right", "bottom"] = "left"  # which side the QR sits on inside the pay-now block
+    invoice_number_scale: Literal["sm", "md", "lg"] = "sm"    # header invoice-number size — sm is the new default (owner complaint: was too big)
+    invoice_body_font: Literal["helvetica", "inter", "jetbrains"] = "helvetica"  # override body font family
     invoice_header_align: Literal["left", "center", "right"] = "left"
     invoice_currency_symbol_pos: Literal["prefix", "suffix"] = "suffix"
     invoice_template: Literal["classic", "minimal", "bold"] = "classic"
@@ -2153,7 +2157,7 @@ async def invoice_from_txns(payload: InvoiceFromTxns, user: dict = Depends(requi
     s = await db.settings.find_one({"_id": "garage"}, {"_id": 0}) or {}
     terms = int(s.get("payment_terms_days") or 14)
     inv = Invoice(
-        invoice_number=_next_number("INV"),
+        invoice_number=_next_number(s.get("invoice_prefix") or "F"),
         customer_id=payload.customer_id,
         customer_name=customer_name,
         lines=lines, subtotal=subtotal, tax=tax, total=total,

@@ -54,12 +54,15 @@ const DEFAULT_FORM = {
   footer_note: "Bedankt voor uw vertrouwen!",
   logo_url: "/logo-shawish.png",
   labor_rate: 45, default_tax_rate: 21,
-  invoice_accent_color: "#0EA5E9", invoice_prefix: "INV",
+  invoice_accent_color: "#0EA5E9", invoice_prefix: "F",
   payment_terms_days: 14,
   iban: "", kvk_number: "", invoice_terms: "",
   show_plate_badge: true,
   bank_name: "", bic: "",
   invoice_show_qr: true,
+  // New in 2026-02-27: owner-tunable QR + doc-number sizing + body font.
+  invoice_qr_size: "sm", invoice_qr_position: "left",
+  invoice_number_scale: "sm", invoice_body_font: "helvetica",
   invoice_header_align: "left",
   invoice_currency_symbol_pos: "suffix",
   invoice_template: "classic",
@@ -136,7 +139,7 @@ function InvoicePreview({ form }) {
             className={`inline-block ${template === "bold" ? "px-4 py-1 rounded-none" : "px-3 py-0.5 rounded-full"} text-[10px] tracking-widest text-white font-bold`}
             style={{ background: accent }}
           >INVOICE</span>
-          <div className="font-mono font-bold mt-1 whitespace-nowrap">{form.invoice_prefix || "INV"}-260821-DEMO</div>
+          <div className="font-mono font-bold mt-1 whitespace-nowrap">{form.invoice_prefix || "F"}-260821-DEMO</div>
           <div className="text-[11px] text-gray-500">21/08/2026</div>
         </div>
       </div>
@@ -219,7 +222,7 @@ function InvoicePreview({ form }) {
           <div className="text-[10px] text-gray-600 leading-tight">
             <div className="font-bold text-black">Betaal met iDEAL / SEPA</div>
             <div className="font-mono">IBAN {String(form.iban).replace(/\s+/g, "").toUpperCase().match(/.{1,4}/g)?.join(" ")}</div>
-            <div>Reference: <strong>{form.invoice_prefix || "INV"}-260821-DEMO</strong></div>
+            <div>Reference: <strong>{form.invoice_prefix || "F"}-260821-DEMO</strong></div>
           </div>
         </div>
       )}
@@ -472,23 +475,78 @@ export default function Settings() {
             {/* Invoice numbering + payment term */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
               <div className="space-y-1.5">
-                <Label>Invoice number prefix</Label>
-                <Input value={form.invoice_prefix} onChange={(e) => set("invoice_prefix", e.target.value)} placeholder="INV" className="font-mono" data-testid="settings-invoice-prefix" />
+                <Label>Factuurnummer-prefix</Label>
+                <Input value={form.invoice_prefix} onChange={(e) => set("invoice_prefix", e.target.value)} placeholder="F" className="font-mono" data-testid="settings-invoice-prefix" />
+                <div className="text-[10px] text-muted-foreground">Bijv. <span className="font-mono">F-260827-A1B2</span></div>
               </div>
               <div className="space-y-1.5">
-                <Label>Payment term</Label>
+                <Label>Betalingstermijn</Label>
                 <Select value={String(form.payment_terms_days || 14)} onValueChange={(v) => set("payment_terms_days", Number(v))}>
                   <SelectTrigger data-testid="settings-payment-terms"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="7">7 days</SelectItem>
-                    <SelectItem value="14">14 days</SelectItem>
-                    <SelectItem value="21">21 days</SelectItem>
-                    <SelectItem value="30">30 days (1 month)</SelectItem>
-                    <SelectItem value="45">45 days</SelectItem>
-                    <SelectItem value="60">60 days</SelectItem>
+                    <SelectItem value="7">7 dagen</SelectItem>
+                    <SelectItem value="14">14 dagen</SelectItem>
+                    <SelectItem value="21">21 dagen</SelectItem>
+                    <SelectItem value="30">30 dagen (1 maand)</SelectItem>
+                    <SelectItem value="45">45 dagen</SelectItem>
+                    <SelectItem value="60">60 dagen</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            {/* PDF-look tuning — owner-tunable font + doc-number + QR sizing */}
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 mb-5 space-y-4">
+              <div className="text-[10px] font-mono uppercase tracking-widest text-primary">PDF-uiterlijk</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Lettertype (body)</Label>
+                  <Select value={form.invoice_body_font || "helvetica"} onValueChange={(v) => set("invoice_body_font", v)}>
+                    <SelectTrigger data-testid="settings-invoice-body-font"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="helvetica">Helvetica · klassiek</SelectItem>
+                      <SelectItem value="inter">Inter · modern &amp; strak</SelectItem>
+                      <SelectItem value="jetbrains">JetBrains Mono · typemachine</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Factuurnummer-grootte</Label>
+                  <Select value={form.invoice_number_scale || "sm"} onValueChange={(v) => set("invoice_number_scale", v)}>
+                    <SelectTrigger data-testid="settings-invoice-number-scale"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sm">Klein (11 px) — aanbevolen</SelectItem>
+                      <SelectItem value="md">Normaal (13 px)</SelectItem>
+                      <SelectItem value="lg">Groot (15 px)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">QR-code grootte</Label>
+                  <Select value={form.invoice_qr_size || "sm"} onValueChange={(v) => set("invoice_qr_size", v)}>
+                    <SelectTrigger data-testid="settings-invoice-qr-size"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sm">Klein (82 px) — aanbevolen</SelectItem>
+                      <SelectItem value="md">Normaal (104 px)</SelectItem>
+                      <SelectItem value="lg">Groot (130 px)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">QR-code positie</Label>
+                  <Select value={form.invoice_qr_position || "left"} onValueChange={(v) => set("invoice_qr_position", v)}>
+                    <SelectTrigger data-testid="settings-invoice-qr-position"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="left">Links van bankgegevens</SelectItem>
+                      <SelectItem value="right">Rechts van bankgegevens</SelectItem>
+                      <SelectItem value="bottom">Onder bankgegevens</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Deze instellingen bepalen alleen het uiterlijk van de PDF — de gegevens blijven exact hetzelfde.
+              </p>
             </div>
 
             {/* Toggle rows — dynamic customisation */}

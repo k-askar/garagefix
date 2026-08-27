@@ -18,6 +18,19 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-27d — Invoice PDF slimming + owner-tunable typography & QR
+- **Owner asks** (Arabic): shrink the doc number + the QR, prefix invoices with `F` instead of `INV`, expose more PDF-look controls, keep everything Dutch.
+- **Default prefix switched** to `F` — backend `GarageSettings.invoice_prefix = "F"` and `_next_number("INV")` now reads the tenant's `invoice_prefix` (`s.get("invoice_prefix") or "F"`), so every new invoice number becomes `F-260827-XXXX`. Existing tenants can override in Settings.
+- **New settings** (all persisted in `GarageSettings`, exposed as selects in `Settings.jsx` under a highlighted "PDF-uiterlijk" card):
+  - `invoice_number_scale` — `sm` (11 px, default) / `md` (13 px) / `lg` (15 px)
+  - `invoice_qr_size` — `sm` (82 px, default) / `md` (104 px) / `lg` (130 px)
+  - `invoice_qr_position` — `left` / `right` / `bottom` — moves the QR block around the bank-info cell
+  - `invoice_body_font` — Helvetica (classic) / Inter (modern) / JetBrains Mono (typewriter) — swapped into the body via the CSS injection
+- **Renderer touch-ups** (`invoice-render.js`): header doc-number now uses monospace at the configurable size, QR block honours size+position, bank-info cell tightened (paddings + font sizes), pay-now header uses monospace uppercase. Google Fonts request now includes Inter alongside JetBrains Mono.
+- **Screens are Dutch**: every new label + placeholder in the Settings card is Dutch (Factuurnummer-prefix, Betalingstermijn, Lettertype (body), Factuurnummer-grootte, QR-code grootte, QR-code positie, "Deze instellingen bepalen alleen het uiterlijk").
+- **Verified**: `PUT /api/settings` echoed back the new fields; a freshly-completed repair produced an invoice number `F-260827-…`; the invoice PDF renders with an 11 px monospaced doc number and a compact 82 px QR.
+
+
 ### Session 2026-02-27b — Impersonation flash fix + modern theme-aware Login
 - **Bug**: When super_admin clicked "Enter garage", the tab briefly showed the public landing/login before landing in the tenant's dashboard.
 - **Root cause**: `enterGarage` used `window.location.href = "/"` — a full page reload. The fresh app boot starts with `user=null, ready=false`; while `/auth/me` re-hydrated the JWT, `LandingHome` was already rendering `<Landing />`. `DashboardFallback` also flashed the login redirect. Two independent race windows visible for ~200-400ms.

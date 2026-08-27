@@ -386,37 +386,55 @@ export async function renderInvoiceHtml(inv, settings, opts = {}) {
   const paidBadge = inv.status === "paid" ? "paid" : "";
   const paidLabel = inv.status === "paid" ? L.paid : L.invoice;
 
-  /* Prominent payment block — SEPA/iDEAL QR left, bank details right.
-     Shown whenever the QR toggle is on so the customer always sees how to pay.
-     Falls back to a clear notice when the owner hasn't configured an IBAN yet. */
+  // Owner-tunable QR + doc-number sizing (2026-02-27 request: shrink them).
+  const qrSizeMap = { sm: 82, md: 104, lg: 130 };
+  const qrPx = qrSizeMap[s.invoice_qr_size] || qrSizeMap.sm;
+  const qrCellPad = s.invoice_qr_size === "sm" ? 10 : 14;
+  const qrPosition = s.invoice_qr_position || "left";
+  const numScaleMap = { sm: 11, md: 13, lg: 15 };
+  const invNumFontSize = numScaleMap[s.invoice_number_scale] || numScaleMap.sm;
+  const bodyFontMap = {
+    inter: "'Inter',-apple-system,'Helvetica Neue',Arial,sans-serif",
+    jetbrains: "'JetBrains Mono',ui-monospace,monospace",
+    helvetica: "-apple-system,Helvetica,Arial,sans-serif",
+  };
+  const bodyFontFamily = bodyFontMap[s.invoice_body_font] || bodyFontMap.helvetica;
+
+  // QR image tag — reused inline in either the "left / right / bottom" position.
+  const qrImgTag = qrData ? `
+    <div style="text-align:center;padding:${qrCellPad}px;vertical-align:middle">
+      <img src="${qrData}" alt="${esc(L.payWithIdeal)}" style="width:${qrPx}px;height:${qrPx}px;display:block;margin:0 auto;border:1px solid #eee;padding:3px;background:#fff"/>
+      <div style="font-size:7.5px;color:#888;letter-spacing:.14em;margin-top:3px;text-transform:uppercase">${esc(L.scanWithApp)}</div>
+    </div>` : "";
+  const bankInfoCell = `
+    <div style="padding:${qrCellPad}px;font-size:11.5px;color:#222;line-height:1.65;vertical-align:middle">
+      ${s.bank_name ? `<div><span style="color:#888;font-size:9px;letter-spacing:.1em;text-transform:uppercase">${esc(L.bank)}</span><br/><strong>${esc(s.bank_name)}</strong></div>` : ""}
+      <div style="margin-top:5px"><span style="color:#888;font-size:9px;letter-spacing:.1em;text-transform:uppercase">IBAN</span><br/>
+        <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;letter-spacing:.03em">${esc(String(s.iban).replace(/\s+/g,"").toUpperCase().match(/.{1,4}/g)?.join(" ") || String(s.iban).toUpperCase())}</span></div>
+      ${s.bic ? `<div style="margin-top:5px"><span style="color:#888;font-size:9px;letter-spacing:.1em;text-transform:uppercase">BIC</span><br/><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px">${esc(String(s.bic).toUpperCase())}</span></div>` : ""}
+      <div style="margin-top:5px"><span style="color:#888;font-size:9px;letter-spacing:.1em;text-transform:uppercase">${esc(L.reference)}</span><br/>
+        <strong style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px">${esc(inv.invoice_number)}</strong></div>
+      <div style="margin-top:5px"><span style="color:#888;font-size:9px;letter-spacing:.1em;text-transform:uppercase">${esc(L.amount)}</span><br/>
+        <strong style="font-size:14px;color:${accent}">${fmtMoney(inv.total, s)}</strong></div>
+    </div>`;
+
   const bankBlock = showQr ? (
     qrData ? `
-    <div style="margin-top:22px;border:2px solid ${accent};border-radius:10px;overflow:hidden;
+    <div style="margin-top:20px;border:1.5px solid ${accent};border-radius:10px;overflow:hidden;
                 page-break-inside:avoid;break-inside:avoid;-webkit-column-break-inside:avoid;
                 -webkit-print-color-adjust:exact;print-color-adjust:exact;">
-      <div style="background:${accent};color:#fff;padding:8px 14px;font-size:11px;
+      <div style="background:${accent};color:#fff;padding:7px 14px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;
                   letter-spacing:.14em;text-transform:uppercase;font-weight:700;
                   -webkit-print-color-adjust:exact;print-color-adjust:exact;">
         ${esc(L.payWithIdeal)}
       </div>
-      <table style="width:100%;border-collapse:collapse;background:#fff">
-        <tr>
-          <td style="width:150px;padding:16px;text-align:center;vertical-align:middle">
-            <img src="${qrData}" alt="${esc(L.payWithIdeal)}" style="width:130px;height:130px;display:block;border:1px solid #eee;padding:4px;background:#fff"/>
-            <div style="font-size:8px;color:#888;letter-spacing:.14em;margin-top:4px;text-transform:uppercase">${esc(L.scanWithApp)}</div>
-          </td>
-          <td style="padding:16px 16px 16px 4px;font-size:12px;color:#222;line-height:1.7;vertical-align:middle">
-            ${s.bank_name ? `<div><span style="color:#888;font-size:10px;letter-spacing:.1em;text-transform:uppercase">${esc(L.bank)}</span><br/><strong>${esc(s.bank_name)}</strong></div>` : ""}
-            <div style="margin-top:6px"><span style="color:#888;font-size:10px;letter-spacing:.1em;text-transform:uppercase">IBAN</span><br/>
-              <span style="font-family:monospace;font-size:13px;letter-spacing:.05em">${esc(String(s.iban).replace(/\s+/g,"").toUpperCase().match(/.{1,4}/g)?.join(" ") || String(s.iban).toUpperCase())}</span></div>
-            ${s.bic ? `<div style="margin-top:6px"><span style="color:#888;font-size:10px;letter-spacing:.1em;text-transform:uppercase">BIC</span><br/><span style="font-family:monospace">${esc(String(s.bic).toUpperCase())}</span></div>` : ""}
-            <div style="margin-top:6px"><span style="color:#888;font-size:10px;letter-spacing:.1em;text-transform:uppercase">${esc(L.reference)}</span><br/>
-              <strong style="font-family:monospace">${esc(inv.invoice_number)}</strong></div>
-            <div style="margin-top:6px"><span style="color:#888;font-size:10px;letter-spacing:.1em;text-transform:uppercase">${esc(L.amount)}</span><br/>
-              <strong style="font-size:15px;color:${accent}">${fmtMoney(inv.total, s)}</strong></div>
-          </td>
-        </tr>
-      </table>
+      ${qrPosition === "bottom"
+        ? `<div style="background:#fff">${bankInfoCell}<div style="border-top:1px dashed #e5e7eb">${qrImgTag}</div></div>`
+        : `<table style="width:100%;border-collapse:collapse;background:#fff"><tr>
+            ${qrPosition === "right"
+              ? `<td>${bankInfoCell}</td><td style="width:${qrPx + 30}px">${qrImgTag}</td>`
+              : `<td style="width:${qrPx + 30}px">${qrImgTag}</td><td>${bankInfoCell}</td>`}
+          </tr></table>`}
     </div>` : (s.iban || s.bank_name || s.bic) ? `
     <div style="margin-top:22px;padding:14px 16px;border:1px solid #eee;border-radius:8px;background:#fbfbfb;
                 page-break-inside:avoid;break-inside:avoid;-webkit-column-break-inside:avoid">
@@ -433,8 +451,8 @@ export async function renderInvoiceHtml(inv, settings, opts = {}) {
   const headerRight = `
     <div style="text-align:right">
       <span class="badge ${paidBadge}">${paidLabel}</span>
-      <div style="font-size:14px;margin-top:6px;font-weight:700">${esc(inv.invoice_number)}</div>
-      <div class="muted">${new Date(inv.created_at).toLocaleDateString(L.dateLocale)}</div>
+      <div style="font-size:${invNumFontSize}px;margin-top:6px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,monospace;letter-spacing:.02em">${esc(inv.invoice_number)}</div>
+      <div class="muted" style="font-size:10.5px;font-family:'JetBrains Mono',ui-monospace,monospace">${new Date(inv.created_at).toLocaleDateString(L.dateLocale)}</div>
     </div>`;
 
   const headerLeft = `
@@ -462,9 +480,9 @@ export async function renderInvoiceHtml(inv, settings, opts = {}) {
   return `<!doctype html><html><head><meta charset="utf-8"/><title>${esc(inv.invoice_number)}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com"/>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
     <style>
-      body{${tpl.bodyCss}}
+      body{${tpl.bodyCss.replace(/font-family:[^;]+;/, `font-family:${bodyFontFamily};`)}}
       .doc-header{${tpl.headerCss}}
       .doc-h1{${tpl.h1Css}}
       .muted{color:#666;font-size:12px}
