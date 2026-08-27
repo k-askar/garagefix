@@ -17,6 +17,19 @@
 - Fonts: Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (data) + Cairo/Amiri (Arabic)
 
 
+### Session 2026-02-27h — AI Invoice / Packing-slip Scan (P0 feature)
+- **Owner asks**: "Scan Factuur + Upload PDF buttons on Inventory. AI reads whole invoice → list of items → each row gets ADD / WAIT / DELETE. Wait is needed because deliveries can arrive in parts." All 5 UX suggestions approved (audit trail, barcode auto-match, Wachtend tab, editable rows, supplier match).
+- **Backend (new module `/app/backend/routes/invoice_scan.py`)**: PDF → PNG via `pypdfium2` (no OS deps), Claude Sonnet 5 / GPT-5.2 / Gemini 3.1 Pro all wired via `emergentintegrations.ImageContent`. New collection `invoice_scans` (added to `tenant_scope._SCOPED`). Routes under `/api/inventory/scan/*` prefix (3-segment to avoid clash with `/inventory/{item_id}`):
+  - `POST /invoice` (upload + parse, validates engine → 400 for unknown), `GET /sessions`, `GET /sessions/{sid}`, `PATCH /sessions/{sid}/items/{iid}` (accepts explicit `0`/`""` via `exclude_unset`), `POST .../enter` (creates new OR bumps existing item + logs IN transaction, honours explicit 0.00 cost overrides, supports `enter_partial_qty` for split deliveries → leftover becomes `waiting`), `POST .../wait`, `POST .../delete` (guards against deleting already-entered rows), `POST .../close`, `GET .../file` (download original from Emergent Object Storage), `GET /waiting` (flat cross-session Wachtend list).
+  - `InventoryItem` model gained `source_scan_id` + `source_scan_file` so the UI can badge parts born from a scan.
+- **Frontend**:
+  - `/app/frontend/src/components/InvoiceScanDialog.jsx` — two-step dialog (upload → review). Drag-drop + file picker (PDF / JPG / PNG). Three engine tiles (Claude/GPT/Gemini). Editable review table with per-row **Toevoegen / Deels… / Wachten / Verwijder** buttons + inline partial-delivery form ("2 van 4 pcs" → rest stays waiting).
+  - `/app/frontend/src/pages/Inventory.jsx` — new toolbar button "🤖 AI Factuur-scan" + new **Wachtend** tab (with count badge) hosting a `WaitingItemsPanel` — one row per paused item across every session, "Hervat" re-opens the source dialog on that session.
+- **Verified**: testing agent iteration_19 → 100 % pass (19/19 pytest + PDF path + Object-Storage round-trip + all 3 engines + full Playwright E2E). Post-report: 4 minor robustness fixes applied (engine validation, PATCH falsy-value support, delete guard, audit source_scan_id exposure) — each re-verified via curl in same session.
+- **Perf note**: real AI parse ≈ 10–15 s per invoice (not 20–40 as originally scoped). Owner sees a spinner + "Sluit dit venster niet" hint.
+
+
+
 ### Session 2026-02-27g — Logout flicker ("old design flash") — fixed
 - **Bug**: Clicking "Uitloggen" briefly showed the marketing Landing page (old design) before the redesigned `/login` page rendered.
 - **Root cause**: `AuthContext.logout()` used `window.location.href = "/login"` — a full page reload. During the reload the tab first briefly rendered the previously cached `/` route (`LandingHome` → `<Landing />`), then finally boot-navigated to `/login`. Same class of bug that was fixed for impersonation in Session 2026-02-27b, but on the logout path.

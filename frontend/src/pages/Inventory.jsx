@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Search, Pencil, Trash2, Printer, Upload, Car, Download, Tags, FileDown, Package, TrendingDown, TrendingUp, Wallet, AlertTriangle, ArrowDownRight, ArrowUpRight, Wrench, Warehouse, PackagePlus, PackageMinus, ClipboardList, User, Camera, Boxes } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Printer, Upload, Car, Download, Tags, FileDown, Package, TrendingDown, TrendingUp, Wallet, AlertTriangle, ArrowDownRight, ArrowUpRight, Wrench, Warehouse, PackagePlus, PackageMinus, ClipboardList, User, Camera, Boxes, Sparkles, Clock } from "lucide-react";
 import { toast } from "sonner";
 import Barcode from "react-barcode";
 import { useAuth } from "@/context/AuthContext";
@@ -23,6 +23,7 @@ import { downloadListReportPdf, printListReport } from "@/lib/reports";
 import BarcodeScannerDialog from "@/components/BarcodeScannerDialog";
 import VariantPickerDialog from "@/components/VariantPickerDialog";
 import VariantsManagerDialog from "@/components/VariantsManagerDialog";
+import InvoiceScanDialog from "@/components/InvoiceScanDialog";
 
 const CATEGORIES = ["Engine", "Brakes", "Filters", "Lubricants", "Electrical", "Body", "Tyres", "Suspension", "Transmission", "General"];
 
@@ -143,6 +144,87 @@ function printBarcode(item) {
     </body></html>`);
   w.document.close();
   setTimeout(() => w.print(), 400);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   WITHDRAW PANEL — the OUT workflow
+   ───────────────────────────────────────────────────────────── */
+/* ─── "Wachtend" (waiting-items) tab.  Flat cross-session view of every part
+   the owner parked for a later delivery — click ⏵ Hervat to reopen the scan
+   session and finish it. ─── */
+function WaitingItemsPanel({ rows, onResume, onScanNew, fm }) {
+  return (
+    <Card className="border-border">
+      <div className="p-4 flex flex-wrap items-center gap-3 border-b border-border">
+        <div>
+          <div className="text-[10px] font-mono uppercase tracking-widest text-amber-700 dark:text-amber-400">
+            Bezorging in afwachting
+          </div>
+          <div className="font-display text-lg font-bold">
+            {rows.length} onderdel{rows.length === 1 ? "" : "en"} wachten op levering
+          </div>
+        </div>
+        <Button size="sm" className="ms-auto rounded-full bg-primary hover:bg-primary/90" onClick={onScanNew} data-testid="waiting-new-scan">
+          <Sparkles className="h-4 w-4 mr-2" /> Nieuwe factuur scannen
+        </Button>
+      </div>
+      {rows.length === 0 ? (
+        <div className="text-center py-16 text-sm text-muted-foreground">
+          <Clock className="h-8 w-8 mx-auto mb-2 opacity-40" />
+          Geen wachtende onderdelen — alles is binnengekomen.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Onderdeel</TableHead>
+                <TableHead>Leverancier · Factuur</TableHead>
+                <TableHead className="text-right">Aantal</TableHead>
+                <TableHead className="text-right">Inkoop</TableHead>
+                <TableHead className="text-right w-32">Acties</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((r) => (
+                <TableRow key={`${r.session_id}-${r.item_id}`} data-testid={`waiting-row-${r.item_id}`}>
+                  <TableCell>
+                    <div className="font-medium">{r.name}</div>
+                    <div className="text-[10px] font-mono text-muted-foreground">{r.barcode || "—"}</div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="text-sm">{r.supplier_name || "—"}</div>
+                    <div className="text-[10px] font-mono text-muted-foreground">
+                      {r.invoice_number || r.filename} · {r.invoice_date}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    <Badge variant="outline" className="border-amber-500/40 text-amber-800 bg-amber-50">
+                      {r.quantity}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground text-xs">
+                    {fm(r.cost_price)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-full"
+                      onClick={() => onResume(r)}
+                      data-testid={`waiting-resume-${r.item_id}`}
+                    >
+                      <Sparkles className="h-3.5 w-3.5 mr-1.5 text-primary" /> Hervat
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </Card>
+  );
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -521,8 +603,17 @@ export default function Inventory() {
   const [selected, setSelected] = useState([]);
   const [exporting, setExporting] = useState(false);
   const [variantsFor, setVariantsFor] = useState(null);   // master item whose variants are being managed
+  const [scanOpen, setScanOpen] = useState(false);        // AI invoice-scan dialog
+  const [reopenSession, setReopenSession] = useState(null); // clicked "resume" from Wachtend
 
   const { data: items = [] } = useQuery({ queryKey: ["inv"], queryFn: () => api.get("/inventory").then(r => r.data) });
+  const { data: waitingItems = [] } = useQuery({
+    queryKey: ["waiting-items"],
+    queryFn: () => api.get("/inventory/scan/waiting").then(r => r.data),
+    // Only mechanics who can edit inventory need this — the "Wachtend" tab is gated too.
+    enabled: hasPermission("inventory.edit"),
+    refetchOnWindowFocus: true,
+  });
   const { data: suppliers = [] } = useQuery({
     queryKey: ["sup"],
     queryFn: () => api.get("/suppliers").then(r => r.data),
@@ -758,9 +849,19 @@ export default function Inventory() {
 
       {/* Tabs */}
       <Tabs value={tab} onValueChange={setTab} className="w-full">
-        <TabsList className="grid grid-cols-3 max-w-lg">
+        <TabsList className={`grid ${canEdit ? "grid-cols-4" : "grid-cols-3"} max-w-2xl`}>
           <TabsTrigger value="overview" data-testid="tab-overview"><Package className="h-3.5 w-3.5 mr-1.5" />{t("overview")}</TabsTrigger>
           <TabsTrigger value="withdraw" data-testid="tab-withdraw" disabled={!canWithdraw} className={!canWithdraw ? "opacity-40 cursor-not-allowed" : ""}><PackageMinus className="h-3.5 w-3.5 mr-1.5" />{t("withdraw")}</TabsTrigger>
+          {canEdit && (
+            <TabsTrigger value="waiting" data-testid="tab-waiting" className="relative">
+              <Clock className="h-3.5 w-3.5 mr-1.5" /> Wachtend
+              {waitingItems.length > 0 && (
+                <span className="ms-1.5 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full bg-amber-500 text-white text-[9px] font-mono tabular-nums" data-testid="waiting-badge">
+                  {waitingItems.length}
+                </span>
+              )}
+            </TabsTrigger>
+          )}
           <TabsTrigger value="report" data-testid="tab-report"><ClipboardList className="h-3.5 w-3.5 mr-1.5" />{t("report")}</TabsTrigger>
         </TabsList>
 
@@ -808,6 +909,17 @@ export default function Inventory() {
                         </Button>
                       </label>
                     </>
+                  )}
+                  {canEdit && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-full border-primary/40 text-primary hover:bg-primary/10 bg-primary/5"
+                      onClick={() => setScanOpen(true)}
+                      data-testid="ai-scan-invoice-button"
+                    >
+                      <Sparkles className="h-4 w-4 mr-2" /> AI Factuur-scan
+                    </Button>
                   )}
                   {canEdit && (
                     <DialogTrigger asChild>
@@ -928,6 +1040,17 @@ export default function Inventory() {
           <WithdrawPanel items={items} invalidate={invalidate} t={t} canSeePrices={canSeePrices} />
         </TabsContent>
 
+        {canEdit && (
+          <TabsContent value="waiting" className="mt-4">
+            <WaitingItemsPanel
+              rows={waitingItems}
+              onResume={(row) => { setReopenSession(row.session_id); setScanOpen(true); }}
+              onScanNew={() => setScanOpen(true)}
+              fm={fm}
+            />
+          </TabsContent>
+        )}
+
         <TabsContent value="report" className="mt-4">
           <ReportPanel t={t} />
         </TabsContent>
@@ -979,6 +1102,13 @@ export default function Inventory() {
         open={!!variantsFor}
         onOpenChange={(v) => { if (!v) setVariantsFor(null); }}
         master={variantsFor}
+      />
+
+      {/* AI-powered invoice / packing-slip scanner */}
+      <InvoiceScanDialog
+        open={scanOpen}
+        onOpenChange={(o) => { setScanOpen(o); if (!o) setReopenSession(null); }}
+        initialSessionId={reopenSession}
       />
     </div>
   );

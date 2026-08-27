@@ -470,6 +470,10 @@ class InventoryItem(BaseModel):
     parent_id: Optional[str] = None   # If set, this item is a "variant" (child)
                                       # of a master item.  Scanning the master
                                       # barcode opens a picker of its variants.
+    # AI-scan audit trail — populated when the row was born from
+    # /inventory/scan/invoice.  Lets the UI badge "created from factuur X".
+    source_scan_id: Optional[str] = None
+    source_scan_file: Optional[str] = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -4839,6 +4843,10 @@ api_router.include_router(_backup_router)
 # --- Extras: repair photos, cash movements, Excel exports ---
 from extras import register as _register_extras  # noqa: E402
 api_router.include_router(_register_extras(db, get_current_user, require_owner))
+
+# --- AI Invoice / Packing-slip scan (owner + inventory editors) ---
+from routes.invoice_scan import register_routes as _register_invoice_scan  # noqa: E402
+api_router.include_router(_register_invoice_scan(db, get_current_user, require_permission, _generate_sku, _generate_barcode))
 
 # =========================
 # Fleet CSV Import  +  Live Bay Board  +  Delivery-note scan

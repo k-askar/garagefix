@@ -30,6 +30,7 @@ _SCOPED = {
     "repairs", "invoices", "appointments", "reminders",
     "payment_methods", "payment_entries", "cash_movements",
     "public_invoice_pdfs", "vehicle_events",
+    "invoice_scans",
 }
 
 # Collections that use a hard-coded `_id` string historically ("garage" for the

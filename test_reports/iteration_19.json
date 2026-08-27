@@ -1,0 +1,47 @@
+{
+  "summary": "Full backend + frontend verification of the new AI invoice/pakbon scan module (routes/invoice_scan.py + InvoiceScanDialog + Inventory 'Wachtend' tab). Backend: 19 pytest cases, all PASS (/app/backend/tests/test_iteration19_invoice_scan.py) — upload+parse shape (supplier.name/kvk/iban, invoice_number F-2026-00187, invoice_date, total 449.25, confidence, 4 items with EAN barcodes, match_type, status=pending), sessions list/detail/404, /waiting, PATCH row edit + barcode re-match (match_type flips new→update with matched_item_id), enter for a NEW row (creates inventory doc with exact fields + IN transaction logged + inventory count +1), enter on an existing barcode (bumps qty 5→7 and refreshes cost/selling), partial delivery (qty 4 → enter 1 ⇒ remaining=3, row status=waiting, qty decremented, appears in /waiting; enter 3 ⇒ status=entered, entered_qty=4, stock total 4, removed from /waiting), wait→/waiting→delete transitions, negative cases (empty file 400, text/plain 400, unauthenticated 401/403, zero qty 400, enter on handled row 400), and tenant isolation (session invisible + 404 + no waiting rows when super_admin impersonates a different tenant). Additionally verified PDF path (PIL-generated PDF → pypdfium2 rasterise → 4 items parsed), Object-Storage audit round-trip (GET /sessions/{id}/file returns 200, 36 KB), and all 3 engines (claude conf 0.85, openai 0.92, gemini 0.98). Frontend: logged in as platform@pitstock.app → impersonated TestGarage → /inventory: 'AI Factuur-scan' button visible, dialog opens with all 3 engine tiles + drop-zone + hidden file input; uploading /tmp/test_invoice.png rendered 4 scan-row-<uuid> rows (~15 s) with editable name/barcode/qty/cost/sell inputs and Enter/Deels…/Wachten/Verwijder buttons (Deels… correctly hidden for the qty=1 row); 'Deels…' opens the inline partial form ('2 van 4 pcs' + Bevestig); Wachten moved the row to WACHTEND, Escape closed the dialog, 'Wachtend' tab + waiting-badge=1 rendered the WaitingItemsPanel row with Hervat, and Hervat re-opened the same session (4 rows, waited row badged). Zero console errors throughout.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/inventory/scan/invoice", "issue": "Unknown engine value (e.g. engine=bogus) silently falls back to claude and returns 200 instead of 422/400 — no validation of the engine field."},
+      {"endpoint": "POST /api/inventory/scan/sessions/{sid}/items/{iid}/delete", "issue": "No status guard: an already 'entered' row can be flipped to 'deleted' while the inventory stock/IN transaction stays — enter/wait both guard status, delete does not."},
+      {"endpoint": "PATCH /api/inventory/scan/sessions/{sid}/items/{iid}", "issue": "None-filtered model_dump means falsy values cannot be applied — you can never clear a barcode/notes to \"\" or set cost_price/quantity to 0 from the review table."},
+      {"endpoint": "GET /api/inventory (response_model=InventoryItem)", "issue": "source_scan_id / source_scan_file written by the scan-enter flow are stripped by the response model, so the audit link back to the scan doc is not visible to the UI."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "InvoiceScanDialog review table", "issues": ["Second input line per row (name_ar / SKU / unit / selling price) has no labels — only the first line is labelled (BARCODE / AANTAL / INKOOP / CAT.), so the 4 unlabeled fields are ambiguous.", "Arabic name_ar placeholder is shown in the Dutch UI for every row; low value for NL tenants."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration19_invoice_scan.py",
+    "/app/test_reports/pytest/iter19_invoice_scan.xml",
+    "/app/tests/cleanup_iter19.py"
+  ],
+  "action_items": [
+    "Optional: validate `engine` against the allowed set and return 400 for unknown values.",
+    "Optional: guard delete_scan_item so 'entered' rows cannot be silently marked deleted.",
+    "Optional: allow explicit falsy edits in ScanItemPatch (use exclude_unset instead of dropping None).",
+    "Optional: expose source_scan_id on the inventory response model for audit traceability.",
+    "Housekeeping: routes/invoice_scan.py module docstring still lists the OLD paths (/inventory/scan-invoice, /inventory/scan-sessions, /inventory/waiting-items) — update to /inventory/scan/*."
+  ],
+  "critical_code_review_comments": [
+    "pages/Inventory.jsx is now >1100 lines and hosts 5 sub-components (ItemForm, WaitingItemsPanel, WithdrawPanel, ReportPanel, page) — split into separate files before it grows further.",
+    "enter_scan_item uses `merged.get('cost_price') or existing.get('cost_price')` — a legitimate 0.00 purchase price silently keeps the old cost; use an explicit None check.",
+    "_match_supplier matches on the first word of the supplier name with a case-insensitive regex; short/common first words (e.g. 'Auto', 'Van') can suggest the wrong supplier."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration19_invoice_scan.py",
+    "/app/tests/cleanup_iter19.py"
+  ],
+  "success_rate": {"backend": "100% (19/19 pytest + PDF/storage/3-engine ad-hoc checks)", "frontend": "100% (all listed test-ids and flows verified, 0 console errors)"},
+  "seed_data_creation": "Created and then deleted TEST_ inventory rows (TEST_Existing Match Item, TEST_Bump Target, TEST_New Scan Part) and closed every scan session created during testing via /app/tests/cleanup_iter19.py. Remaining inventory (4 rows: 1/4/5 Liter variants + Motor Oil 5W-30) is pre-existing iteration-18 seed data. /tmp/test_invoice.pdf was generated from the PNG for the PDF path test.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "platform@pitstock.app / platform123 (super_admin) → click [data-testid=\"tenant-impersonate-d85ebd4a-40a2-407f-9473-d3d5044e1889\"] on /super-admin, then go to /inventory. No tenant-owner password exists.",
+  "context_for_next_testing_agent": "Invoice-scan module fully green. Reusable pytest suite: /app/backend/tests/test_iteration19_invoice_scan.py (run with `-n 0` — pytest.ini uses xdist LoadScope, which would otherwise re-run the AI parse per class). AI parse of /tmp/test_invoice.png takes ~10-15 s (not 20-40 s). Frontend flow: login → impersonate → /inventory → [data-testid=ai-scan-invoice-button] → set_input_files on [data-testid=scan-file-input]. All waiting rows were closed at the end, so the waiting-badge starts at 0.",
+  "rca_of_the_issue": "No functional defects found; only 4 minor robustness/validation gaps listed above, all derived from code review and confirmed by targeted API calls (engine=bogus returned 200 with engine stored as claude)."
+}
