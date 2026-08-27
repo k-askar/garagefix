@@ -18,6 +18,14 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26q — Inline vehicle silently dropped on new-customer save
+- **Bug**: Adding a new customer with an inline vehicle in the "Add Klant" dialog appeared to succeed, but the vehicle never persisted — the "New job card" and "Klant bewerken" dialogs both showed **0 gekoppelde voertuigen**. Only after re-opening the customer and adding the vehicle again did it appear.
+- **Root cause**: The inline vehicle form ships every numeric / date field as an empty string (`next_oil_change_km: ""`, `apk_expiry: ""`). Pydantic v2 rejected `""` for the `Optional[int]` field with a 422 `int_parsing` error. The frontend `POST /customers` succeeded but the follow-up `POST /customers/{id}/vehicles` failed — and its `catch` block was silently ignored (`/* silent — customer is saved even if vehicle fails */`).
+- **Fix (backend)**: Added Pydantic `@field_validator("next_oil_change_km", mode="before")` + `@field_validator("apk_expiry", mode="before")` on `VehicleCreate` — blanks now normalise to `None` so half-filled inline drafts persist.
+- **Fix (frontend)**: `PartyPage.jsx` now sanitises the payload client-side too (`Number(...)` / `|| null`) **and** surfaces a warning toast if the vehicle POST fails instead of swallowing. Same normalisation applied to the standalone "add vehicle" flow.
+- **Verified via curl**: `POST /api/customers/{cid}/vehicles` with `next_oil_change_km:""` now returns HTTP 200 + row visible in the follow-up GET.
+
+
 ### Session 2026-02-26p — Staff invite email actually sends + never silent-fails
 - **Bug**: When the owner added a new worker, the invite email never arrived, so the worker could not set a password. Two root causes:
   1. Frontend `Staff.jsx` marked the password field `required` on create, forcing a value → the "no-password ⇒ email invite" branch on the backend was never reached.

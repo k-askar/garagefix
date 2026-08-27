@@ -116,7 +116,16 @@ export default function PartyPage({ kind }) {
     e.preventDefault();
     if (!vehForm.make && !vehForm.plate) return toast.error(t("nameRequired"));
     try {
-      await api.post(`/customers/${historyId}/vehicles`, vehForm);
+      // Empty-string numeric / date inputs would fail Pydantic validation
+      // server-side (422).  Normalise blanks to null so a half-filled inline
+      // vehicle still persists.
+      const payload = {
+        ...vehForm,
+        next_oil_change_km: vehForm.next_oil_change_km === "" ? null
+          : Number(vehForm.next_oil_change_km),
+        apk_expiry: vehForm.apk_expiry || null,
+      };
+      await api.post(`/customers/${historyId}/vehicles`, payload);
       toast.success(t("vehicleAdded"));
       setVehForm({ make: "", model: "", year: "", plate: "", color: "", km: "", vin: "", notes: "" });
       setShowAddVeh(false);
@@ -151,12 +160,26 @@ export default function PartyPage({ kind }) {
         const summaryVehicle = isSup ? "" : [vehForm2.make, vehForm2.model, vehForm2.year, vehForm2.plate].filter(Boolean).join(" ");
         const { data: created } = await api.post(`/${kind}`, { ...form, vehicle: summaryVehicle || form.vehicle });
         if (!isSup && (vehForm2.make || vehForm2.plate)) {
+          // Empty numeric / date fields must be null, not "", or Pydantic
+          // returns 422 and the vehicle is silently lost (bug 2026-02-26q).
+          const vehPayload = {
+            ...vehForm2,
+            next_oil_change_km: vehForm2.next_oil_change_km === "" ? null
+              : Number(vehForm2.next_oil_change_km),
+            apk_expiry: vehForm2.apk_expiry || null,
+          };
           try {
-            await api.post(`/customers/${created.id}/vehicles`, vehForm2);
-            // Warm the vehicle cache for the newly-created customer so the
-            // job-card dialog sees the vehicle immediately.
+            await api.post(`/customers/${created.id}/vehicles`, vehPayload);
             qc.invalidateQueries({ queryKey: ["cust-vehicles", created.id] });
-          } catch (err) { /* silent — customer is saved even if vehicle fails */ }
+          } catch (err) {
+            // Do NOT swallow — surface why so the owner can retry from the
+            // customer's "Vehicles" tab instead of thinking it saved.
+            toast.warning(
+              `${t("customer")} ${created.name} ${t("added")}, ` +
+              `maar voertuig niet: ${formatApiError(err)}`,
+              { duration: 10000 }
+            );
+          }
         }
         toast.success(`${label} added`);
       }

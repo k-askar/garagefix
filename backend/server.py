@@ -17,7 +17,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Respons
 from fastapi.security import HTTPBearer
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, Field, EmailStr, ConfigDict
+from pydantic import BaseModel, Field, EmailStr, ConfigDict, field_validator
 import asyncio, httpx, secrets, re, ipaddress
 import stripe
 from html import escape
@@ -378,6 +378,23 @@ class VehicleCreate(BaseModel):
     weight: Optional[str] = ""
     chassis_location: Optional[str] = ""
     registration_date: Optional[str] = ""
+
+    # The frontend inline vehicle draft ships every field as a string (Input
+    # element default) — empty strings for numeric / date fields would fail
+    # Pydantic validation with 422 and (historically) got silently swallowed by
+    # the caller.  Normalise blanks to None so a partially-filled inline vehicle
+    # still persists.
+    @field_validator("next_oil_change_km", mode="before")
+    @classmethod
+    def _blank_km_to_none(cls, v):
+        if v in ("", None): return None
+        try: return int(v)
+        except (TypeError, ValueError): return None
+
+    @field_validator("apk_expiry", mode="before")
+    @classmethod
+    def _blank_apk_to_none(cls, v):
+        return v or None
 
 class VehicleUpdate(BaseModel):
     make: Optional[str] = None
