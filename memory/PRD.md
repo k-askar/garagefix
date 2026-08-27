@@ -17,6 +17,14 @@
 - Fonts: Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (data) + Cairo/Amiri (Arabic)
 
 
+### Session 2026-02-27f — Uitgifte tab crash (ReferenceError) — fixed
+- **Bug**: Clicking the "Uitgifte" tab in `/inventory` rendered a blank/white area. Root cause: `WithdrawPanel` (top-level function in `Inventory.jsx`) referenced `canSeePrices` on lines 292 & 307, but `canSeePrices` is only defined inside `Inventory()` at line 510 — a completely separate scope → `ReferenceError: canSeePrices is not defined` → React unmounts the subtree.
+- **Fix**: Pass `canSeePrices` as a prop from `Inventory()` → `<WithdrawPanel canSeePrices={canSeePrices} … />` and destructure it in the panel's signature.
+- **Preventive audit**: ran a scoped grep across every top-level function in every page (`ItemForm`, `ReportPanel`, `TimeClockPanel`, `CardEditor`, `InvoicePreview`, `SepaQrPreview`, `StaffForm`, `MovementForm`, etc.). No other functions consume outer-scope variables — most either receive them as props (e.g. `settings`, `refetch`) or call `useAuth()` locally.
+- **Verified via Playwright**: super_admin login → impersonate TestGarage → `/inventory` → click Uitgifte tab → `withdraw-panel` visible with the full form (scan-in, item picker, destination, reason). No console errors.
+
+
+
 ### Session 2026-02-27e — Variant inline editing + Live PDF preview
 - **Owner asks** (Arabic): (1) add an EDIT button in the Sub-artikelen dialog so variant rows can be fixed without deleting + re-adding; (2) yes to the suggested Live A4 preview in the PDF-uiterlijk settings so font/QR-size/QR-position changes are visible instantly.
 - **VariantsManagerDialog.jsx** — each row now has a pencil ✏️ button (`variant-edit-<sku>`) that turns the row into an inline form with 8 fields (name, name_ar, barcode, unit, cost_price, selling_price, quantity, reorder_point). Save calls `PUT /api/inventory/{id}` (already existed, `InventoryItemUpdate` supports all fields — no backend change), Cancel reverts, live refetch + `queryClient.invalidateQueries(["inv"])` so master-value totals update.

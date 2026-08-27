@@ -148,7 +148,7 @@ function printBarcode(item) {
 /* ─────────────────────────────────────────────────────────────
    WITHDRAW PANEL — the OUT workflow
    ───────────────────────────────────────────────────────────── */
-function WithdrawPanel({ items, invalidate, t }) {
+function WithdrawPanel({ items, invalidate, t, canSeePrices }) {
   const { user } = useAuth();
   const [itemId, setItemId] = useState("");
   const [qty, setQty] = useState(1);
@@ -925,7 +925,7 @@ export default function Inventory() {
         </TabsContent>
 
         <TabsContent value="withdraw" className="mt-4">
-          <WithdrawPanel items={items} invalidate={invalidate} t={t} />
+          <WithdrawPanel items={items} invalidate={invalidate} t={t} canSeePrices={canSeePrices} />
         </TabsContent>
 
         <TabsContent value="report" className="mt-4">
