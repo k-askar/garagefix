@@ -557,11 +557,35 @@ export default function Inventory() {
   }, [items]);
 
   const kpi = useMemo(() => {
-    const totalItems = items.length;
+    // Variants are hidden from the main list — the master row already rolls
+    // them up.  Count "families" (masters + standalones) as items, but sum
+    // units / value across every physical row (variants carry the real stock).
+    const topLevel = items.filter(i => !i.parent_id);
+    const totalItems = topLevel.length;
     const totalUnits = items.reduce((s, i) => s + (i.quantity || 0), 0);
     const stockValue = items.reduce((s, i) => s + (i.cost_price || 0) * (i.quantity || 0), 0);
     const lowCount = items.filter(i => i.quantity <= i.reorder_point).length;
     return { totalItems, totalUnits, stockValue, lowCount };
+  }, [items]);
+
+  // Roll-up qty + value + selling-price range per master so the overview and
+  // the printable report show one meaningful number instead of the master's
+  // own zeros.  (Masters exist to group; the physical stock lives on their
+  // variants.)  Standalones without variants keep their own numbers below.
+  const variantRollup = useMemo(() => {
+    const m = new Map();
+    for (const it of items) {
+      if (!it.parent_id) continue;
+      const cur = m.get(it.parent_id) || { qty: 0, cost: 0, minSell: Infinity, maxSell: -Infinity, count: 0 };
+      const q = Number(it.quantity) || 0;
+      cur.qty += q;
+      cur.cost += (Number(it.cost_price) || 0) * q;
+      const sp = Number(it.selling_price) || 0;
+      if (sp) { cur.minSell = Math.min(cur.minSell, sp); cur.maxSell = Math.max(cur.maxSell, sp); }
+      cur.count += 1;
+      m.set(it.parent_id, cur);
+    }
+    return m;
   }, [items]);
 
   const save = async (data) => {
@@ -626,17 +650,37 @@ export default function Inventory() {
   };
 
   const exportReport = async (mode) => {
+    // For masters with variants, roll variants up into a single line so the
+    // printable report shows one meaningful number per family instead of a
+    // master with 0 stock + its variants scattered below.
+    const rollupRow = (i) => {
+      const r = variantRollup.get(i.id);
+      if (!r) {
+        return [
+          i.name_ar ? `${i.name} · ${i.name_ar}` : i.name,
+          i.sku, i.category,
+          formatEUR(i.cost_price), formatEUR(i.selling_price),
+          i.quantity,
+          formatEUR((i.cost_price || 0) * (i.quantity || 0)),
+        ];
+      }
+      const avgCost = r.qty ? r.cost / r.qty : 0;
+      const sellRange = r.minSell === r.maxSell
+        ? formatEUR(r.minSell === Infinity ? 0 : r.minSell)
+        : `${formatEUR(r.minSell)} – ${formatEUR(r.maxSell)}`;
+      return [
+        `${i.name_ar ? `${i.name} · ${i.name_ar}` : i.name}  (${r.count} sub)`,
+        i.sku, i.category,
+        formatEUR(avgCost), sellRange,
+        r.qty,
+        formatEUR(r.cost),
+      ];
+    };
     const args = {
       title: t("inventory"),
       subtitle: `${filtered.length} ${t("items")}`,
       headers: [t("part"), t("sku"), t("category"), t("costPrice"), t("sellingPrice"), t("qty"), t("value")],
-      rows: filtered.map(i => [
-        i.name_ar ? `${i.name} · ${i.name_ar}` : i.name,
-        i.sku, i.category,
-        formatEUR(i.cost_price), formatEUR(i.selling_price),
-        i.quantity,
-        formatEUR((i.cost_price || 0) * (i.quantity || 0)),
-      ]),
+      rows: filtered.map(rollupRow),
       summary: [
         { label: t("stockValueCost"), value: formatEUR(kpi.stockValue) },
         { label: t("lowStock"), value: kpi.lowCount },
@@ -794,7 +838,22 @@ export default function Inventory() {
                 </TableHeader>
                 <TableBody>
                   {filtered.map(i => {
-                    const low = i.quantity <= i.reorder_point;
+                    const rollup = variantRollup.get(i.id);
+                    // For masters, the displayed qty / value is the roll-up
+                    // of every variant beneath them.  Low-stock threshold
+                    // compares against the master's own reorder_point (owner
+                    // sets it as "when the whole family should be reordered").
+                    const rowQty = rollup ? rollup.qty : (i.quantity || 0);
+                    const rowValue = rollup ? rollup.cost : ((i.cost_price || 0) * (i.quantity || 0));
+                    const low = rowQty <= (i.reorder_point || 0);
+                    const sellingDisplay = rollup
+                      ? (rollup.minSell === rollup.maxSell
+                          ? formatEUR(rollup.minSell === Infinity ? 0 : rollup.minSell)
+                          : `${formatEUR(rollup.minSell)} – ${formatEUR(rollup.maxSell)}`)
+                      : formatEUR(i.selling_price);
+                    const costDisplay = rollup
+                      ? formatEUR(rollup.qty ? rollup.cost / rollup.qty : 0)
+                      : formatEUR(i.cost_price);
                     return (
                       <TableRow key={i.id} data-testid={`inventory-row-${i.sku}`} className={low ? "bg-amber-500/5" : ""}>
                         <TableCell>
@@ -818,11 +877,13 @@ export default function Inventory() {
                         </TableCell>
                         <TableCell className="font-mono text-xs">{i.sku}</TableCell>
                         <TableCell><Badge variant="outline" className="text-xs">{i.category}</Badge></TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">{formatEUR(i.cost_price)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{formatEUR(i.selling_price)}</TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">{costDisplay}</TableCell>
+                        <TableCell className="text-right tabular-nums">{sellingDisplay}</TableCell>
                         <TableCell className="text-right">
-                          <span className={`tabular-nums font-bold ${low ? "text-amber-700 dark:text-amber-400" : ""}`}>{i.quantity}</span>
-                          <div className="text-[10px] font-mono text-muted-foreground">{i.unit}</div>
+                          <span className={`tabular-nums font-bold ${low ? "text-amber-700 dark:text-amber-400" : ""}`}>{rowQty}</span>
+                          <div className="text-[10px] font-mono text-muted-foreground">
+                            {i.unit}{rollup ? ` · ${formatEUR(rowValue)}` : ""}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
                           {i.reorder_point}

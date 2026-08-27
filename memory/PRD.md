@@ -18,6 +18,14 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26t — Master row rollup + inventory report shows one family number
+- **Follow-up to variant feature**: owner asked to see the combined stock value of a master + all its sub-items as a single printable number instead of having to open the variants dialog and add rows manually.
+- **Overview table**: master rows now display roll-up numbers computed client-side from every variant beneath them — total quantity, total cost value, weighted average cost, and a selling-price range (`8,50 € – 40,00 €` when variants differ). Standalone rows are unaffected.
+- **KPI header**: "Aantal artikelen" now counts *families* (masters + standalones), not individual variants — so a master with 3 sub-items counts as 1. "Stuks" and "Voorraadwaarde" keep summing across every physical variant.
+- **PDF / print report**: rows for masters are collapsed to one line with `(N sub)` suffix, showing rolled-up qty + total value + price range. Standalones untouched.
+- **Verified via screenshot**: Motor Oil 5W-30 shows `45 L · 0,00 €` in the qty column and `8,50 € – 40,00 €` in the price column, KPI card reads `1 · 45 stuks`.
+
+
 ### Session 2026-02-26s — Super-admin tenant-data cross-leak (CRITICAL PRIVACY FIX)
 - **Bug**: When the platform super_admin created a garage and (via impersonation) entered customers / inventory / invoices for that tenant, then dropped back out of impersonation, the same data was visible in the *platform* super-admin session — because super_admin outside impersonation runs with `current_tenant_id.set(None)`, which tells `TenantAwareDb` to **skip** every scope filter. Result: hitting `/api/customers`, `/api/inventory`, `/api/repairs`, `/api/invoices` returned every tenant's rows merged together. Owner reported it as a privacy leak.
 - **Fix (backend)**: new `_reject_unscoped_super_admin(user)` guard called from both `require_permission(...)` and `require_owner`. If the caller is `super_admin` **and** no `current_tenant_id` is active (no impersonation) → HTTP 403 with a clear message. `require_super_admin` endpoints (tenant management, email logs, SaaS billing) are unaffected — they don't run through these guards.
