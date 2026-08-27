@@ -18,6 +18,14 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26s — Super-admin tenant-data cross-leak (CRITICAL PRIVACY FIX)
+- **Bug**: When the platform super_admin created a garage and (via impersonation) entered customers / inventory / invoices for that tenant, then dropped back out of impersonation, the same data was visible in the *platform* super-admin session — because super_admin outside impersonation runs with `current_tenant_id.set(None)`, which tells `TenantAwareDb` to **skip** every scope filter. Result: hitting `/api/customers`, `/api/inventory`, `/api/repairs`, `/api/invoices` returned every tenant's rows merged together. Owner reported it as a privacy leak.
+- **Fix (backend)**: new `_reject_unscoped_super_admin(user)` guard called from both `require_permission(...)` and `require_owner`. If the caller is `super_admin` **and** no `current_tenant_id` is active (no impersonation) → HTTP 403 with a clear message. `require_super_admin` endpoints (tenant management, email logs, SaaS billing) are unaffected — they don't run through these guards.
+- **Fix (frontend)**: `AuthContext.hasPermission()` now returns `false` for super_admin unless `user.impersonating` is set; `pathForUser()` sends non-impersonating super_admins straight to `/super-admin`. `OwnerRoute` + `DashboardFallback` in `App.js` bounce super_admin off `/dashboard`, `/settings`, `/staff` etc. when not impersonating.
+- **Verified via curl**: `GET /api/customers` and `/api/inventory` as raw super_admin → **HTTP 403** with the "Enter garage first" message. Same endpoints after impersonation → **HTTP 200** with only the impersonated tenant's rows. `/api/tenants` still 200 (super-admin-only). No regression on the standard owner flow.
+- **Architecture note**: this makes the mental model explicit — platform super_admin's *view* is limited to tenant-management primitives (garages, subscriptions, email logs). To touch any tenant business data they must **first** click "Enter garage" (impersonate); the JWT then carries `impersonate_tenant_id` and every DB call is scoped to that garage. There is no "global view" of tenant data anywhere in the product.
+
+
 ### Session 2026-02-26r — Master barcode + variants (sub-items)
 - **Feature request** (owner, Arabic): "أريد باركود رئيسي يتفرع منه أصناف فرعية — عند مسحه تظهر قائمة أختار منها الصنف فيُخصم من المخزن." Real-world use: one master "Motor Oil 5W-30" barcode → 1L / 4L / 5L variants (or Bosch / Mann brands).
 - **Data model**: added `parent_id: Optional[str]` on `InventoryItem` / `InventoryItemCreate` / `InventoryItemUpdate`. A variant is any inventory row whose `parent_id` points to a master; a master is any row with **no** `parent_id`. Variants have their own barcode / SKU / price / stock and are what gets deducted.

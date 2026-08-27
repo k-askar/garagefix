@@ -138,7 +138,12 @@ def all_permission_keys() -> List[str]:
 def has_permission(user: dict, perm: str) -> bool:
     """Owner + super_admin bypass every scope check; staff need `perm`
     in their `permissions` list.  Kept in sync with require_owner so a
-    platform admin impersonating a tenant doesn't get 403 on data endpoints."""
+    platform admin impersonating a tenant doesn't get 403 on data endpoints.
+
+    NOTE: cross-tenant leak protection lives in the FastAPI dependencies
+    below (`require_permission`, `require_owner`).  Keeping this helper
+    permissive so it stays usable by CLI / cron paths that legitimately
+    walk the raw multi-tenant view."""
     if not user:
         return False
     if user.get("role") in ("owner", "super_admin"):
@@ -146,9 +151,29 @@ def has_permission(user: dict, perm: str) -> bool:
     return perm in (user.get("permissions") or [])
 
 
+def _reject_unscoped_super_admin(user: dict):
+    """Raise 403 when a super_admin hits a tenant-scoped business endpoint
+    WITHOUT impersonating a garage.  Prevents the platform owner from
+    accidentally seeing every tenant's customers / inventory / invoices
+    mixed together — the correct workflow is "Enter garage" → impersonate,
+    which sets `current_tenant_id` and re-scopes every DB call."""
+    if user.get("role") != "super_admin":
+        return
+    if current_tenant_id.get() is not None:
+        return   # impersonation active — request is properly scoped
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "Platform admins must open a specific garage via 'Enter garage' "
+            "before viewing tenant data. Global cross-tenant read blocked."
+        ),
+    )
+
+
 def require_permission(perm: str):
     """FastAPI dependency factory to guard an endpoint by a single scope."""
     async def _dep(user: dict = Depends(get_current_user)) -> dict:
+        _reject_unscoped_super_admin(user)
         if not has_permission(user, perm):
             raise HTTPException(status_code=403, detail=f"Missing permission: {perm}")
         return user
@@ -194,10 +219,12 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 async def require_owner(user: dict = Depends(get_current_user)) -> dict:
-    # super_admin can do anything an owner can — needed so the platform-owner
-    # can browse/manage tenant data without impersonation.
+    # super_admin can do anything an owner can — but ONLY while actively
+    # impersonating a tenant.  Otherwise reads/writes would leak across
+    # garages (see `_reject_unscoped_super_admin`).
     if user.get("role") not in ("owner", "super_admin"):
         raise HTTPException(status_code=403, detail="Owner access required")
+    _reject_unscoped_super_admin(user)
     return user
 
 

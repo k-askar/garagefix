@@ -58,7 +58,11 @@ export function AuthProvider({ children }) {
    */
   const hasPermission = (perm) => {
     if (!user) return false;
-    if (user.role === "owner" || user.role === "super_admin") return true;
+    // Super-admins can only "see" tenant sections while they are actively
+    // impersonating a garage.  Outside impersonation their world is limited
+    // to the Super Admin dashboard so tenant data can never leak.
+    if (user.role === "super_admin") return !!user.impersonating;
+    if (user.role === "owner") return true;
     return (user.permissions || []).includes(perm);
   };
 
@@ -89,7 +93,10 @@ export function AuthProvider({ children }) {
    *  login when React state hasn't propagated yet). */
   const pathForUser = (u) => {
     if (!u) return "/login";
-    if (u.role === "super_admin") return "/super-admin";
+    // Super-admins who are impersonating a tenant get dropped into the
+    // garage's own dashboard so the workflow feels natural.  Otherwise
+    // they're locked to the platform admin console.
+    if (u.role === "super_admin") return u.impersonating ? "/dashboard" : "/super-admin";
     if (u.role === "owner") return "/dashboard";
     const perms = new Set(u.permissions || []);
     for (const [path, perm] of ROUTE_PERM) {

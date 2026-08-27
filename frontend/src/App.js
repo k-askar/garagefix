@@ -52,7 +52,14 @@ function ProtectedShell() {
 
 function OwnerRoute({ children }) {
   const { user, firstAllowedPath } = useAuth();
-  if (user && user.role !== "owner" && user.role !== "super_admin") {
+  if (!user) return null;
+  // Super-admins can only reach owner-only pages while impersonating a
+  // tenant.  Outside impersonation they get bounced to /super-admin so
+  // they can't accidentally write to /staff or /settings globally.
+  if (user.role === "super_admin" && !user.impersonating) {
+    return <Navigate to="/super-admin" replace />;
+  }
+  if (user.role !== "owner" && user.role !== "super_admin") {
     return <Navigate to={firstAllowedPath()} replace />;
   }
   return children;
@@ -76,10 +83,14 @@ function LandingHome() {
 
 function DashboardFallback() {
   // Owner → real Dashboard.  Staff without reports.view → their first allowed section.
+  // Super-admins land on /super-admin unless they are actively impersonating.
   const { user, ready, hasPermission, firstAllowedPath } = useAuth();
   if (!ready) return null;
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role === "super_admin" || user.role === "owner" || hasPermission("reports.view")) {
+  if (user.role === "super_admin" && !user.impersonating) {
+    return <Navigate to="/super-admin" replace />;
+  }
+  if (user.role === "owner" || hasPermission("reports.view")) {
     return <Dashboard />;
   }
   return <Navigate to={firstAllowedPath()} replace />;
