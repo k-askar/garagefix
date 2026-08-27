@@ -88,9 +88,10 @@ export default function SuperAdmin() {
       setUser?.(me.data);
       localStorage.setItem("garage_user", JSON.stringify(me.data));
       toast.success(`Now viewing ${t.name}`);
-      // Send the admin to the dashboard of the impersonated tenant — most
-      // support requests start with "why doesn't my dashboard show X?".
-      window.location.href = "/";
+      // SPA navigate (not `window.location.href`) so we don't blow the tab
+      // back to the login page for the split-second `/auth/me` takes to run
+      // — that's the "flash" the owner reported.
+      nav("/dashboard");
     } catch (err) { toast.error(formatApiError(err)); }
   };
 

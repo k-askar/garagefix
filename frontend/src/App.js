@@ -75,9 +75,11 @@ function SuperAdminRoute({ children }) {
 
 function LandingHome() {
   // Redirect an already-logged-in user straight into their first allowed page
-  // instead of showing the public landing every time they hit "/".
+  // instead of showing the public landing every time they hit "/".  Waiting
+  // for `ready` avoids the "flash of landing page" during impersonation swap.
   const { user, ready, firstAllowedPath } = useAuth();
-  if (ready && user) return <Navigate to={firstAllowedPath()} replace />;
+  if (!ready) return null;
+  if (user) return <Navigate to={firstAllowedPath()} replace />;
   return <Landing />;
 }
 

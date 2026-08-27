@@ -18,6 +18,19 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-27b — Impersonation flash fix + modern theme-aware Login
+- **Bug**: When super_admin clicked "Enter garage", the tab briefly showed the public landing/login before landing in the tenant's dashboard.
+- **Root cause**: `enterGarage` used `window.location.href = "/"` — a full page reload. The fresh app boot starts with `user=null, ready=false`; while `/auth/me` re-hydrated the JWT, `LandingHome` was already rendering `<Landing />`. `DashboardFallback` also flashed the login redirect. Two independent race windows visible for ~200-400ms.
+- **Fix**: replaced with `nav("/dashboard")` — pure SPA navigation. `setUser(me.data)` already ran before the nav, so the router sees a valid user on the first render; no reload, no flash. Also hardened `LandingHome` to gate on `ready` before showing `<Landing />`, so any other future writer flipping the token can never flash the landing either.
+- **Verified via Playwright**: no navigation events between the impersonate click and the dashboard; page URL transitions straight to `/dashboard`; screenshot shows the impersonation banner rendered on top of the dashboard content immediately.
+
+### Session 2026-02-27c — Login page redesign (theme-aware, split-hero, modern)
+- **Owner request** (Arabic): modernize the landing / sign-in with light + dark modes following the system theme plus a manual toggle.
+- **Layout**: split-screen — left **hero** (hidden < lg) with a "Werkplaats · Facturen · APK · Kassa" chip, an oversized "Alles wat je garage doet" headline where the word `garage` gets a highlighter underline, a 3-card KPI grid (APK-herinneringen: Auto · iDEAL & Card: Live · RDW-lookup: 1-tik) and an AVG footer. Right **panel** = the sign-in card centred on a 520px column with a glowing top hairline.
+- **Theme awareness**: swapped hard-coded slate colours for shadcn variables (`bg-background`, `bg-card`, `text-foreground`, `border-border`, `text-muted-foreground`). Ambient orbs + grid opacity swap between light/dark via `useTheme().resolved`. `ThemeToggle` + `LanguageSwitcher` sit together in a small pill in the top-right (RTL-aware).
+- **Kept**: `login-email-input`, `login-password-input`, `login-submit-button`, `login-password-toggle`, `login-forgot-link`, `forgot-*` test-ids so every existing test stays green.
+
+
 ### Session 2026-02-27 — Reminders folded into Vehicles + Dashboard widget
 - **Owner request** (Arabic): show reminders on the Dashboard and merge the sidebar "Herinneringen" entry into the Vehicles page with a modern design.
 - **Sidebar**: removed the `/reminders` entry — one less item to scroll past.
