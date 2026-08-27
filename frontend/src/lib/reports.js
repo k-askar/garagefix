@@ -1,5 +1,6 @@
 import { downloadHtmlAsPdf, printHtml } from "@/lib/pdf";
 import { formatEUR } from "@/lib/api";
+import { partyVehicleBlock, INVOICE_I18N } from "@/lib/invoice-render";
 
 /**
  * Build a styled HTML report for a tabular list (inventory / customers / suppliers / repairs).
@@ -117,7 +118,7 @@ function plateHtml(plate, country = "NL", size = "sm") {
 /**
  * Repair card single-page report.
  */
-export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels = {} }) {
+export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels = {}, customer, vehicle }) {
   const l = {
     jobCard: "JOB CARD", customer: "Customer", vehicle: "Vehicle",
     mechanic: "Mechanic", status: "Status", complaint: "Customer complaint",
@@ -129,6 +130,10 @@ export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels =
     returned: "RETURNED",
     ...labels,
   };
+  // Localised strings for the reusable party/vehicle block — pick nl for Dutch
+  // dir=ltr (settings.pdf_lang=nl default), ar for RTL, else English.
+  const lang = dir === "rtl" ? "ar" : (settings.pdf_lang || "nl");
+  const L = INVOICE_I18N[lang] || INVOICE_I18N.nl;
   const stockRows = (card.parts_used || []).map(p => {
     const isRet = !!p.returned;
     const rowStyle = isRet ? "background:#fef2f2;color:#b91c1c;" : "";
@@ -180,57 +185,68 @@ export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels =
                       + (card.special_parts || []).filter(p => p.returned).length;
   const discountAmount = Number(card.discount_amount || 0);
   return `<div style="font-family:${bodyFont};color:#0f172a;background:#fff;padding:8px;direction:${dir}">
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&display=swap" rel="stylesheet"/>
     <style>
       .jc { max-width: 760px; }
       .jc h1 { font-size: 26px; margin: 0; color:#0f172a; font-weight: 800; letter-spacing:-.01em; }
       .jc .muted { color: #64748b; font-size: 12px; }
       .jc .top { background:#eff6ff; border:1px solid #dbeafe; border-radius:14px; padding:14px 18px; margin-bottom:18px; display:flex; align-items:center; justify-content:space-between; gap:16px; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
       .jc .top img { max-height: 40px; width: auto; object-fit: contain; }
-      .jc .top .num { color:#1d4ed8; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size:13px; font-weight:700; direction:ltr; letter-spacing:.08em; }
-      .jc .status { display:inline-block; background:${statusColors.bg}; color:${statusColors.fg}; padding:4px 12px; border-radius:999px; font-size:11px; letter-spacing:.06em; font-weight:700; text-transform:capitalize; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-      .jc .head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:16px; }
-      .jc .plate-row { display:flex; align-items:center; gap:10px; margin-top:6px; }
-      .jc .meta-list { list-style:none; margin:0; padding:0; }
-      .jc .meta-list li { display:flex; align-items:center; gap:8px; font-size:13px; color:#475569; padding:4px 0; }
-      .jc .meta-list li .ico { width:14px; height:14px; opacity:.7; }
-      .jc .quote { border-inline-start:3px solid #dbeafe; padding: 6px 12px; color:#334155; font-size:12.5px; font-style:italic; background:#f8fafc; border-radius:0 6px 6px 0; margin-top:14px; }
-      .jc h3 { font-size:11px; text-transform:uppercase; letter-spacing:.14em; color:#94a3b8; font-weight:700; margin: 18px 0 6px; }
-      .jc table { width: 100%; border-collapse: collapse; margin-top: 4px; }
-      .jc th, .jc td { padding: 8px; border-bottom: 1px solid #eef2f7; font-size: 13px; text-align:${dir === 'rtl' ? 'right' : 'left'}; }
-      .jc th { background: #f8fafc; color:#475569; font-size:10px; text-transform:uppercase; letter-spacing:.1em; }
-      .jc .right { text-align: ${alignEnd}; }
-      .jc .totals { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-top:20px; padding-top:14px; border-top:1px solid #e2e8f0; }
-      .jc .totals .lbl { font-size:10px; text-transform:uppercase; letter-spacing:.14em; color:#94a3b8; font-weight:700; }
-      .jc .totals .parts-count { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size:14px; color:#0f172a; font-weight:600; margin-top:2px; }
-      .jc .totals .ret-note { font-size:10px; color:#b91c1c; margin-top:2px; }
-      .jc .totals .total-big { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size:26px; color:#1d4ed8; font-weight:800; tabular-nums:1; margin-top:2px; }
-      .jc .foot { text-align:center; color:#94a3b8; font-size:11px; margin-top:24px; padding-top:12px; border-top:1px dashed #e2e8f0; }
+      .jc .top .num { color:#1d4ed8; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size:14px; font-weight:800; direction:ltr; letter-spacing:.1em; }
+      .jc .top .doc-label { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size:9px; letter-spacing:.2em; color:#64748b; text-transform:uppercase; }
+      .jc .status { display:inline-block; background:${statusColors.bg}; color:${statusColors.fg}; padding:4px 12px; border-radius:999px; font-family:'JetBrains Mono',ui-monospace,monospace; font-size:10px; letter-spacing:.14em; font-weight:800; text-transform:uppercase; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+      .jc .head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:6px; padding-bottom:12px; border-bottom:1px solid #e2e8f0; }
+      .jc .quote { border-inline-start:3px solid #dbeafe; padding: 8px 14px; color:#334155; font-size:12.5px; font-style:italic; background:#f8fafc; border-radius:0 6px 6px 0; margin-top:14px; }
+      .jc h3 { font-family:'JetBrains Mono',ui-monospace,monospace; font-size:10px; text-transform:uppercase; letter-spacing:.14em; color:#64748b; font-weight:800; margin: 18px 0 6px; display:flex; align-items:center; gap:6px; }
+      .jc h3::before { content:""; width:6px; height:6px; background:#1d4ed8; border-radius:50%; display:inline-block; }
+      .jc table { width: 100%; border-collapse: separate; border-spacing:0; margin-top: 4px; border:1px solid #e2e8f0; border-radius:8px; overflow:hidden; }
+      .jc th, .jc td { padding: 8px 10px; border-bottom: 1px solid #eef2f7; font-size: 13px; text-align:${dir === 'rtl' ? 'right' : 'left'}; }
+      .jc tbody tr:last-child td { border-bottom:none; }
+      .jc th { background: #f8fafc; color:#64748b; font-family:'JetBrains Mono',ui-monospace,monospace; font-size:9.5px; text-transform:uppercase; letter-spacing:.12em; font-weight:800; }
+      .jc .right { text-align: ${alignEnd}; font-family:'JetBrains Mono',ui-monospace,monospace; }
+      .jc .totals { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-top:20px; padding:14px 16px; border:1px solid #e2e8f0; border-radius:10px; background:#f8fafc; }
+      .jc .totals .lbl { font-family:'JetBrains Mono',ui-monospace,monospace; font-size:9.5px; text-transform:uppercase; letter-spacing:.14em; color:#64748b; font-weight:800; }
+      .jc .totals .parts-count { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size:16px; color:#0f172a; font-weight:800; margin-top:2px; }
+      .jc .totals .ret-note { font-family:'JetBrains Mono',ui-monospace,monospace; font-size:10px; color:#b91c1c; margin-top:2px; }
+      .jc .totals .total-big { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size:28px; color:#1d4ed8; font-weight:800; tabular-nums:1; margin-top:2px; letter-spacing:-.01em; }
+      .jc .foot { text-align:center; color:#94a3b8; font-size:11px; margin-top:24px; padding-top:12px; border-top:1px dashed #e2e8f0; font-family:'JetBrains Mono',ui-monospace,monospace; letter-spacing:.06em; }
     </style>
     <div class="jc">
       <div class="top">
         <img src="${logoAbs}" alt="logo" crossorigin="anonymous" />
         <div style="text-align:${alignEnd}">
+          <div class="doc-label">${l.jobCard}</div>
           <div class="num">${card.card_number}</div>
-          <div class="muted" style="font-size:10px;margin-top:2px">${new Date(card.created_at).toLocaleDateString(dir === 'rtl' ? 'ar-EG' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+          <div class="muted" style="font-size:10px;margin-top:2px;font-family:'JetBrains Mono',ui-monospace,monospace">${new Date(card.created_at).toLocaleDateString(dir === 'rtl' ? 'ar-EG' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
         </div>
       </div>
 
       <div class="head">
         <div>
           <h1>${[card.car_make, card.car_model].filter(Boolean).join(" ") || "Vehicle"}</h1>
-          <div class="plate-row">
-            ${card.car_year ? `<span class="muted" style="font-size:13px;font-family:'IBM Plex Mono',monospace">${card.car_year}</span>` : ""}
+          <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+            ${card.car_year ? `<span class="muted" style="font-size:13px;font-family:'JetBrains Mono',ui-monospace,monospace;font-weight:600">${card.car_year}</span>` : ""}
             ${plateHtml(card.car_plate, card.car_country || "NL", "sm")}
+            ${card.mechanic_name ? `<span class="muted" style="font-size:12px;font-family:'JetBrains Mono',ui-monospace,monospace">· ${card.mechanic_name}</span>` : ""}
           </div>
         </div>
         <span class="status">${l["status_" + card.status] || card.status}</span>
       </div>
 
-      <ul class="meta-list">
-        <li><span class="ico">◉</span><span>${card.customer_name || "—"}${card.customer_phone ? " · " + card.customer_phone : ""}</span></li>
-        ${card.mechanic_name ? `<li><span class="ico">◈</span><span>${card.mechanic_name}</span></li>` : ""}
-        ${card.car_km ? `<li><span class="ico">◐</span><span>${card.car_km} ${l.km}</span></li>` : ""}
-      </ul>
+      ${partyVehicleBlock({
+        customer: customer || { name: card.customer_name, phone: card.customer_phone },
+        vehicle: vehicle || {
+          make: card.car_make, model: card.car_model, year: card.car_year,
+          plate: card.car_plate, color: card.car_color, km: card.car_km,
+          country: card.car_country, apk_expiry: card.car_apk_expiry,
+        },
+        fallbackPlate: card.car_plate,
+        fallbackCountry: card.car_country,
+        accent: "#1d4ed8",
+        L,
+      })}
 
       ${card.complaint ? `<div class="quote">"${card.complaint}"</div>` : ""}
       ${card.diagnosis ? `<h3>${l.diagnosis}</h3><p style="margin:2px 0;font-size:12.5px;color:#334155">${card.diagnosis}</p>` : ""}
@@ -238,7 +254,7 @@ export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels =
 
       ${(card.time_logs && card.time_logs.length) ? `<h3>${l.timeClock || 'Labor time clock'}</h3>
         <table><thead><tr><th>${l.mechanic}</th><th>${l.startedAt || 'Start'}</th><th>${l.stopped || 'Stop'}</th><th class="right">${l.duration || 'Duration'}</th></tr></thead><tbody>
-        ${card.time_logs.map(tl => `<tr><td>${tl.mechanic_name || '—'}</td><td>${new Date(tl.started_at).toLocaleString(dir === 'rtl' ? 'ar-EG' : 'en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td><td>${tl.stopped_at ? new Date(tl.stopped_at).toLocaleString(dir === 'rtl' ? 'ar-EG' : 'en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}</td><td class="right">${Math.round(Number(tl.minutes) || 0)} min</td></tr>`).join('')}
+        ${card.time_logs.map(tl => `<tr><td>${tl.mechanic_name || '—'}</td><td style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11.5px">${new Date(tl.started_at).toLocaleString(dir === 'rtl' ? 'ar-EG' : 'en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td><td style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11.5px">${tl.stopped_at ? new Date(tl.stopped_at).toLocaleString(dir === 'rtl' ? 'ar-EG' : 'en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}</td><td class="right">${Math.round(Number(tl.minutes) || 0)} min</td></tr>`).join('')}
         </tbody></table>` : ""}
 
       ${(card.parts_used || []).length || (card.special_parts || []).length ? `
@@ -253,7 +269,7 @@ export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels =
           ${returnedCount ? `<div class="ret-note">· ${returnedCount} ${(l.returned || 'returned').toLowerCase()}</div>` : ""}
         </div>
         <div style="text-align:${alignEnd}">
-          ${discountAmount > 0 ? `<div style="font-size:11px;color:#059669;margin-bottom:4px;font-family:'IBM Plex Mono',monospace">${l.discountApplied || 'Discount'}: −${formatEUR(discountAmount)}</div>` : ""}
+          ${discountAmount > 0 ? `<div style="font-size:11px;color:#059669;margin-bottom:4px;font-family:'JetBrains Mono',ui-monospace,monospace">${l.discountApplied || 'Discount'}: −${formatEUR(discountAmount)}</div>` : ""}
           <div class="lbl">${l.grandTotal}</div>
           <div class="total-big">${formatEUR(card.total_with_tax || card.grand_total)}</div>
         </div>
@@ -264,13 +280,13 @@ export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels =
   </div>`;
 }
 
-export async function downloadRepairCardPdf(card, settings, dir = "ltr", labels = {}) {
-  const html = buildRepairCardHtml({ card, settings, dir, labels });
+export async function downloadRepairCardPdf(card, settings, dir = "ltr", labels = {}, extras = {}) {
+  const html = buildRepairCardHtml({ card, settings, dir, labels, customer: extras.customer, vehicle: extras.vehicle });
   await downloadHtmlAsPdf(html, `${card.card_number}.pdf`, { dir });
 }
 
-export function printRepairCard(card, settings, dir = "ltr", labels = {}) {
-  const html = buildRepairCardHtml({ card, settings, dir, labels });
+export function printRepairCard(card, settings, dir = "ltr", labels = {}, extras = {}) {
+  const html = buildRepairCardHtml({ card, settings, dir, labels, customer: extras.customer, vehicle: extras.vehicle });
   printHtml(html, { title: card.card_number, dir, lang: dir === "rtl" ? "ar" : "en" });
 }
 

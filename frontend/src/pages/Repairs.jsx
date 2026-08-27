@@ -48,6 +48,25 @@ function repairLabels(t) {
   };
 }
 
+/** Look up the full customer + best-matching vehicle so the printed job card
+    can render the modern "Customer / Vehicle" block. Falls back gracefully
+    when the customer no longer exists or the vehicle can't be identified. */
+async function enrichRepairForPdf(card, customers) {
+  const customer = customers?.find(c => c.id === card.customer_id) || null;
+  let vehicle = null;
+  if (customer?.id) {
+    try {
+      const { data } = await api.get(`/customers/${customer.id}/vehicles`);
+      const list = Array.isArray(data) ? data : [];
+      if (card.vehicle_id) vehicle = list.find(v => v.id === card.vehicle_id) || null;
+      if (!vehicle && card.car_plate) {
+        vehicle = list.find(v => (v.plate || "").toUpperCase() === (card.car_plate || "").toUpperCase()) || null;
+      }
+    } catch { /* silent — falls back to the snapshot on the card */ }
+  }
+  return { customer, vehicle };
+}
+
 function fmtDuration(mins) {
   const total = Math.max(0, Math.round(Number(mins) || 0));
   const h = Math.floor(total / 60);
@@ -735,10 +754,16 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
 
         <DialogFooter className="flex-wrap gap-2">
           <Button variant="ghost" onClick={onClose}>{t("close")}</Button>
-          <Button variant="outline" className="rounded-full" onClick={() => printRepairCard(data, settings, meta.dir, repairLabels(t))} data-testid="repair-print-button">
+          <Button variant="outline" className="rounded-full" onClick={async () => {
+            const extras = await enrichRepairForPdf(data, customers);
+            printRepairCard(data, settings, meta.dir, repairLabels(t), extras);
+          }} data-testid="repair-print-button">
             <Printer className="h-4 w-4 mr-2" /> {t("printCard")}
           </Button>
-          <Button variant="outline" className="rounded-full" onClick={() => downloadRepairCardPdf(data, settings, meta.dir, repairLabels(t))} data-testid="repair-pdf-button">
+          <Button variant="outline" className="rounded-full" onClick={async () => {
+            const extras = await enrichRepairForPdf(data, customers);
+            downloadRepairCardPdf(data, settings, meta.dir, repairLabels(t), extras);
+          }} data-testid="repair-pdf-button">
             <FileDown className="h-4 w-4 mr-2" /> {t("pdf")}
           </Button>
           <Button variant="outline" className="rounded-full text-emerald-700 dark:text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10" onClick={() => whatsappShare({

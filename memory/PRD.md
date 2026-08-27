@@ -18,6 +18,15 @@
 
 ## Implemented (latest first)
 
+### Session 2026-02-26u — Modern PDF redesign for Job Cards + Invoices (JetBrains Mono)
+- **Owner request**: redesign the Job Card PDF and Invoice PDF so they display full customer info (name, phone, email, address, KvK, VAT) + full vehicle info (make/model/year/plate/color/km/VIN/APK). Use a modern typewriter-style font like the one shown in the reference screenshot.
+- **New shared party/vehicle block** in `invoice-render.js` (`partyVehicleBlock`, exported): two-column card with a coloured top rule, monospace uppercase section labels ("CUSTOMER", "VEHICLE"), and clean label/value rows. Vehicle side shows the make/model + year, an EU-style plate badge, and rows for colour, km, VIN and APK expiry. Falls back to invoice-time snapshot fields when the enriched customer/vehicle can't be fetched.
+- **Font**: switched all doc-defining accents (labels, column headers, totals, references, doc numbers, badges) to **JetBrains Mono** (loaded via Google Fonts inside the PDF HTML). Body copy stays sans for readability. Matches the typewriter look the owner referenced.
+- **Job-card renderer** in `reports.js` now reuses `partyVehicleBlock`, drops the old "meta-list" bullets, adds a section-header dot pattern (`h3::before`), and rebuilds the totals card in a bordered rounded pill.
+- **Callers**: `Repairs.jsx` and `Invoices.jsx` now fetch the customer + vehicle right before print/download so the enriched block always renders with fresh data (with graceful fallback). Both `printRepairCard` / `downloadRepairCardPdf` / `printInvoice` / the download button pass `{customer, vehicle}` via a new `extras` opts.
+- **Localisation**: the party/vehicle block reads Dutch (default), English and Arabic labels from the existing `I18N` map — same file, no duplication.
+
+
 ### Session 2026-02-26t — Master row rollup + inventory report shows one family number
 - **Follow-up to variant feature**: owner asked to see the combined stock value of a master + all its sub-items as a single printable number instead of having to open the variants dialog and add rows manually.
 - **Overview table**: master rows now display roll-up numbers computed client-side from every variant beneath them — total quantity, total cost value, weighted average cost, and a selling-price range (`8,50 € – 40,00 €` when variants differ). Standalone rows are unaffected.

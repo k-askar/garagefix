@@ -30,10 +30,29 @@ function extractPlate(note) {
   return candidates.length ? candidates[candidates.length - 1] : null;
 }
 
-async function printInvoice(inv, settings, lang) {
+async function printInvoice(inv, settings, lang, extras = {}) {
   // We ignore the caller's `lang` — invoice PDFs must always be in Dutch.
-  const html = await renderInvoiceHtml(inv, settings);
+  const html = await renderInvoiceHtml(inv, settings, extras);
   printHtml(html, { title: inv.invoice_number });
+}
+
+/** Look up the full customer + best-matching vehicle so the PDF can render
+    the modern "Customer / Vehicle" block with real address + plate details
+    instead of relying on the invoice-time snapshot. */
+async function enrichInvoiceForPdf(inv, customers) {
+  const customer = customers?.find(c => c.id === inv.customer_id) || null;
+  let vehicle = null;
+  if (customer?.id) {
+    try {
+      const { data } = await api.get(`/customers/${customer.id}/vehicles`);
+      const list = Array.isArray(data) ? data : [];
+      if (inv.car_plate) {
+        vehicle = list.find(v => (v.plate || "").toUpperCase() === (inv.car_plate || "").toUpperCase()) || null;
+      }
+      if (!vehicle && list.length === 1) vehicle = list[0];
+    } catch { /* silent — falls back to invoice snapshot */ }
+  }
+  return { customer, vehicle };
 }
 
 /** Turn a Blob into a base64 string (without the data:… prefix) so we can
@@ -509,7 +528,10 @@ export default function Invoices() {
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
-                    <Button size="icon" variant="ghost" onClick={() => { printInvoice(inv, settings); }} data-testid={`invoice-print-${inv.invoice_number}`}><Printer className="h-4 w-4" /></Button>
+                    <Button size="icon" variant="ghost" onClick={async () => {
+                      const extras = await enrichInvoiceForPdf(inv, customers);
+                      printInvoice(inv, settings, undefined, extras);
+                    }} data-testid={`invoice-print-${inv.invoice_number}`}><Printer className="h-4 w-4" /></Button>
                     <Button
                       size="icon"
                       variant="ghost"
@@ -517,7 +539,8 @@ export default function Invoices() {
                       data-testid={`invoice-pdf-${inv.invoice_number}`}
                       onClick={async () => {
                         try {
-                          const html = await renderInvoiceHtml(inv, settings);
+                          const extras = await enrichInvoiceForPdf(inv, customers);
+                          const html = await renderInvoiceHtml(inv, settings, extras);
                           await downloadHtmlAsPdf(html, `${inv.invoice_number}.pdf`);
                         } catch (e) { toast.error(formatApiError(e)); }
                       }}

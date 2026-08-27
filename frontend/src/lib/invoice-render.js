@@ -213,6 +213,11 @@ const I18N = {
     scanWithApp: "Scan with your banking app",
     thankYou: "Thank you!",
     dateLocale: "en-GB",
+    customer: "Customer", vehicle: "Vehicle",
+    phone: "Phone", email: "Email", address: "Address",
+    kvk: "KvK", vat: "VAT",
+    plate: "Plate", make: "Make", model: "Model", year: "Year",
+    color: "Color", km: "Kilometrage", vin: "VIN", apk: "APK expiry",
   },
   nl: {
     paid: "BETAALD", invoice: "FACTUUR",
@@ -228,6 +233,11 @@ const I18N = {
     scanWithApp: "Scan met uw bank-app",
     thankYou: "Bedankt voor uw vertrouwen!",
     dateLocale: "nl-NL",
+    customer: "Klant", vehicle: "Voertuig",
+    phone: "Telefoon", email: "E-mail", address: "Adres",
+    kvk: "KvK", vat: "BTW-nr",
+    plate: "Kenteken", make: "Merk", model: "Model", year: "Bouwjaar",
+    color: "Kleur", km: "Kilometerstand", vin: "VIN", apk: "APK vervalt",
   },
   ar: {
     paid: "مدفوعة", invoice: "فاتورة",
@@ -243,8 +253,98 @@ const I18N = {
     scanWithApp: "امسح بتطبيق البنك",
     thankYou: "شكراً لثقتكم!",
     dateLocale: "ar",
+    customer: "العميل", vehicle: "المركبة",
+    phone: "الهاتف", email: "البريد", address: "العنوان",
+    kvk: "س.ت.", vat: "الرقم الضريبي",
+    plate: "اللوحة", make: "الصانع", model: "الموديل", year: "السنة",
+    color: "اللون", km: "عداد الكيلومترات", vin: "رقم الشاصي", apk: "انتهاء الفحص",
   },
 };
+
+
+/**
+ * Modern two-column party/vehicle block for both invoices and job cards.
+ * Uses JetBrains Mono for labels + values so amounts, phone numbers and
+ * plate identifiers align nicely and read like a workshop worksheet.
+ *
+ *  customer: { name, phone, email, address, postcode, house_number,
+ *              street, city, address_country, kvk_number, vat_number,
+ *              company_name, customer_type }
+ *  vehicle:  { make, model, year, plate, color, km, vin, apk_expiry, country }
+ */
+function partyVehicleBlock({ customer = {}, vehicle = {}, fallbackPlate, fallbackCountry, accent, L }) {
+  const c = customer || {};
+  const v = vehicle || {};
+  const isCompany = c.customer_type === "company";
+  const displayName = c.company_name || c.name || L.walkIn;
+  const contactPerson = isCompany && c.name && c.name !== c.company_name ? c.name : "";
+  const addrLine1 = [c.street, c.house_number, c.house_number_addition].filter(Boolean).join(" ");
+  const addrLine2 = [c.postcode, c.city, c.address_country].filter(Boolean).join(" ");
+  const fullAddress = [addrLine1, addrLine2].filter((x) => x && x.trim()).join(" · ") || c.address || "";
+
+  const row = (label, value, mono = true) => value ? `
+    <div style="display:flex;gap:10px;padding:3px 0;font-size:11.5px;line-height:1.4;align-items:baseline">
+      <span style="min-width:80px;color:#94a3b8;font-family:'JetBrains Mono',ui-monospace,monospace;
+                   font-size:9.5px;letter-spacing:.08em;text-transform:uppercase">${esc(label)}</span>
+      <span style="color:#0f172a;${mono ? "font-family:'JetBrains Mono',ui-monospace,monospace;" : ""}
+                   flex:1;word-break:break-word">${esc(value)}</span>
+    </div>` : "";
+
+  const plate = v.plate || fallbackPlate;
+  const country = v.country || fallbackCountry || "NL";
+  const vehicleTitle = [v.make, v.model].filter(Boolean).join(" ");
+
+  return `
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px;
+              page-break-inside:avoid;break-inside:avoid">
+    <!-- CUSTOMER -->
+    <div style="border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;background:#fff;
+                border-top:3px solid ${accent}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="width:6px;height:6px;background:${accent};border-radius:50%"></span>
+        <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;
+                     letter-spacing:.14em;color:#64748b;text-transform:uppercase;font-weight:700">
+          ${esc(L.customer)}
+        </span>
+      </div>
+      <div style="font-size:15px;font-weight:800;color:#0f172a;letter-spacing:-.01em;line-height:1.25">
+        ${esc(displayName)}
+      </div>
+      ${contactPerson ? `<div style="font-size:11px;color:#64748b;margin-top:2px">c/o ${esc(contactPerson)}</div>` : ""}
+      <div style="margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:6px">
+        ${row(L.phone, c.phone)}
+        ${row(L.email, c.email)}
+        ${row(L.address, fullAddress, false)}
+        ${row(L.kvk, c.kvk_number)}
+        ${row(L.vat, c.vat_number)}
+      </div>
+    </div>
+    <!-- VEHICLE -->
+    <div style="border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;background:#fff;
+                border-top:3px solid ${accent}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="width:6px;height:6px;background:${accent};border-radius:50%"></span>
+        <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;
+                     letter-spacing:.14em;color:#64748b;text-transform:uppercase;font-weight:700">
+          ${esc(L.vehicle)}
+        </span>
+      </div>
+      ${vehicleTitle ? `<div style="font-size:15px;font-weight:800;color:#0f172a;letter-spacing:-.01em;line-height:1.25">
+        ${esc(vehicleTitle)}${v.year ? ` <span style="color:#64748b;font-weight:600;font-family:'JetBrains Mono',ui-monospace,monospace">· ${esc(v.year)}</span>` : ""}
+      </div>` : ""}
+      ${plate ? `<div style="margin-top:8px">${plateHtml(plate, country)}</div>` : ""}
+      <div style="margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:6px">
+        ${row(L.color, v.color)}
+        ${row(L.km, v.km ? `${v.km} km` : "")}
+        ${row(L.vin, v.vin)}
+        ${row(L.apk, v.apk_expiry)}
+      </div>
+    </div>
+  </div>`;
+}
+
+
+
 
 /**
  * @param {object} inv       invoice document
@@ -360,33 +460,40 @@ export async function renderInvoiceHtml(inv, settings, opts = {}) {
   const wrapClose = tpl.wrapPadding ? `</div>` : "";
 
   return `<!doctype html><html><head><meta charset="utf-8"/><title>${esc(inv.invoice_number)}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&display=swap" rel="stylesheet"/>
     <style>
       body{${tpl.bodyCss}}
       .doc-header{${tpl.headerCss}}
       .doc-h1{${tpl.h1Css}}
       .muted{color:#666;font-size:12px}
+      .mono{font-family:'JetBrains Mono',ui-monospace,monospace}
       table.items{width:100%;border-collapse:separate;border-spacing:0;margin-top:18px;
                   border:1px solid #eaeaea;border-radius:8px;overflow:hidden}
       table.items th,table.items td{padding:10px 8px;text-align:left;font-size:13px;vertical-align:top;border-bottom:1px solid #eee}
       table.items tbody tr:last-child td{border-bottom:none}
-      table.items th{background:${tpl.thBg};color:${tpl.thColor};font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:700}
+      table.items th{background:${tpl.thBg};color:${tpl.thColor};font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:700}
       .right{text-align:right}
-      .badge{display:inline-block;padding:3px 12px;border-radius:999px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;${tpl.badgeCss};
+      .badge{display:inline-block;padding:3px 12px;border-radius:999px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;${tpl.badgeCss};
              -webkit-print-color-adjust:exact;print-color-adjust:exact}
       .badge.paid{background:#22c55e;color:#fff}
       .totrow{font-size:18px;font-weight:800;color:${accent}}
       hr.accent{${tpl.accentRule}}
       .terms{margin-top:18px;font-size:10px;color:#666;white-space:pre-line;border-top:1px solid #eee;padding-top:10px}
-      .customer-block{margin-top:14px;padding:10px 14px;background:#fafafa;border-left:3px solid ${accent};border-radius:4px}
       @media print{*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}}
     </style></head><body>
     ${headerBlock}
     <hr class="accent"/>
     ${wrapOpen}
-    <div class="customer-block">
-      <div class="muted" style="text-transform:uppercase;letter-spacing:.14em;font-size:9px;font-weight:700">${esc(L.billTo)}</div>
-      <div style="font-size:16px;font-weight:700;margin-top:3px;color:#111">${esc(inv.customer_name || L.walkIn)}</div>
-    </div>
+    ${partyVehicleBlock({
+      customer: opts.customer,
+      vehicle: opts.vehicle,
+      fallbackPlate: inv.car_plate,
+      fallbackCountry: inv.car_country,
+      accent,
+      L,
+    })}
     <table class="items"><thead><tr>
       <th style="padding-left:14px">${esc(L.item)}</th><th class="right">${esc(L.qty)}</th><th class="right">${esc(L.unit)}</th><th class="right" style="padding-right:14px">${esc(L.total)}</th>
     </tr></thead>
@@ -394,15 +501,15 @@ export async function renderInvoiceHtml(inv, settings, opts = {}) {
     <table style="margin-top:18px;margin-left:auto;margin-right:0;background:#fafafa;border:1px solid #eee;border-radius:8px;border-collapse:collapse;min-width:260px">
       <tr>
         <td style="padding:6px 24px 6px 14px;color:#666;font-size:12px;text-align:left;white-space:nowrap">${esc(L.subtotal)}</td>
-        <td style="padding:6px 14px 6px 12px;color:#666;font-size:12px;text-align:right;font-family:monospace;white-space:nowrap">${fmtMoney(inv.subtotal, s)}</td>
+        <td style="padding:6px 14px 6px 12px;color:#666;font-size:12px;text-align:right;font-family:'JetBrains Mono',ui-monospace,monospace;white-space:nowrap">${fmtMoney(inv.subtotal, s)}</td>
       </tr>
       ${inv.tax ? `<tr>
         <td style="padding:4px 24px 4px 14px;color:#666;font-size:12px;text-align:left;white-space:nowrap">BTW${inv.tax_rate ? " " + inv.tax_rate + "%" : ""}</td>
-        <td style="padding:4px 14px 4px 12px;color:#666;font-size:12px;text-align:right;font-family:monospace;white-space:nowrap">${fmtMoney(inv.tax, s)}</td>
+        <td style="padding:4px 14px 4px 12px;color:#666;font-size:12px;text-align:right;font-family:'JetBrains Mono',ui-monospace,monospace;white-space:nowrap">${fmtMoney(inv.tax, s)}</td>
       </tr>` : ""}
       <tr>
-        <td style="padding:10px 24px 12px 14px;border-top:1px solid #ddd;font-size:11px;color:#888;letter-spacing:.1em;text-transform:uppercase;font-weight:700;text-align:left;white-space:nowrap">${esc(L.grandTotal)}</td>
-        <td style="padding:10px 14px 12px 12px;border-top:1px solid #ddd;text-align:right;font-family:monospace;font-size:18px;font-weight:800;color:${accent};white-space:nowrap">${fmtMoney(inv.total, s)}</td>
+        <td style="padding:10px 24px 12px 14px;border-top:1px solid #ddd;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#888;letter-spacing:.1em;text-transform:uppercase;font-weight:700;text-align:left;white-space:nowrap">${esc(L.grandTotal)}</td>
+        <td style="padding:10px 14px 12px 12px;border-top:1px solid #ddd;text-align:right;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:18px;font-weight:800;color:${accent};white-space:nowrap">${fmtMoney(inv.total, s)}</td>
       </tr>
     </table>
     ${inv.note ? `<p class="muted" style="margin-top:20px">${noteWithPlate(inv.note, showPlate, inv.car_country || "NL")}</p>` : ""}
@@ -413,3 +520,7 @@ export async function renderInvoiceHtml(inv, settings, opts = {}) {
     ${wrapClose}
     </body></html>`;
 }
+
+// Also expose the party block so job-card renderer in reports.js can reuse the
+// exact same layout without duplicating the HTML.
+export { partyVehicleBlock, I18N as INVOICE_I18N };
