@@ -17,6 +17,17 @@
 - Fonts: Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (data) + Cairo/Amiri (Arabic)
 
 
+### Session 2026-02-28e — Totals strip: subtotaal excl./incl. BTW + discount clarity
+- **Owner report**: on a card with parts 60 + arbeid 45 = 105 and korting 10, the strip only showed "Subtotaal 95" and owner read that as "discount not applied". Math was actually correct (95 × 1.21 = 114.95) but the layout hid the reasoning.
+- **Fix** (`Repairs.jsx CardEditor`): redesigned the totals card into a 3-row linear reveal so the operator sees every step:
+  1. Row A — 3 cols: `Onderdelen` / `Arbeid` / **`Subtotaal · excl. BTW`** (= parts + labour BEFORE korting — 105 in the reported example).
+  2. Row B — korting picker + `Toegepaste korting` (−10).
+  3. Row C — 4 cols: `BTW tarief` input · **`Subtotaal · na korting (excl. BTW)`** (95) · **`BTW (21 %)`** (19,95) · highlighted **`Totaal incl. BTW`** (114,95) with a tiny "incl. BTW" caption underneath.
+- New test-id `repair-subtotal-pre-discount` so tests can lock the "before-korting subtotal" separately from `repair-grand-total` (which stays as "after korting, excl. BTW").
+- Math already correct on the backend (`_recalc_repair`) — this session was UI-only. Verified with a Playwright inspection that pulls every strip value and with a python sanity-print of the exact scenario the owner screenshotted.
+
+
+
 ### Session 2026-02-28d — Settings save 422 + Werkbon picker default
 - **Bug 1 — "Save all changes" 422**: legacy Settings docs (or the form itself) sometimes shipped stale enum values ("", null, older names) for `invoice_qr_size` / `invoice_body_font` / `invoice_number_scale` / `invoice_qr_position` / `invoice_template` / …; Pydantic Literal fields rejected the whole payload with "Input should be 'sm'|'md'|'lg' …" — the owner lost every other edit alongside.
   - **Fix** (`server.py`): added a `@field_validator(mode="before")` on `GarageSettings` that silently coerces any unknown value on the 8 enum fields to the field's declared default (`invoice_qr_size` → "sm", `invoice_body_font` → "helvetica", …). Verified via curl — a payload with `{invoice_qr_size:"",invoice_body_font:"garbage",invoice_number_scale:null,invoice_template:"foo"}` now returns **200** with all 4 fields coerced to their defaults and `labor_rate_truck: 80` preserved.

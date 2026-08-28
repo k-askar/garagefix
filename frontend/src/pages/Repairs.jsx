@@ -764,14 +764,34 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
           {/* ── STEP 8 ─ Special order parts */}
           <SpecialPartsPanel card={data} setCard={setData} />
 
-          {/* Totals with BTW / VAT breakdown + optional customer discount */}
+          {/* Totals with BTW / VAT breakdown + optional customer discount.
+              Layout is deliberately linear (top → bottom) so the operator
+              can see exactly HOW the total is reached:
+                  parts + labour → subtotaal (excl. BTW, excl. korting)
+                                → − korting
+                                → subtotaal (excl. BTW, na korting)
+                                → + BTW %
+                                → totaal (incl. BTW)                    */}
           <Card className="p-5 border-primary/30 bg-primary/5 space-y-4">
+            {/* Row 1 — component totals */}
             <div className="grid grid-cols-3 gap-4 text-center">
-              <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("parts")}</div><div className="font-display text-2xl font-bold tabular-nums mt-1" data-testid="repair-parts-total">{fm(data.parts_total)}</div></div>
-              <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("labor")}</div><div className="font-display text-2xl font-bold tabular-nums mt-1">{fm(data.labor_charge)}</div></div>
-              <div><div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("subtotal")}</div><div className="font-display text-2xl font-bold tabular-nums mt-1" data-testid="repair-grand-total">{fm(data.grand_total)}</div></div>
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("parts")}</div>
+                <div className="font-display text-2xl font-bold tabular-nums mt-1" data-testid="repair-parts-total">{fm(data.parts_total)}</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("labor")}</div>
+                <div className="font-display text-2xl font-bold tabular-nums mt-1">{fm(data.labor_charge)}</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Subtotaal · excl. BTW</div>
+                <div className="font-display text-2xl font-bold tabular-nums mt-1" data-testid="repair-subtotal-pre-discount">
+                  {fm(Number(data.parts_total || 0) + Number(data.labor_charge || 0))}
+                </div>
+              </div>
             </div>
-            {/* Discount row */}
+
+            {/* Row 2 — discount input (only when > 0 has effect) */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end pt-3 border-t border-primary/20">
               <div className="space-y-1">
                 <Label className="text-[10px] uppercase tracking-widest font-mono text-primary flex items-center gap-1.5">
@@ -802,7 +822,10 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
                 </div>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end pt-3 border-t border-primary/20">
+
+            {/* Row 3 — subtotaal na korting + BTW % + totaal.  Split so the
+                owner sees BOTH the excl-BTW and incl-BTW value side by side. */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end pt-3 border-t border-primary/20">
               <div className="space-y-1">
                 <Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("taxRate")}</Label>
                 <Input
@@ -813,12 +836,19 @@ function CardEditor({ card, onClose, users, customers, items, settings, refetch 
                 />
               </div>
               <div className="text-center">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("btw")}</div>
-                <div className="font-display text-xl font-bold tabular-nums mt-1" data-testid="repair-tax-amount">{fm(data.tax_amount || 0)}</div>
+                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Subtotaal · na korting</div>
+                <div className="font-display text-xl font-bold tabular-nums mt-1" data-testid="repair-grand-total">{fm(data.grand_total)}</div>
+                <div className="text-[9px] font-mono text-muted-foreground/70 tabular-nums">excl. BTW</div>
               </div>
               <div className="text-center">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{t("btw")}</div>
+                <div className="font-display text-xl font-bold tabular-nums mt-1" data-testid="repair-tax-amount">{fm(data.tax_amount || 0)}</div>
+                <div className="text-[9px] font-mono text-muted-foreground/70 tabular-nums">{Number(data.tax_rate || 0)} %</div>
+              </div>
+              <div className="text-center rounded-lg bg-primary/10 border border-primary/30 py-2 px-3">
                 <div className="text-[10px] font-mono uppercase tracking-widest text-primary">{t("totalWithTax")}</div>
                 <div className="font-display text-3xl font-bold tabular-nums mt-1 text-primary" data-testid="repair-total-with-tax">{fm(data.total_with_tax || data.grand_total)}</div>
+                <div className="text-[9px] font-mono text-primary/70 tabular-nums">incl. BTW</div>
               </div>
             </div>
           </Card>
