@@ -734,6 +734,29 @@ async def create_customer(payload: CustomerCreate, user: dict = Depends(require_
 
 @api_router.delete("/customers/{customer_id}")
 async def delete_customer(customer_id: str, user: dict = Depends(require_permission("customers.delete"))):
+    # Guard-rails: once a customer has EVER been on a job card or an invoice
+    # we refuse to delete — those documents reference `customer_id` /
+    # `customer_name` and losing the row would break every historical
+    # report (BTW, revenue-per-customer, service history, PDF re-prints).
+    # We also block when ANY of their vehicles appears on a repair/invoice
+    # so a partial-wipe can't leave dangling refs.  A single $or query is
+    # used so a repair that ties customer_id AND vehicle_id together is
+    # counted ONCE (not twice like the naive additive version).
+    veh_ids = [v["id"] for v in await db.vehicles.find({"customer_id": customer_id}, {"_id": 0, "id": 1}).to_list(500)]
+    doc_q = {"$or": [{"customer_id": customer_id}]}
+    if veh_ids:
+        doc_q["$or"].append({"vehicle_id": {"$in": veh_ids}})
+    repair_count  = await db.repairs.count_documents(doc_q)
+    invoice_count = await db.invoices.count_documents(doc_q)
+    if repair_count or invoice_count:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Kan klant niet verwijderen — {repair_count} werkbon(nen) "
+                f"en {invoice_count} factuur/facturen zijn aan deze klant gekoppeld. "
+                "Verwijderen is niet toegestaan zolang er historiek bestaat."
+            ),
+        )
     await db.customers.delete_one({"id": customer_id})
     await db.vehicles.delete_many({"customer_id": customer_id})
     return {"ok": True}
@@ -795,6 +818,19 @@ async def update_vehicle(vid: str, payload: VehicleUpdate, user: dict = Depends(
 
 @api_router.delete("/vehicles/{vid}")
 async def delete_vehicle(vid: str, user: dict = Depends(require_permission("customers.edit"))):
+    # Same rule as customer-delete: a vehicle that ever hit a werkbon or a
+    # factuur is part of the audit trail — refuse the delete so the
+    # historic PDF / service-timeline never renders "Voertuig onbekend".
+    repair_count = await db.repairs.count_documents({"vehicle_id": vid})
+    invoice_count = await db.invoices.count_documents({"vehicle_id": vid})
+    if repair_count or invoice_count:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Kan voertuig niet verwijderen — {repair_count} werkbon(nen) en "
+                f"{invoice_count} factuur/facturen zijn aan dit voertuig gekoppeld."
+            ),
+        )
     await db.vehicles.delete_one({"id": vid})
     return {"ok": True}
 

@@ -17,6 +17,19 @@
 - Fonts: Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (data) + Cairo/Amiri (Arabic)
 
 
+### Session 2026-02-28b — Refuse delete of customers/vehicles with history
+- **Owner asks**: once a klant has a werkbon + factuur, block every delete path (customer AND their vehicles), no exceptions.
+- **Backend** (`server.py`):
+  - `DELETE /customers/{id}` — counts `db.repairs` + `db.invoices` scoped to this customer AND to every vehicle they own; returns 409 with a Dutch message describing exactly how many werkbonnen / facturen block the delete. Only allows the cascade delete of the customer + their vehicles when the totals are all zero.
+  - `DELETE /vehicles/{vid}` — same 409 guard against repairs / invoices referencing that vehicle_id.
+- **Frontend surface**: existing `formatApiError` already surfaces the 409 `detail` verbatim as a toast, so no UI change was required.
+- **Verified via curl** — 4-step regression:
+  1. Fresh customer + vehicle deletes cleanly (200 / 200) ✅
+  2. Customer + vehicle with a live repair → both DELETE calls return 409 with the correct Dutch message ✅
+  3. Delete the repair first, then the vehicle + customer clean up (200 / 200 / 200) ✅
+
+
+
 ### Session 2026-02-28a — Withdraw picker: cascading variant selector
 - **Owner asks**: on "Voorraad uitgeven" (Uitgifte tab), when the operator picks a MASTER with sub-items from the dropdown, don't just commit the master — open a second list to pick the specific variant (same behaviour that already existed for the barcode-scan path).
 - **Root**: `WithdrawPanel` in `Inventory.jsx` was flattening every inventory row (master + variants) into one dropdown, so both "Olie" (master) and "olie 1 l" / "olie 4l" (variants) appeared side-by-side. Selecting the master committed 0-qty stock; selecting a variant worked but the picker was busy.
