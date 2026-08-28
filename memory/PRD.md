@@ -17,6 +17,17 @@
 - Fonts: Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (data) + Cairo/Amiri (Arabic)
 
 
+### Session 2026-02-28a — Withdraw picker: cascading variant selector
+- **Owner asks**: on "Voorraad uitgeven" (Uitgifte tab), when the operator picks a MASTER with sub-items from the dropdown, don't just commit the master — open a second list to pick the specific variant (same behaviour that already existed for the barcode-scan path).
+- **Root**: `WithdrawPanel` in `Inventory.jsx` was flattening every inventory row (master + variants) into one dropdown, so both "Olie" (master) and "olie 1 l" / "olie 4l" (variants) appeared side-by-side. Selecting the master committed 0-qty stock; selecting a variant worked but the picker was busy.
+- **Fix** (`Inventory.jsx WithdrawPanel`):
+  1. New memo `variantsByMaster` groups every child by its `parent_id`.
+  2. New memo `dropdownOptions` builds one row per family: master rows show the rolled-up qty + "N sub-artikelen" hint; variants no longer appear in the flat list.
+  3. New `onPickFromDropdown(id)` wraps the SearchableSelect `onChange` — if the picked id has children it reuses the existing `pickerMaster` / `pickerVariants` state (already wired to `VariantPickerDialog` at line 472) to force the sub-item picker.
+- **Verified via Playwright screenshot**: dropdown now shows `Olie UI · SKU-F46FDF09 · 15 op voorraad · 3 sub-artikelen` only — no more variant clutter. Clicking the master opens `VariantPickerDialog` with all three variants, each showing its own qty + selling price + "kies er één" CTA.
+
+
+
 ### Session 2026-02-27j — Bulk-group parts into variantgroep (P0 feature)
 - **Owner asks**: after AI-scanning parts into the inventory, select multiple rows and merge them into one master with sub-variants (so scanning the master EAN opens a picker).
 - **Backend** (new `POST /api/inventory/group` in `server.py` ≈ line 1082): accepts `{ item_ids, mode: "new"|"existing", master?: {...}, master_id? }`. In `"new"` mode creates a fresh master (inherits category/unit/supplier from the first selected item, auto-mints SKU+EAN-13); in `"existing"` mode promotes one of the selected items to master. Guards: ≥ 2 items, none may already be a variant (has `parent_id`) or a master (has children), master_id must be in item_ids for `existing`, unique SKU/EAN enforced. Single write updates every child's `parent_id`.

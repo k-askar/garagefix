@@ -294,6 +294,67 @@ function WithdrawPanel({ items, invalidate, t, canSeePrices }) {
     toast.success(`${v.name} · ${v.quantity} ${t("inStock")}`);
   };
 
+  // Group variants by master id so we can (a) hide variants from the primary
+  // dropdown, (b) show the master's rolled-up stock, and (c) pop the
+  // VariantPickerDialog when the operator picks a master from the dropdown
+  // instead of scanning its barcode.
+  const variantsByMaster = React.useMemo(() => {
+    const m = new Map();
+    for (const it of items) {
+      if (it.parent_id) {
+        const arr = m.get(it.parent_id) || [];
+        arr.push(it);
+        m.set(it.parent_id, arr);
+      }
+    }
+    return m;
+  }, [items]);
+
+  const rolledQty = (i) => {
+    const kids = variantsByMaster.get(i.id);
+    if (!kids?.length) return i.quantity || 0;
+    return kids.reduce((s, k) => s + (k.quantity || 0), 0);
+  };
+
+  // The "or pick from stock" dropdown must show ONE row per family: the
+  // master hides its variants and displays the rolled-up qty; standalones
+  // stay as-is.  Selecting a master pops the sub-item picker so a specific
+  // variant is committed for withdrawal.
+  const dropdownOptions = React.useMemo(() => {
+    return items
+      .filter(i => !i.parent_id)
+      .map(i => {
+        const kids = variantsByMaster.get(i.id) || [];
+        const totalQty = kids.length
+          ? kids.reduce((s, k) => s + (k.quantity || 0), 0)
+          : (i.quantity || 0);
+        return { i, kids, totalQty };
+      })
+      .filter(({ totalQty }) => totalQty > 0)
+      .map(({ i, kids, totalQty }) => ({
+        value: i.id,
+        label: i.name_ar ? `${i.name} · ${i.name_ar}` : i.name,
+        secondary: kids.length
+          ? `${i.sku} · ${totalQty} ${t("inStock")} · ${kids.length} sub-artikelen`
+          : `${i.sku} · ${totalQty} ${t("inStock")} · ${money(i.selling_price, canSeePrices)}`,
+      }));
+  }, [items, variantsByMaster, canSeePrices, t]);
+
+  const onPickFromDropdown = (id) => {
+    if (!id) { setItemId(""); return; }
+    const it = items.find(x => x.id === id);
+    const kids = it ? variantsByMaster.get(it.id) : null;
+    if (kids?.length) {
+      // Master with variants → force the sub-item picker.  Never commit the
+      // master id itself as an OUT transaction — stock lives on the variants.
+      setPickerMaster(it);
+      setPickerVariants(kids);
+      toast.info(`${it.name} · ${kids.length} sub-artikelen — kies er één`);
+      return;
+    }
+    setItemId(id);
+  };
+
   const submit = async () => {
     if (!itemId) return toast.error(t("pickPart"));
     if (!destination) return toast.error(t("pickDestination"));
@@ -368,12 +429,8 @@ function WithdrawPanel({ items, invalidate, t, canSeePrices }) {
           <Label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">{t("orSearchStock")}</Label>
           <SearchableSelect
             value={itemId}
-            onChange={setItemId}
-            options={items.filter(i => i.quantity > 0).map(i => ({
-              value: i.id,
-              label: i.name_ar ? `${i.name} · ${i.name_ar}` : i.name,
-              secondary: `${i.sku} · ${i.quantity} ${t("inStock")} · ${money(i.selling_price, canSeePrices)}`,
-            }))}
+            onChange={onPickFromDropdown}
+            options={dropdownOptions}
             emptyLabel={"— " + t("pickFromStock") + " —"}
             searchPlaceholder={t("searchByNameSku")}
             placeholder={t("pickPartFromStock")}
