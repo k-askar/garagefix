@@ -17,6 +17,13 @@
 - Fonts: Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (data) + Cairo/Amiri (Arabic)
 
 
+### Session 2026-02-28g — Redesign Klantrapport header (modern, no dark band)
+- **Owner report**: the customer report PDF opened with a heavy dark `.logo-band` strip (black background, gold pill badge) that felt dated and didn't match the light invoice PDFs.
+- **Fix** (`reports.js buildCustomerHistoryHtml`): removed `.logo-band` entirely. Introduced `.rpt-head` — a flat white header with the logo (max-height 72px) on the leading edge, a right-aligned meta block containing a wide-letterspaced "KLANTRAPPORT" kicker + customer name + date, separated from the body by a 1px light rule with a 64px gold accent underline (`::after`). RTL/LTR aware.
+- **Verified** via a local file:// preview render: clean modern layout, logo visible, no dark band, gold accent showing on the leading edge, all downstream sections (Klant/Voertuig cards, summary stats) unaffected.
+
+
+
 ### Session 2026-02-28f — Strip redundant plate footer from every invoice PDF
 - **Owner report**: at the bottom of every factuur the line "Repair JOB-260827-0A67 · Suzuki Alto · [16-RGS-6]" repeated info already shown at the top (VOERTUIG card + invoice number). Owner wanted it gone everywhere — Settings live preview, Facturen list, PayInvoice public link, card-detail export, and any future PDF path.
 - **Fix** (`invoice-render.js noteWithPlate`): the helper is used by ALL invoice renderings, so a single change propagates everywhere. It now strips any line that matches the auto-generated "Repair|Reparatie|Herstel JOB-<id>[· model · plate]" pattern (case-insensitive), returning empty when the entire note is that auto-prefix and preserving genuine operator notes when they follow on later lines.

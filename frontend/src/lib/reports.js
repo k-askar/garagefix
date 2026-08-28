@@ -375,11 +375,13 @@ export function buildCustomerHistoryHtml({ history, settings = {}, dir = "ltr", 
       .cr h3 { font-size: 14px; margin: 20px 0 8px; letter-spacing: .04em; text-transform: uppercase; color: #444; border-bottom: 1px solid #e5e5e5; padding-bottom: 6px; }
       .cr .muted { color: #777; font-size: 11px; }
       .cr .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; }
-      .cr .logo-band { background:#0a0a0a; border-radius:10px; padding:14px 18px; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
-      .cr .logo-band img { max-height: 60px; width: auto; object-fit: contain; }
-      .cr .logo-band .badge { background:#d4af37; color:#0a0a0a; padding:3px 12px; border-radius:999px; font-size:10px; letter-spacing:.15em; font-weight:700; }
-      .cr .logo-band .num { color:#d4af37; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size:12px; margin-top:4px; direction:ltr; }
-      .cr .logo-band .date { color:#999; font-size:11px; }
+      .cr .rpt-head { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:6px 2px 18px; margin-bottom:20px; border-bottom:1px solid #ececec; position:relative; }
+      .cr .rpt-head::after { content:""; position:absolute; ${dir === 'rtl' ? 'right' : 'left'}:0; bottom:-1px; width:64px; height:2px; background:#d4af37; }
+      .cr .rpt-head img { max-height: 72px; width: auto; object-fit: contain; }
+      .cr .rpt-head .meta { text-align:${alignEnd}; }
+      .cr .rpt-head .kicker { font-size:10px; letter-spacing:.32em; font-weight:700; color:#9a9a9a; text-transform:uppercase; margin-bottom:6px; }
+      .cr .rpt-head .who { font-size:15px; font-weight:700; color:#111; letter-spacing:.01em; }
+      .cr .rpt-head .when { color:#8a8a8a; font-size:11px; margin-top:2px; font-family:'IBM Plex Mono', ui-monospace, monospace; }
       .cr .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
       .cr .box { border: 1px solid #eee; border-radius: 8px; padding: 12px; background: #fafafa; }
       .cr .lbl { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: #666; font-weight: 700; }
@@ -411,12 +413,12 @@ export function buildCustomerHistoryHtml({ history, settings = {}, dir = "ltr", 
       .cr .veh-total .n { font-family:'IBM Plex Mono', ui-monospace, monospace; font-weight:800; color:#d4af37; font-size:16px; }
     </style>
     <div class="cr">
-      <div class="logo-band">
+      <div class="rpt-head">
         <img src="${logoAbs}" alt="logo" crossorigin="anonymous" />
-        <div style="text-align:${alignEnd}">
-          <span class="badge">${l.customerReport}</span>
-          <div class="num">${c.name || ""}</div>
-          <div class="date">${new Date().toLocaleDateString(dateLocale)}</div>
+        <div class="meta">
+          <div class="kicker">${l.customerReport}</div>
+          <div class="who">${c.name || ""}</div>
+          <div class="when">${new Date().toLocaleDateString(dateLocale)}</div>
         </div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px">
