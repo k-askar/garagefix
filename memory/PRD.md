@@ -17,6 +17,14 @@
 - Fonts: Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (data) + Cairo/Amiri (Arabic)
 
 
+### Session 2026-02-28d — Settings save 422 + Werkbon picker default
+- **Bug 1 — "Save all changes" 422**: legacy Settings docs (or the form itself) sometimes shipped stale enum values ("", null, older names) for `invoice_qr_size` / `invoice_body_font` / `invoice_number_scale` / `invoice_qr_position` / `invoice_template` / …; Pydantic Literal fields rejected the whole payload with "Input should be 'sm'|'md'|'lg' …" — the owner lost every other edit alongside.
+  - **Fix** (`server.py`): added a `@field_validator(mode="before")` on `GarageSettings` that silently coerces any unknown value on the 8 enum fields to the field's declared default (`invoice_qr_size` → "sm", `invoice_body_font` → "helvetica", …). Verified via curl — a payload with `{invoice_qr_size:"",invoice_body_font:"garbage",invoice_number_scale:null,invoice_template:"foo"}` now returns **200** with all 4 fields coerced to their defaults and `labor_rate_truck: 80` preserved.
+- **Bug 2 — Werkbonnen picker on Invoices**: default tab was "Klaar" (usually empty). Owner wants "Open" first.
+  - **Fix** (`Invoices.jsx`): `useState("ready")` → `useState("open")`.
+
+
+
 ### Session 2026-02-28c — Vehicle-type-aware labour rate (car vs truck)
 - **Owner asks**: garage servicing both personenauto's and vrachtwagens needs TWO hourly rates — flipping the vehicle type on the job card must recalculate the labour charge live.
 - **Backend** (`server.py`):

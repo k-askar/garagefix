@@ -1772,6 +1772,34 @@ class GarageSettings(BaseModel):
     invoice_header_align: Literal["left", "center", "right"] = "left"
     invoice_currency_symbol_pos: Literal["prefix", "suffix"] = "suffix"
     invoice_template: Literal["classic", "minimal", "bold"] = "classic"
+
+    # Coerce every enum-shaped field: legacy docs OR user drafts that ship an
+    # empty string / obsolete value used to blow up the PUT with a Pydantic
+    # 422 ("Input should be 'sm'|'md'|'lg' …").  Instead, silently fall back
+    # to the field's declared default so the owner's "Save all changes" click
+    # can never lose the rest of the form to one stale enum.
+    @field_validator(
+        "invoice_qr_size", "invoice_number_scale", "invoice_body_font",
+        "invoice_qr_position", "invoice_header_align",
+        "invoice_currency_symbol_pos", "invoice_template", "default_language",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_known_enums(cls, v, info):
+        allowed = {
+            "invoice_qr_size":            ("sm",  ("sm", "md", "lg")),
+            "invoice_number_scale":       ("sm",  ("sm", "md", "lg")),
+            "invoice_body_font":          ("helvetica", ("helvetica", "inter", "jetbrains")),
+            "invoice_qr_position":        ("left", ("left", "right", "bottom")),
+            "invoice_header_align":       ("left", ("left", "center", "right")),
+            "invoice_currency_symbol_pos":("suffix", ("prefix", "suffix")),
+            "invoice_template":           ("classic", ("classic", "minimal", "bold")),
+            "default_language":           ("nl", ("en", "nl", "ar")),
+        }
+        default, choices = allowed[info.field_name]
+        if v in choices:
+            return v
+        return default
     # --- Loyalty rewards ---
     loyalty_enabled: bool = True
     loyalty_threshold: int = 5           # number of paid invoices the customer must accumulate to earn a reward

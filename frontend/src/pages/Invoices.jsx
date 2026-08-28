@@ -97,7 +97,11 @@ export default function Invoices() {
   const [invoicingId, setInvoicingId] = useState(null);
   // Confirm dialog for a repair that ISN'T marked completed yet.
   const [confirmRepair, setConfirmRepair] = useState(null);
-  const [cardsFilter, setCardsFilter] = useState("ready");   // ready | in_progress | open
+  // Default the "make invoice from a werkbon" picker to the OPEN bucket —
+  // the owner wants to see freshly-created cards first (which are the ones
+  // still waiting for time-logs / parts) instead of the "Klaar" (ready)
+  // bucket that is usually empty on a normal workshop day.
+  const [cardsFilter, setCardsFilter] = useState("open");   // ready | in_progress | open
 
   const { data: overdue = [] } = useQuery({
     queryKey: ["overdue-invoices"],
