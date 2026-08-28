@@ -11,7 +11,7 @@ import PlateBadge from "@/components/PlateBadge";
 import { useLang } from "@/i18n";
 
 const COUNTRIES = ["NL", "DE", "BE", "FR", "IT", "ES", "PL", "GB", "TR", "MA", "DZ", "SA", "AE", "EG", "SY", "LB", "JO", "IQ"];
-const EMPTY = { make: "", model: "", year: "", plate: "", color: "", km: "", country: "NL", apk_expiry: "", next_oil_change_km: "", vin: "", notes: "", meldcode: "", fuel: "", cc: "", doors: "", seats: "", weight: "", chassis_location: "", registration_date: "" };
+const EMPTY = { make: "", model: "", year: "", plate: "", color: "", km: "", country: "NL", apk_expiry: "", next_oil_change_km: "", vin: "", notes: "", meldcode: "", fuel: "", cc: "", doors: "", seats: "", weight: "", chassis_location: "", registration_date: "", vehicle_type: "car" };
 
 /**
  * Fetch RDW data for a plate and merge it into the caller's form state.
@@ -31,6 +31,9 @@ async function lookupRdwInto(plate, applyPatch, t) {
      "fuel", "cc", "doors", "seats", "weight", "chassis_location", "registration_date"
     ].forEach(k => { if (data[k]) patch[k] = data[k]; });
     patch.plate = data.plate;
+    // Auto-select CAR / TRUCK when RDW confidently returns a voertuigsoort we
+    // understand. Empty suggested_type ⇒ leave the operator's manual choice.
+    if (data.suggested_type) patch.vehicle_type = data.suggested_type;
     applyPatch(patch);
     toast.success(`${data.make} ${data.model} ${data.year}`.trim() + " · RDW ✓");
     return true;

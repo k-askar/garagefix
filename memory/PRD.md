@@ -17,6 +17,14 @@
 - Fonts: Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (data) + Cairo/Amiri (Arabic)
 
 
+### Session 2026-02-28i — Auto-suggest CAR/TRUCK from RDW voertuigsoort
+- **Owner report**: after an RDW lookup the operator still had to manually flip the CAR ⇆ TRUCK toggle even though RDW already knew the type — silly for the 99 % common case (Personenauto). Owner asked to auto-set it and only fall back to manual when RDW is unsure.
+- **Fix (backend, `routes/rdw.py`)**: added `suggested_type` field to the lookup response. Normalises `voertuigsoort` — `Personenauto → car`, `Bedrijfsauto/Vrachtauto/Vrachtwagen/Bus → truck`, anything else (motorfiets, aanhangwagen, driewielig motorrijtuig) → `""` so the frontend leaves the operator's manual choice untouched.
+- **Fix (frontend)**: wired `suggested_type → vehicle_type` in all four RDW consumers: `CustomerVehiclesEditor.jsx` (helper `lookupRdwInto`), `NewJobCardDialog.jsx`, `PartyPage.jsx`, `Calendar.jsx`. Only overwrites when RDW returns a confident bucket. Extended the empty-vehicle constant in `CustomerVehiclesEditor.jsx` with `vehicle_type: "car"` as a sensible default.
+- **Verified** via curl against real RDW: plate `16-RGS-6` → `vehicle_type: "Personenauto"`, `suggested_type: "car"` ✅.
+
+
+
 ### Session 2026-02-28h — Redesign Job Card PDF header (`buildRepairCardHtml`)
 - **Owner report**: the job card PDF top featured a heavy blue `.top` box AND a redundant `.head` line right below it repeating "Make Model · Year · [plate] · Mechanic" — the exact same data the VOERTUIG card below already showed. Owner wanted the duplicate line gone and a modern header.
 - **Fix** (`reports.js buildRepairCardHtml`):

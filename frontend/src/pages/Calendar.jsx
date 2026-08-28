@@ -114,6 +114,7 @@ export default function CalendarPage() {
         weight: data.weight || v.weight,
         chassis_location: data.chassis_location || v.chassis_location,
         registration_date: data.registration_date || v.registration_date,
+        vehicle_type: data.suggested_type || v.vehicle_type,
       }));
       toast.success(`${data.make} ${data.model} ${data.year}`.trim() + " · RDW ✓");
     } catch (e) {

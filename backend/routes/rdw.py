@@ -71,6 +71,18 @@ def register(get_current_user):
         reg_date = f"{reg_raw[0:4]}-{reg_raw[4:6]}-{reg_raw[6:8]}" if len(reg_raw) == 8 else ""
         bouw = row.get("datum_eerste_toelating") or ""
         year = bouw[:4] if len(bouw) >= 4 else ""
+
+        # Normalise RDW `voertuigsoort` → a labour-rate bucket the app understands.
+        # We only auto-suggest when we are confident; unknown/edge cases return ""
+        # so the operator picks manually via the CAR/TRUCK toggle.
+        voertuigsoort_raw = (row.get("voertuigsoort") or "").strip().lower()
+        if voertuigsoort_raw == "personenauto":
+            suggested_type = "car"
+        elif voertuigsoort_raw in ("bedrijfsauto", "vrachtauto", "vrachtwagen", "bus"):
+            suggested_type = "truck"
+        else:
+            suggested_type = ""  # motorfiets, aanhangwagen, driewielig motorrijtuig, …
+
         return {
             "plate":       _format_plate(cleaned),
             "make":        (row.get("merk") or "").title(),
@@ -81,6 +93,7 @@ def register(get_current_user):
             "apk_expiry":  apk,
             "registration_date": reg_date,
             "vehicle_type": row.get("voertuigsoort") or "",
+            "suggested_type": suggested_type,
             "fuel":        (fuel_row.get("brandstof_omschrijving") or row.get("brandstof_omschrijving") or "").title(),
             "cc":          row.get("cilinderinhoud") or "",
             "doors":       row.get("aantal_deuren") or "",

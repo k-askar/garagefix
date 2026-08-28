@@ -85,6 +85,8 @@ export default function PartyPage({ kind }) {
       const patch = {};
       ["make", "model", "year", "color", "country", "apk_expiry"].forEach(k => { if (data[k]) patch[k] = data[k]; });
       patch.plate = data.plate;
+      // Auto-select CAR / TRUCK when RDW confidently identifies the type.
+      if (data.suggested_type) patch.vehicle_type = data.suggested_type;
       const extras = [];
       if (data.fuel) extras.push(data.fuel);
       if (data.cc) extras.push(`${data.cc}cc`);
