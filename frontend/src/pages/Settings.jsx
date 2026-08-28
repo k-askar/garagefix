@@ -329,7 +329,7 @@ export default function Settings() {
       // toggles apply immediately without a browser reload.
       qc.setQueryData(["settings"], saved || form);
       qc.invalidateQueries({ queryKey: ["settings"] });
-      toast.success("Garage details saved · تم تطبيق التصميم على كل الفواتير");
+      toast.success(`${t("savedToast")} · ${t("savedToastDesignApplied")}`);
     } catch (e) { toast.error(formatApiError(e)); }
     finally { setSaving(false); }
   };
