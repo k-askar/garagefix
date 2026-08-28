@@ -53,7 +53,7 @@ const DEFAULT_FORM = {
   name: "", address: "", phone: "", email: "", tax_id: "",
   footer_note: "Bedankt voor uw vertrouwen!",
   logo_url: "/logo-shawish.png",
-  labor_rate: 45, default_tax_rate: 21,
+  labor_rate: 45, labor_rate_truck: 65, default_tax_rate: 21,
   invoice_accent_color: "#0EA5E9", invoice_prefix: "F",
   payment_terms_days: 14,
   iban: "", kvk_number: "", invoice_terms: "",
@@ -404,7 +404,27 @@ export default function Settings() {
                 <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} /></div>
                 <div className="space-y-1.5"><Label>VAT / BTW nr</Label><Input value={form.tax_id} onChange={(e) => set("tax_id", e.target.value)} data-testid="settings-tax-id" /></div>
                 <div className="space-y-1.5"><Label>KvK nr</Label><Input value={form.kvk_number} onChange={(e) => set("kvk_number", e.target.value)} data-testid="settings-kvk" /></div>
-                <div className="space-y-1.5"><Label>Labor rate (€ / h)</Label><Input type="number" step="0.5" min="0" value={form.labor_rate} onChange={(e) => set("labor_rate", Number(e.target.value))} data-testid="settings-labor-rate" /></div>
+                <div className="space-y-1.5">
+                  <Label>Labor rate · Car (€ / h)</Label>
+                  <Input
+                    type="number" step="0.5" min="0"
+                    value={form.labor_rate}
+                    onChange={(e) => set("labor_rate", Number(e.target.value))}
+                    data-testid="settings-labor-rate"
+                  />
+                  <p className="text-[10px] text-muted-foreground">Toegepast op werkbonnen waar het voertuig-type "car" is</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Labor rate · Truck (€ / h)</Label>
+                  <Input
+                    type="number" step="0.5" min="0"
+                    value={form.labor_rate_truck || ""}
+                    onChange={(e) => set("labor_rate_truck", Number(e.target.value))}
+                    placeholder={`bv. ${Math.round((form.labor_rate || 45) * 1.5)}`}
+                    data-testid="settings-labor-rate-truck"
+                  />
+                  <p className="text-[10px] text-muted-foreground">Toegepast op vrachtwagens — meestal hoger</p>
+                </div>
                 <div className="space-y-1.5"><Label>Default BTW (%)</Label><Input type="number" step="0.1" min="0" max="100" value={form.default_tax_rate} onChange={(e) => set("default_tax_rate", Number(e.target.value))} data-testid="settings-tax-rate" /></div>
               </div>
             </div>

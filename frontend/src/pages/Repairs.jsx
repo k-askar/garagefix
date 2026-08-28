@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Car, Wrench, Plus, Trash2, CheckCircle2, FileText, Printer, User, Gauge, X, ClipboardList, FileDown, MessageCircle, Play, Square, Timer, Lock, Unlock, RefreshCw, Undo2, PercentCircle, Archive, Search, ArrowDownWideNarrow, ArrowUpWideNarrow, SlidersHorizontal } from "lucide-react";
+import { Car, Wrench, Plus, Trash2, CheckCircle2, FileText, Printer, User, Gauge, X, ClipboardList, FileDown, MessageCircle, Play, Square, Timer, Lock, Unlock, RefreshCw, Undo2, PercentCircle, Archive, Search, ArrowDownWideNarrow, ArrowUpWideNarrow, SlidersHorizontal, Truck } from "lucide-react";
 import NewJobCardDialog from "@/components/NewJobCardDialog";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
@@ -96,7 +96,39 @@ function TimeClockPanel({ card, setData, settings, refetch }) {
   // after the fact plus an optional custom amount override.
   const [manualMinutes, setManualMinutes] = useState("");
   const [manualAmount, setManualAmount] = useState("");
-  const rate = Number(settings?.labor_rate || 45);
+
+  // ── Vehicle-type-aware hourly rate ──────────────────────────────────────
+  // Fetch the linked voertuig so we can (a) show which rate is active and
+  // (b) let the operator flip car ⇆ truck right from the clock — the change
+  // persists on the vehicle so every future werkbon inherits it.  We use a
+  // dedicated queryKey so React Query invalidates only THIS voertuig when
+  // the toggle changes; other pages stay untouched.
+  const vehId = card?.vehicle_id;
+  const { data: vehicle, refetch: refetchVehicle } = useQuery({
+    queryKey: ["veh-for-rate", vehId],
+    queryFn: () => api.get(`/vehicles/${vehId}`).then(r => r.data),
+    enabled: !!vehId,
+  });
+  const [savingType, setSavingType] = useState(false);
+  const vehicleType = (vehicle?.vehicle_type || "car").toLowerCase();
+  const carRate   = Number(settings?.labor_rate || 45);
+  const truckRate = Number(settings?.labor_rate_truck || carRate);
+  const rate      = vehicleType === "truck" ? truckRate : carRate;
+
+  const setVehicleType = async (nextType) => {
+    if (!vehId || nextType === vehicleType) return;
+    setSavingType(true);
+    try {
+      await api.put(`/vehicles/${vehId}`, { vehicle_type: nextType });
+      // Re-fetch the vehicle AND the parent card — the labour charge on the
+      // card gets recalculated by the backend on the next clock event, but
+      // the DISPLAYED live rate needs to reflect the switch immediately.
+      await refetchVehicle();
+      toast.success(nextType === "truck" ? "Vrachtwagen-tarief actief" : "Personenauto-tarief actief");
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setSavingType(false); }
+  };
+
   const logs = card.time_logs || [];
   const running = useMemo(() => logs.find(l => !l.stopped_at), [logs]);
   const totalMinutes = logs.reduce((s, l) => s + (l.stopped_at ? (Number(l.minutes) || 0) : 0), 0);
@@ -172,12 +204,44 @@ function TimeClockPanel({ card, setData, settings, refetch }) {
 
   return (
     <Card className="p-5 border-border space-y-4" data-testid="time-clock-panel">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <Timer className="h-4 w-4 text-primary" />
           <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">{t("timeClock")}</div>
         </div>
-        <div className="text-[11px] font-mono text-muted-foreground">{t("rate")}: {fm(rate)} / {t("hours")}</div>
+        <div className="flex items-center gap-2">
+          {/* Car ⇄ Truck pill — flips the labour rate applied to every new
+              time log on this card and on every future card of the same
+              voertuig.  Disabled when a log is currently running so the
+              displayed rate can't drift mid-clock. */}
+          {vehId && (
+            <div className="inline-flex items-center rounded-full border border-border bg-card p-0.5" data-testid="vehicle-type-pill">
+              <button
+                type="button"
+                onClick={() => setVehicleType("car")}
+                disabled={savingType || !!running}
+                className={`px-3 h-7 rounded-full text-[11px] font-mono uppercase tracking-widest flex items-center gap-1.5 transition ${vehicleType === "car" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                data-testid="vehicle-type-car"
+                title="Personenauto"
+              >
+                <Car className="h-3 w-3" /> Car
+              </button>
+              <button
+                type="button"
+                onClick={() => setVehicleType("truck")}
+                disabled={savingType || !!running}
+                className={`px-3 h-7 rounded-full text-[11px] font-mono uppercase tracking-widest flex items-center gap-1.5 transition ${vehicleType === "truck" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                data-testid="vehicle-type-truck"
+                title="Vrachtwagen"
+              >
+                <Truck className="h-3 w-3" /> Truck
+              </button>
+            </div>
+          )}
+          <div className="text-[11px] font-mono text-muted-foreground" data-testid="time-clock-rate-label">
+            {t("rate")}: {fm(rate)} / {t("hours")}
+          </div>
+        </div>
       </div>
 
       {/* Modern hero display — big digits on a dark card, pulsing dot when live */}

@@ -376,6 +376,13 @@ class Vehicle(BaseModel):
     vin: str = ""
     km: str = ""
     country: str = "NL"                       # ISO country code (NL, DE, FR, TR, ...); NL gets the yellow plate look
+    # Drives the hourly labour rate on the job card.  "car" → settings.labor_rate,
+    # "truck" → settings.labor_rate_truck.  A garage can set the two rates
+    # independently in Settings; the operator flips this pill on the time-
+    # clock panel and the labour charge recalculates on the next clock/manual
+    # entry.  Kept as a free string to leave the door open for "van", "bike"
+    # later without a schema migration.
+    vehicle_type: str = "car"                 # "car" | "truck" | future values
     apk_expiry: Optional[str] = None          # YYYY-MM-DD — Dutch technical inspection expiry
     next_oil_change_km: Optional[int] = None  # odometer at which oil is due
     notes: Optional[str] = ""
@@ -400,6 +407,7 @@ class VehicleCreate(BaseModel):
     vin: str = ""
     km: str = ""
     country: str = "NL"
+    vehicle_type: str = "car"
     apk_expiry: Optional[str] = None
     next_oil_change_km: Optional[int] = None
     notes: Optional[str] = ""
@@ -438,6 +446,7 @@ class VehicleUpdate(BaseModel):
     vin: Optional[str] = None
     km: Optional[str] = None
     country: Optional[str] = None
+    vehicle_type: Optional[str] = None       # "car" | "truck" — drives labour-rate lookup
     apk_expiry: Optional[str] = None
     next_oil_change_km: Optional[int] = None
     notes: Optional[str] = None
@@ -1741,7 +1750,8 @@ class GarageSettings(BaseModel):
     tax_id: str = ""
     footer_note: str = "Bedankt voor uw vertrouwen!"
     logo_url: str = "/logo-shawish.png"
-    labor_rate: float = 45.0  # € per hour used to auto-fill labor charge from time logs
+    labor_rate: float = 45.0  # € per hour used for CARS (passenger)
+    labor_rate_truck: float = 65.0  # € per hour used for TRUCKS/vrachtwagens — usually higher because of lift, tools, longer jobs
     default_tax_rate: float = 21.0  # BTW / VAT %  (NL standard 21, reduced 9)
     # --- Invoice branding ---
     invoice_accent_color: str = "#0EA5E9"       # hex used for header rule + "PAID" pill background
@@ -3970,9 +3980,22 @@ async def unreturn_part_on_repair(rid: str, txn_id: str, user: dict = Depends(re
     }})
     return card
 
-async def _labor_rate() -> float:
+async def _labor_rate(card: Optional[dict] = None) -> float:
+    """Return the € /h labour rate to apply to a given repair card.
+
+    When the card carries a `vehicle_id` we look up its `vehicle_type` and
+    return `labor_rate_truck` for trucks, `labor_rate` for anything else.
+    Passing no card falls back to the car rate — used by legacy code paths
+    and by summary endpoints where a specific card is not in context."""
     s = await db.settings.find_one({"_id": "garage"}, {"_id": 0}) or {}
-    return float(s.get("labor_rate") or 45.0)
+    car_rate   = float(s.get("labor_rate") or 45.0)
+    truck_rate = float(s.get("labor_rate_truck") or car_rate)  # sane default when the garage hasn't split rates yet
+    if not card or not card.get("vehicle_id"):
+        return car_rate
+    veh = await db.vehicles.find_one({"id": card["vehicle_id"]}, {"_id": 0, "vehicle_type": 1})
+    if veh and (veh.get("vehicle_type") or "").lower() == "truck":
+        return truck_rate
+    return car_rate
 
 @api_router.post("/repairs/{rid}/clock-in", response_model=RepairCard)
 async def clock_in(rid: str, payload: ClockInPayload, user: dict = Depends(require_permission("repairs.edit"))):
@@ -4022,7 +4045,7 @@ async def clock_out(rid: str, payload: ClockOutPayload, user: dict = Depends(req
     if payload.note:
         target["note"] = (target.get("note") or "") + (" · " if target.get("note") else "") + payload.note
     # Recompute labor_charge from all completed logs × rate
-    rate = await _labor_rate()
+    rate = await _labor_rate(card)
     total_minutes = sum(l.get("minutes") or 0 for l in logs if l.get("stopped_at"))
     labor_charge = round((total_minutes / 60.0) * rate, 2)
     card["time_logs"] = logs
@@ -4060,7 +4083,7 @@ async def add_manual_time_log(rid: str, payload: TimeLogManualCreate, user: dict
         note=payload.note or "",
     )
     logs = (card.get("time_logs") or []) + [log.model_dump()]
-    rate = await _labor_rate()
+    rate = await _labor_rate(card)
     total_minutes = sum(l.get("minutes") or 0 for l in logs if l.get("stopped_at"))
     labor_charge = round((total_minutes / 60.0) * rate, 2)
     card["time_logs"] = logs
@@ -4083,7 +4106,7 @@ async def delete_time_log(rid: str, log_id: str, user: dict = Depends(require_pe
     if not any(l["id"] == log_id for l in logs):
         raise HTTPException(status_code=404, detail="Time log not found")
     logs = [l for l in logs if l["id"] != log_id]
-    rate = await _labor_rate()
+    rate = await _labor_rate(card)
     total_minutes = sum(l.get("minutes") or 0 for l in logs if l.get("stopped_at"))
     labor_charge = round((total_minutes / 60.0) * rate, 2)
     card["time_logs"] = logs

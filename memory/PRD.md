@@ -17,6 +17,22 @@
 - Fonts: Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (data) + Cairo/Amiri (Arabic)
 
 
+### Session 2026-02-28c — Vehicle-type-aware labour rate (car vs truck)
+- **Owner asks**: garage servicing both personenauto's and vrachtwagens needs TWO hourly rates — flipping the vehicle type on the job card must recalculate the labour charge live.
+- **Backend** (`server.py`):
+  - `Vehicle`, `VehicleCreate`, `VehicleUpdate` gained `vehicle_type: str = "car"` (values: `"car"` | `"truck"`, kept a plain string to allow future `"van"` / `"bike"` without a schema change).
+  - `Settings` gained `labor_rate_truck: float = 65.0` alongside the existing `labor_rate` (renamed conceptually to the car rate).
+  - `_labor_rate()` refactored to `_labor_rate(card: Optional[dict])` — reads the card's `vehicle_id`, looks up `vehicles.vehicle_type` and returns the truck rate when the vehicle is a truck. Legacy call-sites that pass no card fall back to the car rate.
+  - The 3 time-log endpoints (`clock-out`, `add_manual_time_log`, `delete_time_log`) now pass the card so `labor_charge` is recomputed against the right rate whenever logs change.
+- **Frontend**:
+  - `Settings.jsx` — labour-rate box split into TWO inputs side-by-side ("Labor rate · Car" / "Labor rate · Truck") with a placeholder that suggests `car × 1.5` when the truck rate is still blank.
+  - `Repairs.jsx TimeClockPanel` — fetches the linked voertuig via `useQuery(["veh-for-rate", vid])`, computes the live rate from `settings.labor_rate` / `labor_rate_truck`, and renders a Car ⇄ Truck pill toggle (`vehicle-type-pill` / `vehicle-type-car` / `vehicle-type-truck`) inside the panel header. Clicking a segment `PUT`s `{vehicle_type}` on `/vehicles/{vid}` and re-fetches — the "Rate: X / hour" label and the Summary strip update instantly. Pill is disabled while a clock is running so the displayed rate can't drift mid-log.
+- **Verified**:
+  - Manual curl E2E: rates 50/80, 1 h car → 50 €, flip to truck + another hour → labour recomputed as TOTAL_MINUTES × current-vehicle-rate = 2 h × 80 = **160 €** (all logs are billed at the vehicle's CURRENT type, not the type at log-creation time — matches the existing "recompute on every mutation" contract used by the invoice engine).
+  - Pytest lock at `/app/backend/tests/test_labor_rate_by_vehicle_type.py` — 1 test, asserts the 50 → 160 arithmetic after a truck flip.
+
+
+
 ### Session 2026-02-28b — Refuse delete of customers/vehicles with history
 - **Owner asks**: once a klant has a werkbon + factuur, block every delete path (customer AND their vehicles), no exceptions.
 - **Backend** (`server.py`):
