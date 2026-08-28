@@ -17,6 +17,16 @@
 - Fonts: Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (data) + Cairo/Amiri (Arabic)
 
 
+### Session 2026-02-28h — Redesign Job Card PDF header (`buildRepairCardHtml`)
+- **Owner report**: the job card PDF top featured a heavy blue `.top` box AND a redundant `.head` line right below it repeating "Make Model · Year · [plate] · Mechanic" — the exact same data the VOERTUIG card below already showed. Owner wanted the duplicate line gone and a modern header.
+- **Fix** (`reports.js buildRepairCardHtml`):
+  - Removed the entire `<div class="head">…</div>` block (make/model/year/plate/mechanic duplicate).
+  - Flattened `.top` from a blue-filled rounded box → a light modern header: logo (max-height 64px) leading edge, right-aligned meta stack containing "WERKBON" kicker + card number + status pill + created-date. Added a subtle 64px blue accent underline via `::after` and a 1px light rule.
+  - Status pill relocated from the removed `.head` into the `.top` meta stack so no info is lost.
+- **Verified** via local file:// preview render: clean modern header, no duplicate vehicle line, VOERTUIG card below unaffected.
+
+
+
 ### Session 2026-02-28g — Redesign Klantrapport header (modern, no dark band)
 - **Owner report**: the customer report PDF opened with a heavy dark `.logo-band` strip (black background, gold pill badge) that felt dated and didn't match the light invoice PDFs.
 - **Fix** (`reports.js buildCustomerHistoryHtml`): removed `.logo-band` entirely. Introduced `.rpt-head` — a flat white header with the logo (max-height 72px) on the leading edge, a right-aligned meta block containing a wide-letterspaced "KLANTRAPPORT" kicker + customer name + date, separated from the body by a 1px light rule with a 64px gold accent underline (`::after`). RTL/LTR aware.

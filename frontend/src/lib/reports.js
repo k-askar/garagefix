@@ -192,10 +192,13 @@ export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels =
       .jc { max-width: 760px; }
       .jc h1 { font-size: 26px; margin: 0; color:#0f172a; font-weight: 800; letter-spacing:-.01em; }
       .jc .muted { color: #64748b; font-size: 12px; }
-      .jc .top { background:#eff6ff; border:1px solid #dbeafe; border-radius:14px; padding:14px 18px; margin-bottom:18px; display:flex; align-items:center; justify-content:space-between; gap:16px; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-      .jc .top img { max-height: 40px; width: auto; object-fit: contain; }
-      .jc .top .num { color:#1d4ed8; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size:14px; font-weight:800; direction:ltr; letter-spacing:.1em; }
-      .jc .top .doc-label { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size:9px; letter-spacing:.2em; color:#64748b; text-transform:uppercase; }
+      .jc .top { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:6px 2px 18px; margin-bottom:20px; border-bottom:1px solid #e2e8f0; position:relative; }
+      .jc .top::after { content:""; position:absolute; ${dir === 'rtl' ? 'right' : 'left'}:0; bottom:-1px; width:64px; height:2px; background:#1d4ed8; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+      .jc .top img { max-height: 64px; width: auto; object-fit: contain; }
+      .jc .top .meta { text-align:${alignEnd}; display:flex; flex-direction:column; align-items:${dir === 'rtl' ? 'flex-start' : 'flex-end'}; gap:6px; }
+      .jc .top .num { color:#0f172a; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size:16px; font-weight:800; direction:ltr; letter-spacing:.08em; }
+      .jc .top .doc-label { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size:9.5px; letter-spacing:.32em; color:#94a3b8; text-transform:uppercase; font-weight:700; }
+      .jc .top .date { color:#94a3b8; font-size:10.5px; font-family:'JetBrains Mono',ui-monospace,monospace; }
       .jc .status { display:inline-block; background:${statusColors.bg}; color:${statusColors.fg}; padding:4px 12px; border-radius:999px; font-family:'JetBrains Mono',ui-monospace,monospace; font-size:10px; letter-spacing:.14em; font-weight:800; text-transform:uppercase; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
       .jc .head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:6px; padding-bottom:12px; border-bottom:1px solid #e2e8f0; }
       .jc .quote { border-inline-start:3px solid #dbeafe; padding: 8px 14px; color:#334155; font-size:12.5px; font-style:italic; background:#f8fafc; border-radius:0 6px 6px 0; margin-top:14px; }
@@ -216,23 +219,12 @@ export function buildRepairCardHtml({ card, settings = {}, dir = "ltr", labels =
     <div class="jc">
       <div class="top">
         <img src="${logoAbs}" alt="logo" crossorigin="anonymous" />
-        <div style="text-align:${alignEnd}">
+        <div class="meta">
           <div class="doc-label">${l.jobCard}</div>
           <div class="num">${card.card_number}</div>
-          <div class="muted" style="font-size:10px;margin-top:2px;font-family:'JetBrains Mono',ui-monospace,monospace">${new Date(card.created_at).toLocaleDateString(dir === 'rtl' ? 'ar-EG' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+          <span class="status">${l["status_" + card.status] || card.status}</span>
+          <div class="date">${new Date(card.created_at).toLocaleDateString(dir === 'rtl' ? 'ar-EG' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
         </div>
-      </div>
-
-      <div class="head">
-        <div>
-          <h1>${[card.car_make, card.car_model].filter(Boolean).join(" ") || "Vehicle"}</h1>
-          <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
-            ${card.car_year ? `<span class="muted" style="font-size:13px;font-family:'JetBrains Mono',ui-monospace,monospace;font-weight:600">${card.car_year}</span>` : ""}
-            ${plateHtml(card.car_plate, card.car_country || "NL", "sm")}
-            ${card.mechanic_name ? `<span class="muted" style="font-size:12px;font-family:'JetBrains Mono',ui-monospace,monospace">· ${card.mechanic_name}</span>` : ""}
-          </div>
-        </div>
-        <span class="status">${l["status_" + card.status] || card.status}</span>
       </div>
 
       ${partyVehicleBlock({
