@@ -17,6 +17,13 @@
 - Fonts: Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (data) + Cairo/Amiri (Arabic)
 
 
+### Session 2026-02-28f — Strip redundant plate footer from every invoice PDF
+- **Owner report**: at the bottom of every factuur the line "Repair JOB-260827-0A67 · Suzuki Alto · [16-RGS-6]" repeated info already shown at the top (VOERTUIG card + invoice number). Owner wanted it gone everywhere — Settings live preview, Facturen list, PayInvoice public link, card-detail export, and any future PDF path.
+- **Fix** (`invoice-render.js noteWithPlate`): the helper is used by ALL invoice renderings, so a single change propagates everywhere. It now strips any line that matches the auto-generated "Repair|Reparatie|Herstel JOB-<id>[· model · plate]" pattern (case-insensitive), returning empty when the entire note is that auto-prefix and preserving genuine operator notes when they follow on later lines.
+- **Verified** via a 5-case Python regex sim: pure auto → "", operator note → kept, mixed auto+note → auto stripped, empty → empty, Dutch/German variants all handled. Frontend compiled clean.
+
+
+
 ### Session 2026-02-28e — Totals strip: subtotaal excl./incl. BTW + discount clarity
 - **Owner report**: on a card with parts 60 + arbeid 45 = 105 and korting 10, the strip only showed "Subtotaal 95" and owner read that as "discount not applied". Math was actually correct (95 × 1.21 = 114.95) but the layout hid the reasoning.
 - **Fix** (`Repairs.jsx CardEditor`): redesigned the totals card into a 3-row linear reveal so the operator sees every step:

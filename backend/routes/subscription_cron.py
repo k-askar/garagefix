@@ -142,19 +142,33 @@ def register(db, webhook_secret: str, send_email, create_saas_invoice_fn=None):
                 continue
             try:
                 # Auto-generate a SaaS invoice for the upcoming period + attach as PDF
+                # BUT ONLY if the tenant has `auto_invoice_enabled` on.  When
+                # off the super_admin will send the invoice manually from the
+                # Facturen tab.
                 inv_num = ""; inv_amount = 0.0; attachments = None
-                if create_saas_invoice_fn:
+                auto_inv = t.get("auto_invoice_enabled")
+                if auto_inv is None:  # legacy tenants → default ON
+                    auto_inv = True
+                auto_send = t.get("auto_send_enabled")
+                if auto_send is None:
+                    auto_send = True
+                if create_saas_invoice_fn and auto_inv:
                     try:
                         saas_inv = await create_saas_invoice_fn(db, t)
                         inv_num = saas_inv.get("invoice_number") or ""
                         inv_amount = float(saas_inv.get("amount") or 0)
-                        if saas_inv.get("pdf_base64"):
+                        if saas_inv.get("pdf_base64") and auto_send:
                             attachments = [{
                                 "filename": f"{inv_num}.pdf",
                                 "content_base64": saas_inv["pdf_base64"],
                             }]
                     except Exception as e:
                         logger.warning(f"SaaS invoice attach failed for {t.get('name')}: {e}")
+                # When auto_send is off, we still want the plain reminder
+                # (owner still needs to know the expiry) but WITHOUT the
+                # attached PDF — the super_admin will send it manually.
+                if not auto_send:
+                    attachments = None
                 await send_email(
                     to=owner_email,
                     subject=f"GarageFix — Betaalherinnering ({days} dag{'en' if days != 1 else ''} resterend)",

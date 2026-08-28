@@ -43,6 +43,41 @@ PLAN_PRICE_EUR = {
     "pro":     79.0,
 }
 
+# Cycle → (period length in days, price multiplier vs the monthly baseline,
+# label builder).  Quarterly / half-yearly / yearly are billed at their
+# corresponding multiple of the monthly rate — no discount is baked in so
+# the super_admin can offer one via the per-tenant `subscription_price`.
+CYCLE_MONTHS = {"monthly": 1, "quarterly": 3, "half_yearly": 6, "yearly": 12}
+
+_NL_MONTHS = ["januari", "februari", "maart", "april", "mei", "juni",
+              "juli", "augustus", "september", "oktober", "november", "december"]
+
+
+def _period_end(start: date, cycle: str) -> date:
+    """Advance `start` by `CYCLE_MONTHS[cycle]` months (approx via 30-day
+    chunks — good enough for billing display; the real DB date is stored on
+    the tenant record and re-computed each cycle)."""
+    return start + timedelta(days=30 * CYCLE_MONTHS.get(cycle, 1))
+
+
+def _period_label(start: date, cycle: str) -> str:
+    """Human-readable Dutch label the owner asked for:
+       • monthly     → "Factuur juni 2026"
+       • quarterly   → "Factuur Q2 2026"
+       • half_yearly → "Factuur 1e halfjaar 2026"
+       • yearly      → "Factuur 2026" """
+    y = start.year
+    if cycle == "quarterly":
+        q = (start.month - 1) // 3 + 1
+        return f"Factuur Q{q} {y}"
+    if cycle == "half_yearly":
+        half = "1e halfjaar" if start.month <= 6 else "2e halfjaar"
+        return f"Factuur {half} {y}"
+    if cycle == "yearly":
+        return f"Factuur {y}"
+    # monthly (default)
+    return f"Factuur {_NL_MONTHS[start.month - 1]} {y}"
+
 
 def _next_invoice_number(existing_count: int) -> str:
     """GF-2026-0042 style — year + sequence."""
@@ -164,15 +199,21 @@ async def _create_saas_invoice(db, tenant: dict, *, plan: Optional[str] = None, 
     """Materialise a new SaaS invoice document for the given tenant and
     cache the PDF bytes inside the doc so future email attaches or downloads
     don't re-render.  Idempotent per (tenant_id, period_start) — if we
-    already generated one for the current expiry date, return the existing."""
+    already generated one for the current expiry date, return the existing.
+
+    Uses the tenant's `billing_cycle` (monthly / quarterly / half_yearly /
+    yearly) to derive the invoice's period length + price multiplier + the
+    human-readable Dutch title ("Factuur juni 2026", "Q2 2026", …)."""
     raw_db = getattr(db, "_db", db)
     exp = tenant.get("subscription_expires_at")
-    # Bill for the NEXT month starting from the current expiry.
+    # Bill for the NEXT window starting from the current expiry.
     try:
         start = date.fromisoformat(exp) if exp else date.today()
     except Exception:
         start = date.today()
-    end = start + timedelta(days=30)
+    cycle  = (tenant.get("billing_cycle") or "monthly").lower()
+    months = CYCLE_MONTHS.get(cycle, 1)
+    end = _period_end(start, cycle)
     period_start = start.isoformat()
 
     existing = await raw_db.saas_invoices.find_one({"tenant_id": tenant["id"], "period_start": period_start})
@@ -180,7 +221,15 @@ async def _create_saas_invoice(db, tenant: dict, *, plan: Optional[str] = None, 
         return existing
 
     tenant_plan = plan or tenant.get("plan") or "starter"
-    price = amount if amount is not None else PLAN_PRICE_EUR.get(tenant_plan, PLAN_PRICE_EUR["starter"])
+    if amount is not None:
+        price = float(amount)
+    elif tenant.get("subscription_price") is not None:
+        # Per-tenant override wins over the plan baseline — used for custom
+        # deals or when the super_admin discounts a cycle manually.
+        price = float(tenant["subscription_price"])
+    else:
+        # Default: monthly plan price × months in the cycle.
+        price = PLAN_PRICE_EUR.get(tenant_plan, PLAN_PRICE_EUR["starter"]) * months
     seq = await raw_db.saas_invoices.count_documents({})
     inv = {
         "id": str(uuid.uuid4()),
@@ -188,8 +237,10 @@ async def _create_saas_invoice(db, tenant: dict, *, plan: Optional[str] = None, 
         "invoice_number": _next_invoice_number(seq),
         "period_start": period_start,
         "period_end": end.isoformat(),
+        "period_label": _period_label(start, cycle),   # "Factuur juni 2026" etc.
+        "billing_cycle": cycle,
         "plan": tenant_plan,
-        "amount": float(price),
+        "amount": round(float(price), 2),
         "currency": "EUR",
         "status": "draft",
         "created_at": datetime.now(timezone.utc).isoformat(),

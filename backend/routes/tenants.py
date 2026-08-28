@@ -61,6 +61,19 @@ class Tenant(BaseModel):
     # 14 days from creation, paid plans to 30 days.
     subscription_expires_at: Optional[str] = None   # ISO date (YYYY-MM-DD)
     plan_started_at: Optional[str] = None           # ISO date the current billing window began
+    # ─── Owner-tunable subscription billing knobs ─────────────────────────
+    # Cycle governs both the invoice-period length AND the auto-generated
+    # title on the SaaS invoice ("Factuur juni 2026", "Q2 2026", …).
+    billing_cycle: Literal["monthly", "quarterly", "half_yearly", "yearly"] = "monthly"
+    # Custom price for this specific tenant.  When None the platform falls
+    # back to the plan's baseline (`PLAN_PRICE_EUR[plan]`) so bulk-priced
+    # deals and one-off discounts don't need a schema change.
+    subscription_price: Optional[float] = None
+    # Kill-switches the super_admin can flip from the Facturen tab.  Both
+    # default ON so existing garages keep receiving auto-invoices without a
+    # migration; flipping them off lets an owner take manual control.
+    auto_invoice_enabled: bool = True   # generate the next SaaS invoice automatically
+    auto_send_enabled:    bool = True   # attach + email that invoice via the reminder cron
     # Populated by the daily subscription-sweep cron so we don't double-remind
     # or fail to visualise "why is this garage suspended?" in the UI.
     reminder_days_sent: List[str] = Field(default_factory=list)
@@ -83,6 +96,11 @@ class TenantUpdate(BaseModel):
     plan: Optional[Literal["trial", "starter", "pro"]] = None
     active: Optional[bool] = None
     subscription_expires_at: Optional[str] = None
+    # New billing knobs — flip from the Facturen tab without touching plan.
+    billing_cycle: Optional[Literal["monthly", "quarterly", "half_yearly", "yearly"]] = None
+    subscription_price: Optional[float] = None
+    auto_invoice_enabled: Optional[bool] = None
+    auto_send_enabled:    Optional[bool] = None
 
 
 class TenantExtendBody(BaseModel):

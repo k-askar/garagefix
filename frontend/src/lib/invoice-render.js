@@ -73,11 +73,24 @@ function plateHtml(plate, country = "NL") {
 
 function noteWithPlate(note, showPlate, country = "NL") {
   if (!note) return "";
-  if (!showPlate) return esc(note);
-  const plate = extractPlate(note);
-  if (!plate) return esc(note);
-  const idx = note.lastIndexOf(plate);
-  return `${esc(note.slice(0, idx))}${plateHtml(plate, country)}`;
+  // Strip the auto-generated "Repair JOB-XXXX · Make Model · PLATE" prefix
+  // that the backend embeds on every card→invoice flow.  The invoice header
+  // already shows the invoice number AND the KLANT / VOERTUIG boxes carry
+  // make + plate up top, so repeating it at the bottom is pure clutter
+  // (multiple owners complained).  A genuinely custom note the operator
+  // typed afterwards is preserved untouched.
+  const AUTO_PREFIX = /^\s*(?:Repair|Reparatie|Herstel)\s+JOB-\S+(?:\s*·[^\n]*)?\s*$/i;
+  const kept = String(note)
+    .split(/\r?\n/)
+    .filter(l => !AUTO_PREFIX.test(l))
+    .join("\n")
+    .trim();
+  if (!kept) return "";
+  if (!showPlate) return esc(kept);
+  const plate = extractPlate(kept);
+  if (!plate) return esc(kept);
+  const idx = kept.lastIndexOf(plate);
+  return `${esc(kept.slice(0, idx))}${plateHtml(plate, country)}`;
 }
 
 /* Absolute URL for a settings.logo_url that may be:
